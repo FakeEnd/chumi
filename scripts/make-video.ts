@@ -3,6 +3,7 @@
  *
  *   node scripts/make-video.ts               # English → docs/assets/chumi-promo.mp4
  *   node scripts/make-video.ts --lang zh     # Chinese version (Chinese UI screenshots) → docs/assets/chumi-promo-zh.mp4
+ *   node scripts/make-video.ts --speed 1.5   # a faster cut → docs/assets/chumi-promo-1.5x.mp4 (also --speed 2)
  *   node scripts/make-video.ts --preview     # a few still frames into the temp folder, for checking layout
  *
  * Frames are rendered deterministically (render(t) per frame) with headless Chrome over the DevTools
@@ -18,8 +19,11 @@ const args = process.argv.slice(2);
 const LANG = args.includes('--lang') ? args[args.indexOf('--lang') + 1] : 'en';
 const PREVIEW = args.includes('--preview');
 const POSTER_ONLY = args.includes('--poster-only');
+// Plays the same timeline faster: frames sample it at t × SPEED, and the music is synthesised for the shorter length.
+const SPEED = args.includes('--speed') ? Number(args[args.indexOf('--speed') + 1]) : 1;
+if (!(SPEED >= 0.5 && SPEED <= 4)) throw new Error('--speed must be between 0.5 and 4');
 const FPS = 30, W = 1920, H = 1080;
-const NAME = LANG === 'zh' ? 'chumi-promo-zh' : 'chumi-promo';
+const NAME = (LANG === 'zh' ? 'chumi-promo-zh' : 'chumi-promo') + (SPEED === 1 ? '' : `-${SPEED}x`);
 const MASTER = join(ROOT, 'dist/video', `${NAME}-1080p.mp4`);   // full quality, for sharing (git-ignored)
 const WEB = join(ROOT, 'docs/assets', `${NAME}.mp4`);             // 720p, small enough for the repository
 const CHROME = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'].find(existsSync)!;
@@ -135,19 +139,19 @@ try {
     console.log(dir);
   } else {
     const frames = join(TMP, 'frames'); mkdirSync(frames, { recursive: true });
-    const total = Math.round(duration * FPS);
+    const total = Math.round(duration / SPEED * FPS);
     const started = Date.now();
     for (let i = 0; i < total; i++) {
-      await frame(i / FPS, join(frames, `f${String(i).padStart(5, '0')}.jpg`));
+      await frame(i / FPS * SPEED, join(frames, `f${String(i).padStart(5, '0')}.jpg`));
       if (i % 300 === 0) console.log(`frame ${i}/${total} (${Math.round((Date.now() - started) / 1000)} s)`);
     }
-    music(duration, clicks, appWindow, join(TMP, 'music.wav'));
+    music(duration / SPEED, clicks.map((c) => c / SPEED), [appWindow[0] / SPEED, appWindow[1] / SPEED], join(TMP, 'music.wav'));
     mkdirSync(join(ROOT, 'dist/video'), { recursive: true });
     const enc = (out: string, extra: string[]) => execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', join(frames, 'f%05d.jpg'), '-i', join(TMP, 'music.wav'),
       ...extra, '-pix_fmt', 'yuv420p', '-preset', 'slow', '-tune', 'animation', '-movflags', '+faststart', '-c:a', 'aac', '-shortest', out], { stdio: 'inherit' });
     enc(MASTER, ['-c:v', 'libx264', '-crf', '19', '-b:a', '192k']);
     enc(WEB, ['-vf', 'scale=1280:720:flags=lanczos', '-c:v', 'libx264', '-crf', '24', '-b:a', '128k']);
-    await poster();
+    if (SPEED === 1) await poster();  // faster cuts share the full-length poster
     console.log(`wrote ${MASTER}\nwrote ${WEB}`);
   }
 } finally {

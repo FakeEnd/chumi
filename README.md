@@ -12,13 +12,14 @@
   <img src="docs/assets/badges/speech.svg" alt="On-device speech recognition">
   <img src="docs/assets/badges/ai.svg" alt="ChatGPT or Claude plan">
   <img src="docs/assets/badges/network.svg" alt="Localhost only">
+  <a href="LICENSE"><img src="docs/assets/badges/license.svg" alt="MIT license"></a>
 </p>
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
 <p align="center">
-  <a href="docs/assets/chumi-promo.mp4"><img src="docs/assets/chumi-promo-poster.jpg" width="760" alt="Watch the 50-second Chumi video: live transcription, Catch me up, explanations at your level, slide capture, trustworthy summaries and speech models for your Mac"></a><br>
-  <sub>▶ <a href="docs/assets/chumi-promo.mp4">Watch the 50-second video</a> · <a href="docs/assets/chumi-promo-zh.mp4">中文版</a></sub>
+  <a href="docs/assets/chumi-promo-1.5x.mp4"><img src="docs/assets/chumi-promo-poster.jpg" width="760" alt="Watch the 34-second Chumi video: live transcription, Catch me up, explanations at your level, slide capture, trustworthy summaries and speech models for your Mac"></a><br>
+  <sub>▶ <a href="docs/assets/chumi-promo-1.5x.mp4">Watch the 34-second video</a> · <a href="docs/assets/chumi-promo-2x.mp4">25-second cut</a> · <a href="docs/assets/chumi-promo.mp4">full 50 s</a> · <a href="docs/assets/chumi-promo-zh-1.5x.mp4">中文版</a></sub>
 </p>
 
 ---
@@ -202,7 +203,7 @@ That confirms real computer-audio capture. Use `mic 6` instead to test the micro
 node scripts/demo-shoot.ts
 ```
 
-This regenerates the English README screenshots; add `--lang zh` for the Chinese set in `docs/assets/screens/zh/`. `bash scripts/make-banner.sh` re-renders the banner, and `node scripts/make-video.ts` (add `--lang zh` for Chinese) re-renders the promo video from `docs/video/promo.html`.
+This regenerates the English README screenshots; add `--lang zh` for the Chinese set in `docs/assets/screens/zh/`. `bash scripts/make-banner.sh` re-renders the banner, and `node scripts/make-video.ts` (add `--lang zh` for Chinese, `--speed 1.5` or `--speed 2` for the faster cuts) re-renders the promo video from `docs/video/promo.html`.
 
 ```bash
 npm run build:tools
@@ -238,3 +239,7 @@ Chumi is a working personal tool. What has been verified, and how, is in [docs/v
 - The app is ad-hoc signed, so rebuilds ask for permissions again.
 
 **Next:** paper and slide-deck files as context, speaker diarization, a cross-session glossary, spoken explanations, a menu-bar mini mode, and a per-session usage meter.
+
+## License
+
+MIT. See [LICENSE](LICENSE). Speech models are downloaded from the whisper.cpp project (MIT) and are not part of this repository.

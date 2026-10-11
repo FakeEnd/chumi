@@ -12,13 +12,14 @@
   <img src="docs/assets/badges/speech.svg" alt="本地语音识别">
   <img src="docs/assets/badges/ai.svg" alt="ChatGPT 或 Claude 订阅">
   <img src="docs/assets/badges/network.svg" alt="仅本机网络">
+  <a href="LICENSE"><img src="docs/assets/badges/license.svg" alt="MIT 许可证"></a>
 </p>
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
 <p align="center">
-  <a href="docs/assets/chumi-promo-zh.mp4"><img src="docs/assets/chumi-promo-zh-poster.jpg" width="760" alt="观看 50 秒 Chumi 介绍视频：实时转写、帮我跟上、按你的水平解释、幻灯片截图、可信的总结和适配你电脑的语音模型"></a><br>
-  <sub>▶ <a href="docs/assets/chumi-promo-zh.mp4">观看 50 秒介绍视频</a> · <a href="docs/assets/chumi-promo.mp4">English version</a></sub>
+  <a href="docs/assets/chumi-promo-zh-1.5x.mp4"><img src="docs/assets/chumi-promo-zh-poster.jpg" width="760" alt="观看 34 秒 Chumi 介绍视频：实时转写、帮我跟上、按你的水平解释、幻灯片截图、可信的总结和适配你电脑的语音模型"></a><br>
+  <sub>▶ <a href="docs/assets/chumi-promo-zh-1.5x.mp4">观看 34 秒介绍视频</a> · <a href="docs/assets/chumi-promo-zh-2x.mp4">25 秒快剪版</a> · <a href="docs/assets/chumi-promo-zh.mp4">完整 50 秒版</a> · <a href="docs/assets/chumi-promo-1.5x.mp4">English version</a></sub>
 </p>
 
 ---
@@ -202,7 +203,7 @@ node scripts/check-audio.ts system 6 --play
 node scripts/demo-shoot.ts
 ```
 
-重新生成英文 README 截图；加 `--lang zh` 生成 `docs/assets/screens/zh/` 中的中文截图。`bash scripts/make-banner.sh` 可以重新渲染横幅；`node scripts/make-video.ts`（加 `--lang zh` 生成中文版）会根据 `docs/video/promo.html` 重新渲染介绍视频。
+重新生成英文 README 截图；加 `--lang zh` 生成 `docs/assets/screens/zh/` 中的中文截图。`bash scripts/make-banner.sh` 可以重新渲染横幅；`node scripts/make-video.ts`（加 `--lang zh` 生成中文版，加 `--speed 1.5` 或 `--speed 2` 生成快剪版）会根据 `docs/video/promo.html` 重新渲染介绍视频。
 
 ```bash
 npm run build:tools
@@ -238,3 +239,7 @@ Chumi 是一个可以日常使用的个人工具。哪些功能已经验证、�
 - App 使用临时签名（ad-hoc），重新编译后需要重新授权。
 
 **下一步：** 支持论文和幻灯片文件作为上下文、说话人区分、跨会话术语表、语音播报解释、菜单栏迷你模式，以及每个会话的用量统计。
+
+## 许可证
+
+MIT 许可证，详见 [LICENSE](LICENSE)。语音模型从 whisper.cpp 项目（MIT）下载，不包含在本仓库中。

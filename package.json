@@ -2,6 +2,7 @@
   "name": "chumi",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Personal AI listening companion for academic meetings and lectures (local transcription + subscription-based AI).",
   "type": "module",
   "engines": {
