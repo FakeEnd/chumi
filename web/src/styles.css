@@ -184,8 +184,8 @@ button.ref:hover { text-decoration: underline; }
 .domains th { text-align: left; font-size: 11px; color: var(--muted); font-weight: 600; padding: 2px 4px; }
 .domains td { padding: 2px 4px; }
 .domains input, .domains select { width: 100%; }
-.tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
-.tabs button { border: none; background: none; padding: 6px 10px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
+.tabs { display: flex; flex-wrap: wrap; gap: 2px 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.tabs button { border: none; background: none; padding: 6px 10px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; }
 .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 section h3 { font-size: 13px; margin: 14px 0 6px; }
 .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -369,3 +369,51 @@ table.bench tfoot td { border: none; padding-top: 6px; }
 html[data-shell="mac"] .topbar { padding-left: var(--traffic-inset, 86px); min-height: 52px; -webkit-user-select: none; user-select: none; }
 html[data-shell="mac"][data-fullscreen="1"] .topbar { padding-left: 18px; }
 html[data-shell="mac"] .topbar .title-input { -webkit-user-select: text; user-select: text; }
+
+/* Projects (Settings) */
+.project-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; max-width: 640px; }
+.project-form > .btn { align-self: flex-start; }
+.project-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.project-list li { display: flex; gap: 12px; align-items: center; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.project-list li.archived { opacity: .65; }
+.project-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.project-name { font-weight: 650; border: 1px solid transparent; background: transparent; padding: 2px 4px; margin-left: -4px; border-radius: 6px; font-size: 14px; color: var(--text); }
+.project-name:hover, .project-name:focus { border-color: var(--border); background: var(--panel-2); }
+.project-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; word-break: break-all; }
+.tag.project-tag { margin: 0 6px 0 0; text-transform: none; letter-spacing: 0; font-size: 11px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
+.recent-title .tag.project-tag { margin-left: 8px; vertical-align: 1px; }
+.project-select { max-width: 180px; }
+
+/* Claude Code & Codex (Settings) */
+.agent-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
+.agent-card { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--panel); }
+.agent-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.agent-card .btn-row { margin: 0; }
+pre.cmd { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; word-break: break-all; margin: 4px 0 8px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+/* Handoff */
+.handoff-box { margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); display: flex; flex-direction: column; gap: 4px; }
+.handoff-box p { margin: 0; }
+.handoff-box .btn-row { margin: 4px 0 0; }
+.handoff-head { display: flex; align-items: center; gap: 8px; }
+.handoff-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.handoff-meta select { max-width: 240px; }
+.hsection { margin: 12px 0 4px; }
+.hsection h3 { margin: 0; }
+.hsection > p { margin: 2px 0 6px; }
+.hitems { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.hitem { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; background: var(--panel); }
+.hitem.review-confirmed { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+.hitem.review-rejected { opacity: .55; }
+.hitem.review-rejected .hitem-text { text-decoration: line-through; }
+.hitem-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hitem-text { font-size: 14px; line-height: 1.45; }
+.hitem-edit { display: flex; flex-direction: column; gap: 6px; }
+.hitem-edit textarea, .hitem-edit input { width: 100%; }
+.tag.origin-agreed { background: var(--ok-bg); color: var(--ok); }
+.tag.origin-suggested { background: var(--warn-bg); color: var(--warn); }
+.tag.origin-chumi { background: var(--accent-2); color: var(--accent); }
+.tag.origin-user { background: var(--panel-2); color: var(--text); }
+.evidence { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.warn-box .btn { margin-left: 8px; }

@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Store } from '../db.ts';
 import { log } from '../util.ts';
+import { itemPublic } from '../projects/handoff-model.ts';
 
 /*
  * mybot integration (https://github.com/jzhoulab/mybot).
@@ -28,10 +29,14 @@ export function sessionToJsonl(store: Store, id: string, shareWithTeam: boolean)
   if (!s || s.status === 'recording' || s.status === 'paused') return null;
   const started = s.started_at ?? s.created_at;
   const iso = (ms: number) => new Date(ms).toISOString();
+  const project = s.project_id ? store.getProject(s.project_id) : null;
   const lines: unknown[] = [{
     type: 'session', format: FORMAT, id: s.id, title: s.title, session_type: s.type, status: s.status,
     started_at: iso(started), ended_at: s.ended_at ? iso(s.ended_at) : null, duration_ms: s.duration_ms,
     audio_source: s.audio_source, visibility: shareWithTeam ? 'shared' : 'private',
+    // Set only when the user assigned the meeting to a project (never inferred from the title).
+    project: project ? { id: project.id, name: project.name, workspace: project.workspace } : null,
+    cwd: project?.workspace ?? null, revision: s.revision,
   }];
   const events = store.timeline(id).filter((e) => ['pause', 'resume', 'gap', 'interrupted'].includes(e.kind));
   const segs = store.segments(id);
@@ -41,16 +46,26 @@ export function sessionToJsonl(store: Store, id: string, shareWithTeam: boolean)
       const e = events[ei++];
       lines.push({ type: 'gap', kind: e.kind, t_ms: e.t, timestamp: iso(started + e.t), detail: e.detail });
     }
-    lines.push({ type: 'segment', t_ms: seg.t_start, t_end_ms: seg.t_end, timestamp: iso(started + seg.t_start), source: seg.source, lang: seg.lang, text: seg.text });
+    lines.push({ type: 'segment', id: seg.id, t_ms: seg.t_start, t_end_ms: seg.t_end, timestamp: iso(started + seg.t_start), source: seg.source, lang: seg.lang, text: seg.text });
   }
   const outs = store.outputs(id).filter((o) => o.status === 'done' && o.content);
   for (const o of outs) {
     if (KIND_EXPORTED.has(o.kind)) {
-      lines.push({ type: 'qa', kind: o.kind, created_at: iso(o.created_at), question: o.question, answer: o.content, covered_from_ms: o.covered_from, covered_to_ms: o.covered_to });
+      lines.push({ type: 'qa', id: o.id, kind: o.kind, created_at: iso(o.created_at), question: o.question, answer: o.content, covered_from_ms: o.covered_from, covered_to_ms: o.covered_to });
     }
   }
   const summary = [...outs].reverse().find((o) => o.kind === 'final_summary');
-  if (summary) lines.push({ type: 'summary', created_at: iso(summary.created_at), text: summary.content });
+  if (summary) lines.push({ type: 'summary', id: summary.id, created_at: iso(summary.created_at), text: summary.content });
+  for (const f of store.frames(id)) lines.push({ type: 'frame', id: f.id, t_ms: f.t, timestamp: iso(started + f.t), window_title: f.window_title });
+  // Only a handoff the user confirmed is exported, with its reviewed items.
+  const h = store.handoffForSession(id);
+  if (h?.status === 'confirmed') {
+    lines.push({
+      type: 'handoff', id: h.id, project_id: h.project_id, confirmed_at: h.confirmed_at ? iso(h.confirmed_at) : null, confirmed_revision: h.confirmed_revision,
+      items: store.handoffItems(h.id).filter((i) => i.review === 'confirmed' || (i.kind === 'question' && i.review !== 'rejected'))
+        .map((i) => { const p = itemPublic(i); return { id: p.id, kind: p.kind, text: p.text, origin: p.origin, rationale: p.rationale, conditions: p.conditions, owner: p.owner, due: p.due, evidence: p.evidence }; }),
+    });
+  }
   return lines.map((l) => JSON.stringify(l)).join('\n') + '\n';
 }
 

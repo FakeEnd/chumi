@@ -37,7 +37,22 @@ export class MockProvider implements AIProvider {
     let text: string;
     if (req.jsonSchema) {
       const props = (req.jsonSchema.properties ?? {}) as Record<string, unknown>;
-      if ('cards' in props) {
+      if ('actions' in props) {
+        // Handoff: the first line that sounds like a decision, one agreed and one tentative action, one question.
+        const t = (l?: string) => l?.match(/^\[([\d:]+)\]/)?.[1] ?? first;
+        const body = (l?: string) => (l ?? '').replace(/^\[[^\]]+\]\s*(\(computer audio\)\s*)?/, '').slice(0, 90);
+        const agreed = lines.find((l) => /\b(let's|we will|we'll|agree|decid|should)\b/i.test(l));
+        const tentative = lines.find((l) => l !== agreed && /\b(maybe|might|could|not sure|open)\b/i.test(l));
+        const question = lines.find((l) => /\?/.test(l));
+        text = JSON.stringify({
+          decisions: agreed ? [{ text: `[test stub] ${body(agreed)}`, origin: 'agreed', evidence: [t(agreed)] }] : [],
+          actions: [
+            ...(agreed ? [{ text: `[test stub] Follow up: ${body(agreed)}`, origin: 'agreed', rationale: '[test stub] stated in the meeting', conditions: [], acceptance_criteria: ['[test stub] proposed check'], owner: null, due: null, evidence: [t(agreed)], captures: [] }] : []),
+            ...(tentative ? [{ text: `[test stub] Consider: ${body(tentative)}`, origin: 'suggested', rationale: '[test stub] raised, not agreed', conditions: ['[test stub] not decided'], acceptance_criteria: [], owner: null, due: null, evidence: [t(tentative)], captures: [] }] : []),
+          ],
+          open_questions: question ? [{ text: `[test stub] ${body(question)}`, evidence: [t(question)] }] : [],
+        });
+      } else if ('cards' in props) {
         // Pick an acronym or known technical term from the NEW transcript part only.
         const part = req.input.slice(req.input.indexOf('NEW TRANSCRIPT'));
         const known = req.input.match(/ALREADY EXPLAINED OR KNOWN[^:]*:([^\n]*)/)?.[1]?.toLowerCase() ?? '';

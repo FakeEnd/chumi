@@ -7,7 +7,30 @@ export interface SessionRow {
   id: string; title: string; type: string; status: 'recording' | 'paused' | 'ended' | 'interrupted';
   created_at: number; started_at: number | null; ended_at: number | null; last_activity_at: number | null;
   audio_source: string | null; duration_ms: number;
+  /** Project this meeting belongs to (null = unassigned). Set only by the user, never inferred. */
+  project_id: string | null; project_assigned_at: number | null;
+  /** Content revision: bumped by new transcript, frames, finished AI outputs, resumes and reassignment. */
+  revision: number;
 }
+export interface ProjectRow {
+  id: string; name: string; workspace: string; repo_json: string | null;
+  created_at: number; updated_at: number; archived_at: number | null;
+}
+export interface HandoffRow {
+  id: string; session_id: string; project_id: string | null;
+  status: 'generating' | 'draft' | 'confirmed' | 'error';
+  source_revision: number | null; confirmed_revision: number | null; confirmed_at: number | null; confirmed_segment_max: number | null;
+  delivered_at: number | null; delivered_via: string | null; output_id: string | null; error: string | null;
+  created_at: number; updated_at: number;
+}
+export interface HandoffItemRow {
+  id: string; handoff_id: string; project_id: string | null; kind: 'decision' | 'action' | 'question'; position: number;
+  text: string; rationale: string | null; conditions_json: string | null; acceptance_json: string | null;
+  /** agreed = explicitly committed in the meeting; suggested = raised but not agreed; chumi = proposed by Chumi; user = added by the user. */
+  origin: 'agreed' | 'suggested' | 'chumi' | 'user'; owner: string | null; due: string | null;
+  evidence_json: string; review: 'pending' | 'confirmed' | 'rejected'; edited: number; updated_at: number;
+}
+export interface AgentReadRow { id: number; at: number; client: string | null; tool: string; project_id: string | null; session_id: string | null; handoff_id: string | null; revision: number | null; token: string | null }
 export interface SegmentRow {
   id: number; session_id: string; t_start: number; t_end: number; text: string;
   lang: string | null; source: string | null; run: number; created_at: number;
@@ -21,6 +44,7 @@ export interface OutputRow {
 }
 
 const SCHEMA = `
+PRAGMA busy_timeout = 5000;
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 PRAGMA foreign_keys = ON;
@@ -78,6 +102,66 @@ CREATE TABLE IF NOT EXISTS explained_terms (
 );
 `;
 
+/**
+ * Explicit, versioned schema changes (PRAGMA user_version). Each runs once, in a transaction, and never
+ * rewrites existing rows, so older installations keep every meeting, output and setting.
+ */
+const MIGRATIONS: string[] = [
+  // 1 — projects, content revisions, reviewed handoffs, agent read log
+  `
+  CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, workspace TEXT NOT NULL, repo_json TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, archived_at INTEGER
+  );
+  ALTER TABLE sessions ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL;
+  ALTER TABLE sessions ADD COLUMN project_assigned_at INTEGER;
+  ALTER TABLE sessions ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;
+  CREATE INDEX IF NOT EXISTS sessions_project ON sessions(project_id, created_at);
+  CREATE TABLE IF NOT EXISTS session_project_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    project_id TEXT, at INTEGER NOT NULL
+  );
+  CREATE TRIGGER IF NOT EXISTS rev_segment AFTER INSERT ON segments BEGIN
+    UPDATE sessions SET revision = revision + 1 WHERE id = new.session_id;
+  END;
+  CREATE TRIGGER IF NOT EXISTS rev_frame AFTER INSERT ON frames BEGIN
+    UPDATE sessions SET revision = revision + 1 WHERE id = new.session_id;
+  END;
+  CREATE TRIGGER IF NOT EXISTS rev_output_done AFTER UPDATE OF status ON ai_outputs
+    WHEN new.status = 'done' AND old.status != 'done' AND new.kind IN ('final_summary', 'answer', 'explain', 'catchup', 'overview', 'auto_explain') BEGIN
+    UPDATE sessions SET revision = revision + 1 WHERE id = new.session_id;
+  END;
+  CREATE TRIGGER IF NOT EXISTS rev_output_insert AFTER INSERT ON ai_outputs
+    WHEN new.status = 'done' AND new.kind IN ('final_summary', 'answer', 'explain', 'catchup', 'overview', 'auto_explain') BEGIN
+    UPDATE sessions SET revision = revision + 1 WHERE id = new.session_id;
+  END;
+  CREATE TRIGGER IF NOT EXISTS rev_timeline AFTER INSERT ON timeline WHEN new.kind IN ('resume', 'gap', 'interrupted') BEGIN
+    UPDATE sessions SET revision = revision + 1 WHERE id = new.session_id;
+  END;
+  CREATE TABLE IF NOT EXISTS handoffs (
+    id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    project_id TEXT, status TEXT NOT NULL,
+    source_revision INTEGER, confirmed_revision INTEGER, confirmed_at INTEGER, confirmed_segment_max INTEGER,
+    delivered_at INTEGER, delivered_via TEXT, output_id TEXT, error TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS handoffs_session ON handoffs(session_id);
+  CREATE TABLE IF NOT EXISTS handoff_items (
+    id TEXT PRIMARY KEY, handoff_id TEXT NOT NULL REFERENCES handoffs(id) ON DELETE CASCADE,
+    project_id TEXT, kind TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0,
+    text TEXT NOT NULL, rationale TEXT, conditions_json TEXT, acceptance_json TEXT,
+    origin TEXT NOT NULL, owner TEXT, due TEXT, evidence_json TEXT NOT NULL DEFAULT '[]',
+    review TEXT NOT NULL DEFAULT 'pending', edited INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS handoff_items_handoff ON handoff_items(handoff_id, position);
+  CREATE TABLE IF NOT EXISTS agent_reads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, client TEXT, tool TEXT NOT NULL,
+    project_id TEXT, session_id TEXT, handoff_id TEXT, revision INTEGER, token TEXT
+  );
+  `,
+];
+export const SCHEMA_VERSION = MIGRATIONS.length;
+
 export interface FrameRow { id: number; session_id: string; t: number; path: string; width: number | null; height: number | null; kind: string; window_title: string | null; app: string | null; created_at: number }
 
 export class Store {
@@ -85,7 +169,28 @@ export class Store {
   constructor(path = DB_PATH) {
     this.db = new DatabaseSync(path);
     this.db.exec(SCHEMA);
+    this.migrate();
   }
+
+  /** Apply pending migrations. Safe when two processes (app server, MCP server) open the database at once. */
+  private migrate(): void {
+    const version = () => (this.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+    while (version() < MIGRATIONS.length) {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        const v = version();
+        if (v < MIGRATIONS.length) {
+          this.db.exec(MIGRATIONS[v]);
+          this.db.exec(`PRAGMA user_version = ${v + 1}`);
+        }
+        this.db.exec('COMMIT');
+      } catch (e) {
+        this.db.exec('ROLLBACK');
+        throw e;
+      }
+    }
+  }
+  schemaVersion(): number { return (this.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version; }
 
   close(): void { this.db.close(); }
 
@@ -127,7 +232,9 @@ export class Store {
     if (durationMs != null) this.db.prepare('UPDATE sessions SET last_activity_at = ?, duration_ms = MAX(duration_ms, ?) WHERE id = ?').run(now(), Math.round(durationMs), id);
     else this.db.prepare('UPDATE sessions SET last_activity_at = ? WHERE id = ?').run(now(), id);
   }
-  listSessions(q?: string): Array<SessionRow & { segment_count: number; snippet?: string }> {
+  /** projectId: a project id, 'none' for unassigned meetings, or undefined for all. */
+  listSessions(q?: string, projectId?: string): Array<SessionRow & { segment_count: number; snippet?: string }> {
+    const inProject = (r: SessionRow) => projectId === undefined || (projectId === 'none' ? r.project_id == null : r.project_id === projectId);
     if (q && q.trim()) {
       const term = q.trim();
       // Trigram FTS needs >= 3 characters; fall back to LIKE for shorter queries (e.g. two Chinese characters).
@@ -145,9 +252,9 @@ export class Store {
       const rows = this.db.prepare(`SELECT s.*, (SELECT COUNT(*) FROM segments g WHERE g.session_id = s.id) AS segment_count FROM sessions s WHERE s.id IN (${ids.map(() => '?').join(',')}) ORDER BY s.created_at DESC`)
         .all(...ids) as unknown as Array<SessionRow & { segment_count: number; snippet?: string }>;
       for (const r of rows) r.snippet = snippets.get(r.id);
-      return rows;
+      return rows.filter(inProject);
     }
-    return this.db.prepare('SELECT s.*, (SELECT COUNT(*) FROM segments g WHERE g.session_id = s.id) AS segment_count FROM sessions s ORDER BY s.created_at DESC').all() as unknown as Array<SessionRow & { segment_count: number }>;
+    return (this.db.prepare('SELECT s.*, (SELECT COUNT(*) FROM segments g WHERE g.session_id = s.id) AS segment_count FROM sessions s ORDER BY s.created_at DESC').all() as unknown as Array<SessionRow & { segment_count: number }>).filter(inProject);
   }
   deleteSession(id: string): void { this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id); }
   openSessions(): SessionRow[] {
@@ -248,5 +355,93 @@ export class Store {
   addExplainedTerm(sessionId: string, key: string, term: string, outputId: string | null, t: number | null, origin: string): boolean {
     const r = this.db.prepare('INSERT OR IGNORE INTO explained_terms(session_id, term_key, term, output_id, t, origin) VALUES (?, ?, ?, ?, ?, ?)').run(sessionId, key, term, outputId, t, origin);
     return Number(r.changes) > 0;
+  }
+
+  // ---------- projects ----------
+  listProjects(includeArchived = false): Array<ProjectRow & { meeting_count: number }> {
+    return this.db.prepare(`SELECT p.*, (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id) AS meeting_count FROM projects p
+      ${includeArchived ? '' : 'WHERE p.archived_at IS NULL'} ORDER BY p.updated_at DESC`).all() as unknown as Array<ProjectRow & { meeting_count: number }>;
+  }
+  getProject(id: string): ProjectRow | undefined {
+    return this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow | undefined;
+  }
+  createProject(p: { id: string; name: string; workspace: string; repo_json?: string | null }): ProjectRow {
+    const t = now();
+    this.db.prepare('INSERT INTO projects(id, name, workspace, repo_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(p.id, p.name, p.workspace, p.repo_json ?? null, t, t);
+    return this.getProject(p.id)!;
+  }
+  /** Renaming or moving keeps the id, so meetings and handoffs stay attached. */
+  updateProject(id: string, patch: Partial<Pick<ProjectRow, 'name' | 'workspace' | 'repo_json' | 'archived_at'>>): void {
+    const keys = Object.keys(patch);
+    if (!keys.length) return;
+    this.db.prepare(`UPDATE projects SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`)
+      .run(...keys.map((k) => (patch as Record<string, never>)[k]), now(), id);
+  }
+  /** Assign (or unassign with null) a meeting. Bumps the revision so consumers see the change. */
+  assignSession(sessionId: string, projectId: string | null): void {
+    const t = now();
+    this.db.prepare('UPDATE sessions SET project_id = ?, project_assigned_at = ?, revision = revision + 1 WHERE id = ?').run(projectId, projectId ? t : null, sessionId);
+    this.db.prepare('INSERT INTO session_project_log(session_id, project_id, at) VALUES (?, ?, ?)').run(sessionId, projectId, t);
+  }
+  lastAssignmentAt(sessionId: string): number | null {
+    const r = this.db.prepare('SELECT MAX(at) AS at FROM session_project_log WHERE session_id = ?').get(sessionId) as { at: number | null };
+    return r.at ?? null;
+  }
+
+  // ---------- handoffs ----------
+  getHandoff(id: string): HandoffRow | undefined {
+    return this.db.prepare('SELECT * FROM handoffs WHERE id = ?').get(id) as HandoffRow | undefined;
+  }
+  handoffForSession(sessionId: string): HandoffRow | undefined {
+    return this.db.prepare('SELECT * FROM handoffs WHERE session_id = ?').get(sessionId) as HandoffRow | undefined;
+  }
+  createHandoff(h: { id: string; session_id: string; project_id: string | null; status: HandoffRow['status'] }): HandoffRow {
+    const t = now();
+    this.db.prepare('INSERT INTO handoffs(id, session_id, project_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(h.id, h.session_id, h.project_id, h.status, t, t);
+    return this.getHandoff(h.id)!;
+  }
+  updateHandoff(id: string, patch: Partial<HandoffRow>): void {
+    const keys = Object.keys(patch).filter((k) => k !== 'id');
+    if (!keys.length) return;
+    this.db.prepare(`UPDATE handoffs SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`)
+      .run(...keys.map((k) => (patch as Record<string, never>)[k]), now(), id);
+  }
+  handoffItems(handoffId: string): HandoffItemRow[] {
+    return this.db.prepare('SELECT * FROM handoff_items WHERE handoff_id = ? ORDER BY position, updated_at').all(handoffId) as unknown as HandoffItemRow[];
+  }
+  getHandoffItem(id: string): HandoffItemRow | undefined {
+    return this.db.prepare('SELECT * FROM handoff_items WHERE id = ?').get(id) as HandoffItemRow | undefined;
+  }
+  insertHandoffItem(i: Omit<HandoffItemRow, 'updated_at'>): void {
+    const row = { ...i, updated_at: now() };
+    const cols = Object.keys(row);
+    this.db.prepare(`INSERT INTO handoff_items(${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...cols.map((c) => (row as unknown as Record<string, never>)[c]));
+  }
+  updateHandoffItem(id: string, patch: Partial<HandoffItemRow>): void {
+    const keys = Object.keys(patch).filter((k) => k !== 'id' && k !== 'handoff_id');
+    if (!keys.length) return;
+    this.db.prepare(`UPDATE handoff_items SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`)
+      .run(...keys.map((k) => (patch as Record<string, never>)[k]), now(), id);
+  }
+  deleteHandoffItems(ids: string[]): void {
+    if (!ids.length) return;
+    this.db.prepare(`DELETE FROM handoff_items WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+  }
+  maxSegmentId(sessionId: string): number {
+    return (this.db.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM segments WHERE session_id = ?').get(sessionId) as { m: number }).m;
+  }
+
+  // ---------- agent reads (written by the MCP server; shown as connection status) ----------
+  recordAgentRead(r: Omit<AgentReadRow, 'id' | 'at'>): void {
+    this.db.prepare('INSERT INTO agent_reads(at, client, tool, project_id, session_id, handoff_id, revision, token) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(now(), r.client, r.tool, r.project_id, r.session_id, r.handoff_id, r.revision, r.token);
+    this.db.prepare('DELETE FROM agent_reads WHERE id <= (SELECT MAX(id) - 2000 FROM agent_reads)').run();
+  }
+  agentReads(opts: { client?: string; handoffId?: string; token?: string; limit?: number } = {}): AgentReadRow[] {
+    const where: string[] = []; const args: Array<string | number> = [];
+    if (opts.client) { where.push('client LIKE ?'); args.push(`%${opts.client}%`); }
+    if (opts.handoffId) { where.push('handoff_id = ?'); args.push(opts.handoffId); }
+    if (opts.token) { where.push('token = ?'); args.push(opts.token); }
+    return this.db.prepare(`SELECT * FROM agent_reads ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`).all(...args, opts.limit ?? 20) as unknown as AgentReadRow[];
   }
 }

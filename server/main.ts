@@ -1,10 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { extname, join, normalize, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { extname, isAbsolute, join, normalize, resolve } from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { Store } from './db.ts';
 import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool } from './paths.ts';
-import { deepMerge, log } from './util.ts';
+import { deepMerge, log, uid } from './util.ts';
 import { WhisperServer } from './asr/whisper.ts';
 import { MODEL_CATALOG, ModelDownloader, benchmark, hardware, isInstalled, recommendModel } from './asr/models.ts';
 import { ProviderRegistry } from './ai/registry.ts';
@@ -13,6 +13,9 @@ import { SessionManager, publicFrame } from './session/manager.ts';
 import { listWindows, requestScreenPermission, screenPermission } from './screen/watcher.ts';
 import { HotkeyAgent } from './hotkey.ts';
 import { MybotExporter } from './integrations/mybot.ts';
+import { HandoffError, HandoffService } from './projects/handoff.ts';
+import { AGENTS, AgentIntegration, type AgentId } from './projects/agents.ts';
+import { chumiLink, SERVER_INFO, workspaceExists } from './projects/evidence.ts';
 import { exportSession } from './export.ts';
 import { checkPermissions, listDevices } from './audio/capture.ts';
 import { storeKey, deleteKey } from './ai/anthropic-api.ts';
@@ -45,7 +48,11 @@ manager.recoverOnBoot();
 // mybot export: refresh a session's JSONL when it ends, gets its summary or Q&A, is renamed; remove it on delete.
 const mybot = new MybotExporter(store);
 const syncMybot = (id: string) => { try { mybot.sync(id); } catch (e) { log('mybot', `export failed: ${(e as Error).message}`); } };
-assistant.onOutputDone = (row) => { if (row.kind !== 'digest' && row.kind !== 'overview') syncMybot(row.session_id); };
+assistant.onOutputDone = (row) => { if (row.kind !== 'digest' && row.kind !== 'overview' && row.kind !== 'handoff') syncMybot(row.session_id); };
+
+// Projects and reviewed handoffs to Claude Code / Codex (docs/project-integration-prd.md).
+const handoffs = new HandoffService(store, assistant, (sessionId) => { broadcast('handoff', { sessionId, handoff: handoffs.view(sessionId) }); syncMybot(sessionId); });
+const agents = new AgentIntegration(store);
 
 // ---------------------------------------------------------------- quick start (button + global shortcut)
 const hotkey = new HotkeyAgent();
@@ -135,6 +142,7 @@ function sessionDetail(id: string) {
     outputs: store.outputs(id).filter((o) => o.kind !== 'digest' && o.status !== 'suppressed').map(publicOutput),
     frames: store.frames(id).map(publicFrame),
     live: manager.session?.id === id,
+    handoff: handoffs.view(id),
   };
 }
 
@@ -230,7 +238,9 @@ route('POST', '/api/session/start', async (req) => {
     if (!b.filePath || !existsSync(b.filePath)) throw new HttpError(400, 'Audio file not found');
   } else if (!findAudioHelper()) throw new HttpError(400, 'The native audio helper is not built yet. Run "npm run build:native".');
   const win = b.window && Number.isFinite(Number(b.window.id)) ? { id: Number(b.window.id), title: String(b.window.title ?? ''), app: String(b.window.app ?? '') } : null;
-  const s = await manager.start({ title: String(b.title ?? '').slice(0, 200), type: b.type ?? 'lab_meeting', source, filePath: b.filePath, speed: Math.min(16, Math.max(0.5, Number(b.speed ?? 1))), window: win });
+  const projectId = b.project_id ? String(b.project_id) : null;
+  if (projectId && !store.getProject(projectId)) throw new HttpError(400, 'Unknown project');
+  const s = await manager.start({ title: String(b.title ?? '').slice(0, 200), type: b.type ?? 'lab_meeting', source, filePath: b.filePath, speed: Math.min(16, Math.max(0.5, Number(b.speed ?? 1))), window: win, projectId });
   return { session: s };
 });
 route('POST', '/api/session/quick-start', async () => {
@@ -272,7 +282,7 @@ route('POST', '/api/sessions/:id/resume', async (req, _res, p) => {
   return manager.state();
 });
 
-route('GET', '/api/sessions', (_req, _res, _p, url) => ({ sessions: store.listSessions(url.searchParams.get('q') ?? undefined) }));
+route('GET', '/api/sessions', (_req, _res, _p, url) => ({ sessions: store.listSessions(url.searchParams.get('q') ?? undefined, url.searchParams.get('project') || undefined) }));
 route('GET', '/api/sessions/:id', (_req, _res, p) => sessionDetail(p.id));
 route('PATCH', '/api/sessions/:id', async (req, _res, p) => {
   const b = await readJson(req);
@@ -291,6 +301,109 @@ route('DELETE', '/api/sessions/:id', (_req, _res, p) => {
   mybot.remove(p.id);
   return { ok: true };
 });
+// ---------------------------------------------------------------- projects
+function gitInfo(dir: string): Promise<{ root: string; remote: string | null; branch: string | null } | null> {
+  const git = (args: string[]) => new Promise<string | null>((r) => execFile('git', ['-C', dir, ...args], { timeout: 5000 }, (e, out) => r(e ? null : String(out).trim() || null)));
+  return git(['rev-parse', '--show-toplevel']).then(async (root) => (root ? { root, remote: await git(['remote', 'get-url', 'origin']), branch: await git(['branch', '--show-current']) } : null));
+}
+function checkWorkspace(raw: unknown): string {
+  const w = String(raw ?? '').trim().replace(/^~(?=\/|$)/, process.env.HOME ?? '~').replace(/\/+$/, '');
+  if (!w || !isAbsolute(w)) throw new HttpError(400, 'Choose the project folder (a full path such as /Users/you/code/project).');
+  if (!existsSync(w) || !statSync(w).isDirectory()) throw new HttpError(400, `This folder does not exist: ${w}`);
+  return w;
+}
+const projectPublic = (p: ReturnType<typeof store.listProjects>[number]) => ({ ...p, repo: p.repo_json ? JSON.parse(p.repo_json) : null, repo_json: undefined, workspace_exists: workspaceExists(p) });
+route('GET', '/api/projects', (_req, _res, _p, url) => ({ projects: store.listProjects(url.searchParams.get('archived') === '1').map(projectPublic) }));
+route('POST', '/api/projects', async (req) => {
+  const b = await readJson(req);
+  const name = String(b.name ?? '').trim().slice(0, 80);
+  if (!name) throw new HttpError(400, 'Give the project a name.');
+  const workspace = checkWorkspace(b.workspace);
+  const repo = await gitInfo(workspace);
+  const p = store.createProject({ id: uid('p_'), name, workspace, repo_json: repo ? JSON.stringify(repo) : null });
+  broadcast('projects', {});
+  return { project: projectPublic({ ...p, meeting_count: 0 }) };
+});
+route('PATCH', '/api/projects/:id', async (req, _res, p) => {
+  const cur = store.getProject(p.id);
+  if (!cur) throw new HttpError(404, 'Project not found');
+  const b = await readJson(req);
+  const patch: Parameters<typeof store.updateProject>[1] = {};
+  if (typeof b.name === 'string') { const n = b.name.trim().slice(0, 80); if (!n) throw new HttpError(400, 'Give the project a name.'); patch.name = n; }
+  if (b.workspace !== undefined) { patch.workspace = checkWorkspace(b.workspace); const repo = await gitInfo(patch.workspace); patch.repo_json = repo ? JSON.stringify(repo) : null; }
+  if (typeof b.archived === 'boolean') patch.archived_at = b.archived ? Date.now() : null;
+  store.updateProject(p.id, patch);
+  broadcast('projects', {});
+  return { project: projectPublic({ ...store.getProject(p.id)!, meeting_count: 0 }) };
+});
+route('POST', '/api/projects/choose-folder', async () => {
+  const out = await new Promise<string | null>((r) => execFile('/usr/bin/osascript', ['-e', 'POSIX path of (choose folder with prompt "Choose the project folder (where you run Claude Code or Codex)")'], { timeout: 600_000 }, (e, so) => r(e ? null : String(so).trim())));
+  return out ? { path: out.replace(/\/+$/, '') || '/' } : { cancelled: true };
+});
+route('POST', '/api/sessions/:id/project', async (req, _res, p) => {
+  if (!store.getSession(p.id)) throw new HttpError(404, 'Session not found');
+  const b = await readJson(req);
+  const projectId = b.project_id ? String(b.project_id) : null;
+  if (projectId) { const pr = store.getProject(projectId); if (!pr || pr.archived_at) throw new HttpError(400, 'Unknown project'); }
+  if (store.getSession(p.id)!.project_id !== projectId) store.assignSession(p.id, projectId);
+  syncMybot(p.id);
+  broadcast('session-updated', store.getSession(p.id));
+  broadcast('handoff', { sessionId: p.id, handoff: handoffs.view(p.id) });
+  return { session: store.getSession(p.id) };
+});
+
+// ---------------------------------------------------------------- reviewed handoff
+route('GET', '/api/sessions/:id/handoff', (_req, _res, p) => ({ handoff: handoffs.view(p.id) }));
+route('POST', '/api/sessions/:id/handoff', (_req, _res, p) => { handoffs.generate(p.id); return { handoff: handoffs.view(p.id) }; });
+route('PATCH', '/api/handoff-items/:id', async (req, _res, p) => {
+  const b = await readJson(req);
+  const sid = handoffs.updateItem(p.id, {
+    text: typeof b.text === 'string' ? b.text : undefined, rationale: b.rationale === undefined ? undefined : b.rationale,
+    conditions: Array.isArray(b.conditions) ? b.conditions.map(String) : undefined, acceptance: Array.isArray(b.acceptance) ? b.acceptance.map(String) : undefined,
+    owner: b.owner === undefined ? undefined : b.owner, due: b.due === undefined ? undefined : b.due, review: b.review, kind: b.kind,
+  });
+  return { handoff: handoffs.view(sid) };
+});
+const handoffSession = (id: string) => { const h = store.getHandoff(id); if (!h) throw new HttpError(404, 'Handoff not found'); return h.session_id; };
+route('POST', '/api/handoffs/:id/items', async (req, _res, p) => { const b = await readJson(req); const sid = handoffs.addItem(p.id, b.kind, String(b.text ?? '')); return { handoff: handoffs.view(sid) }; });
+route('POST', '/api/handoffs/:id/confirm', (_req, _res, p) => { handoffs.confirm(p.id); return { handoff: handoffs.view(handoffSession(p.id)) }; });
+route('POST', '/api/handoffs/:id/reopen', (_req, _res, p) => { handoffs.reopen(p.id); return { handoff: handoffs.view(handoffSession(p.id)) }; });
+route('POST', '/api/handoffs/:id/retarget', (_req, _res, p) => { handoffs.retarget(p.id); return { handoff: handoffs.view(handoffSession(p.id)) }; });
+route('POST', '/api/handoffs/:id/continue', async (req, _res, p) => {
+  const b = await readJson(req);
+  const via = String(b.agent ?? 'copy');
+  if (via !== 'copy' && !AGENTS.includes(via as AgentId)) throw new HttpError(400, 'Unknown agent');
+  const h = store.getHandoff(p.id);
+  if (!h) throw new HttpError(404, 'Handoff not found');
+  const prompt = handoffs.continuationPrompt(p.id, chumiLink(), store.getProfile().explanationLanguage !== 'English');
+  let launched = false;
+  if (via !== 'copy') {
+    const project = store.getProject(h.project_id!)!;
+    try { agents.launch(via as AgentId, h.id, project.workspace, prompt); launched = true; } catch (e) { throw new HttpError(400, (e as Error).message); }
+  }
+  handoffs.markDelivered(p.id, via);
+  return { prompt, launched, handoff: handoffs.view(h.session_id) };
+});
+
+// ---------------------------------------------------------------- Claude Code / Codex connection
+const isAgent = (a: string): a is AgentId => AGENTS.includes(a as AgentId);
+route('GET', '/api/agents', async () => {
+  const [local, ...statuses] = await Promise.all([agents.localCheck(), ...AGENTS.map((a) => agents.status(a))]);
+  return { local, agents: statuses, commands: agents.setupCommands(), exports: { mybot: store.getSettings().integrations.mybot.enabled ? mybot.status() : null } };
+});
+route('POST', '/api/agents/:agent/connect', async (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); try { await agents.connect(p.agent); } catch (e) { throw new HttpError(400, (e as Error).message); } return { status: await agents.status(p.agent) }; });
+route('POST', '/api/agents/:agent/disconnect', async (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); await agents.disconnect(p.agent); return { status: await agents.status(p.agent) }; });
+route('POST', '/api/agents/:agent/verify', async (_req, _res, p) => {
+  if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent');
+  // The check runs a real (tiny) request: only within the plan's included usage, never on credits or overage.
+  const plan = await (p.agent === 'codex' ? registry.providers.codex : registry.providers['claude-cli']).status(true).catch(() => null);
+  if (!plan || !plan.ready || plan.billing !== 'subscription') {
+    return { result: { ok: false, detail: `Not run, so nothing is charged: ${plan?.message ?? plan?.quota.note ?? 'the plan status could not be checked.'}` }, status: await agents.status(p.agent) };
+  }
+  const r = await agents.verify(p.agent);
+  return { result: r, status: await agents.status(p.agent) };
+});
+
 route('GET', '/api/sessions/:id/export', (_req, res, p, url) => {
   const fmt = url.searchParams.get('format') === 'txt' ? 'txt' : 'md';
   const e = exportSession(store, p.id, fmt);
@@ -429,7 +542,7 @@ const server = createServer(async (req, res) => {
     }
     send(res, 404, { error: 'Not found' });
   } catch (e) {
-    const status = e instanceof HttpError ? e.status : 500;
+    const status = e instanceof HttpError || e instanceof HandoffError ? e.status : 500;
     if (status === 500) log('http', (e as Error).stack ?? e);
     if (!res.headersSent) send(res, status, { error: (e as Error).message });
   }
@@ -437,6 +550,8 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   log('server', `Chumi listening on http://${HOST}:${PORT}  (data: ${DATA_DIR})`);
+  // Where agents' "open in Chumi" links should point (read by the MCP server).
+  try { writeFileSync(SERVER_INFO, JSON.stringify({ url: `http://${HOST}:${PORT}`, pid: process.pid, startedAt: Date.now() })); } catch { /* links are optional */ }
   void whisper.ensure().catch((e) => log('asr', `not ready: ${(e as Error).message}`));
   void registry.status(true).catch(() => {});
 });

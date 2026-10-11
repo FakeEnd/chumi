@@ -1,7 +1,7 @@
 import { api, subscribe } from './api.ts';
 import { getState, notify, setState, upsertOutput, type AppState } from './store.ts';
 import { t } from './i18n.ts';
-import type { Depth, Effort, Frame, Output, Profile, Segment, SessionData, Settings, WindowInfo } from './types.ts';
+import type { Depth, Effort, Frame, Handoff, Output, Profile, Project, Segment, SessionData, Settings, WindowInfo } from './types.ts';
 
 export async function loadState(): Promise<void> {
   const s = await api('/api/state');
@@ -11,8 +11,15 @@ export async function loadState(): Promise<void> {
   });
   // Deep links (?session=<id>&dialog=settings&tab=ai) open a view directly; used for scripted screenshots too.
   const q = new URLSearchParams(location.search);
+  void loadProjects();
   const want = q.get('session');
-  if (want && !getState().viewId) { await openSession(want).catch(() => {}); }
+  if (want && !getState().viewId) {
+    await openSession(want).catch(() => {});
+    // Evidence links from agents: ?session=…&t=…&t2=… focuses a passage, &frame=… opens a capture.
+    const t = Number(q.get('t')), t2 = Number(q.get('t2')), frame = Number(q.get('frame'));
+    if (q.get('frame') && Number.isFinite(frame)) setState({ dialog: 'frame', frameView: frame });
+    else if (q.get('t') && Number.isFinite(t)) setState({ focus: { t, t2: q.get('t2') && Number.isFinite(t2) ? t2 : undefined, nonce: Date.now() } });
+  }
   const dlg = q.get('dialog');
   if (dlg && ['profile', 'settings', 'history', 'start', 'window'].includes(dlg)) setState({ dialog: dlg as AppState['dialog'], settingsTab: q.get('tab') ?? 'language' });
   // A live session opens directly; otherwise start on the Home screen (recent sessions are listed there).
@@ -56,6 +63,8 @@ export function connectEvents(): () => void {
     asr: (a) => setState((s) => ({ live: s.live ? { ...s.live, asr: { ...s.live.asr, state: a.state, message: a.message } } : s.live })),
     'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); notify('info', t('Session saved. Generating the final summary…'), 'ended'); },
     'session-updated': (sess) => setState((s) => (s.data && s.data.session.id === sess.id ? { data: { ...s.data, session: sess } } : {})),
+    handoff: (e: { sessionId: string; handoff: Handoff | null }) => setHandoff(e.sessionId, e.handoff),
+    projects: () => void loadProjects(),
   }, (ok) => { setState({ connected: ok }); if (ok) void loadState().catch(() => {}); });
 }
 
@@ -63,7 +72,7 @@ const guard = async <T>(p: Promise<T>): Promise<T | undefined> => {
   try { return await p; } catch (e) { notify('error', (e as Error).message, 'action'); return undefined; }
 };
 
-export async function startSession(o: { title: string; type: string; source: string; filePath?: string; speed?: number; window?: { id: number; title: string; app: string } | null }): Promise<boolean> {
+export async function startSession(o: { title: string; type: string; source: string; filePath?: string; speed?: number; window?: { id: number; title: string; app: string } | null; project_id?: string | null }): Promise<boolean> {
   if (o.source === 'mic' || o.source === 'both') {
     const perm = await api<Record<string, string>>('/api/audio/permissions').catch(() => ({} as Record<string, string>));
     if (perm.microphone === 'denied' || perm.microphone === 'restricted') {
@@ -116,3 +125,48 @@ export async function deleteSession(id: string): Promise<boolean> {
 }
 export function exportUrl(id: string, format: 'md' | 'txt'): string { return `/api/sessions/${id}/export?format=${format}`; }
 export async function refreshProvider(): Promise<void> { const p = await guard(api('/api/provider/status?refresh=1')); if (p) setState({ provider: p }); }
+
+// ---------------------------------------------------------------- projects
+export async function loadProjects(): Promise<void> {
+  const r = await api<{ projects: Project[] }>('/api/projects?archived=1').catch(() => null);
+  if (r) setState({ projects: r.projects });
+}
+export async function createProject(name: string, workspace: string): Promise<Project | undefined> {
+  const r = await guard(api<{ project: Project }>('/api/projects', { body: { name, workspace } }));
+  await loadProjects();
+  return r?.project;
+}
+export async function updateProject(id: string, patch: { name?: string; workspace?: string; archived?: boolean }): Promise<boolean> {
+  const r = await guard(api(`/api/projects/${id}`, { method: 'PATCH', body: patch }));
+  await loadProjects();
+  return !!r;
+}
+/** macOS folder picker (returns null when cancelled). */
+export async function chooseFolder(): Promise<string | null> {
+  const r = await guard(api<{ path?: string; cancelled?: boolean }>('/api/projects/choose-folder', { body: {} }));
+  return r?.path ?? null;
+}
+export async function assignProject(sessionId: string, projectId: string | null): Promise<void> {
+  await guard(api(`/api/sessions/${sessionId}/project`, { body: { project_id: projectId } }));
+  void loadProjects();
+}
+
+// ---------------------------------------------------------------- reviewed handoff
+function setHandoff(sessionId: string, handoff: Handoff | null): void {
+  setState((s) => (s.data && s.data.session.id === sessionId ? { data: { ...s.data, handoff } } : {}));
+}
+async function withHandoff<T extends { handoff: Handoff | null }>(p: Promise<T>): Promise<T | undefined> {
+  const r = await guard(p);
+  if (r?.handoff) setHandoff(r.handoff.session_id, r.handoff);
+  return r;
+}
+export const prepareHandoff = (sessionId: string) => withHandoff(api(`/api/sessions/${sessionId}/handoff`, { body: {} }));
+export const updateHandoffItem = (id: string, patch: Record<string, unknown>) => withHandoff(api(`/api/handoff-items/${id}`, { method: 'PATCH', body: patch }));
+export const addHandoffItem = (handoffId: string, kind: string, text: string) => withHandoff(api(`/api/handoffs/${handoffId}/items`, { body: { kind, text } }));
+export const confirmHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/confirm`, { body: {} }));
+export const reopenHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/reopen`, { body: {} }));
+export const retargetHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/retarget`, { body: {} }));
+export async function continueHandoff(handoffId: string, agent: 'claude-code' | 'codex' | 'copy'): Promise<{ prompt: string; launched: boolean } | undefined> {
+  const r = await withHandoff(api<{ prompt: string; launched: boolean; handoff: Handoff }>(`/api/handoffs/${handoffId}/continue`, { body: { agent } }));
+  return r ? { prompt: r.prompt, launched: r.launched } : undefined;
+}

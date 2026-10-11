@@ -40,6 +40,7 @@ export interface Session {
   id: string; title: string; type: SessionType; status: 'recording' | 'paused' | 'ended' | 'interrupted';
   created_at: number; started_at: number | null; ended_at: number | null; last_activity_at: number | null;
   audio_source: string | null; duration_ms: number; segment_count?: number; snippet?: string;
+  project_id: string | null; revision: number;
 }
 export interface Segment { id: number; session_id: string; t_start: number; t_end: number; text: string; lang: string | null; source: string | null; run: number }
 export interface TimelineEvent { id: number; session_id: string; t: number; kind: string; wall: number; detail: string | null }
@@ -64,5 +65,29 @@ export interface LiveState {
 export interface Frame { id: number; session_id: string; t: number; width: number | null; height: number | null; kind: string; window_title: string | null; app: string | null; created_at: number }
 export interface WindowInfo { id: number; app: string; bundleId: string; pid: number; title: string; width: number; height: number; onScreen: boolean }
 
-export interface SessionData { session: Session; segments: Segment[]; timeline: TimelineEvent[]; outputs: Output[]; frames: Frame[]; live: boolean }
+export interface SessionData { session: Session; segments: Segment[]; timeline: TimelineEvent[]; outputs: Output[]; frames: Frame[]; live: boolean; handoff: Handoff | null }
+
+export interface Project {
+  id: string; name: string; workspace: string; repo: { root: string; remote: string | null; branch: string | null } | null;
+  workspace_exists: boolean; meeting_count: number; created_at: number; updated_at: number; archived_at: number | null;
+}
+export type EvidenceRef = { kind: 'transcript'; segment_ids: number[]; from_ms: number; to_ms: number } | { kind: 'frame'; frame_id: number; t: number };
+export interface HandoffItem {
+  id: string; kind: 'decision' | 'action' | 'question'; text: string; rationale: string | null;
+  origin: 'agreed' | 'suggested' | 'chumi' | 'user'; owner: string | null; due: string | null;
+  conditions: string[]; acceptance: string[]; evidence: EvidenceRef[]; review: 'pending' | 'confirmed' | 'rejected'; edited: boolean; position: number;
+}
+export interface Handoff {
+  id: string; session_id: string; project_id: string | null; status: 'generating' | 'draft' | 'confirmed' | 'error';
+  source_revision: number | null; confirmed_revision: number | null; confirmed_at: number | null;
+  delivered_at: number | null; delivered_via: string | null; error: string | null; created_at: number; updated_at: number;
+  project: { id: string; name: string; workspace: string } | null; meeting_project_id: string | null; project_mismatch: boolean;
+  items: HandoffItem[];
+  freshness: { current_revision: number | null; reviewed_revision: number | null; stale: boolean; detail: { new_transcript_lines: number; new_outputs: number; summary_regenerated: boolean; new_frames: number; resumed: boolean; reassigned: boolean; meeting_deleted: boolean } };
+  last_agent_read: { at: number; client: string | null; revision: number | null } | null;
+}
+export interface AgentStatus {
+  agent: 'claude-code' | 'codex'; cli: string | null; registered: boolean | null; outdated: boolean;
+  clientHealth: 'connected' | 'failed' | 'unknown'; lastRead: { at: number; tool: string } | null; verifiedAt: number | null; detail: string | null;
+}
 export interface Notice { id: number; level: 'info' | 'warning' | 'error'; code: string; message: string; at: number }

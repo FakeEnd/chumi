@@ -7,7 +7,7 @@ import {
 } from './context.ts';
 import {
   askInstructions, autoExplainInstructions, AUTO_EXPLAIN_SCHEMA, baseRules, catchupInstructions, digestInstructions,
-  explainInstructions, languageRule, overviewInstructions, OVERVIEW_SCHEMA, renderProfile, summaryInstructions, SESSION_TYPE_LABEL,
+  explainInstructions, handoffInstructions, HANDOFF_SCHEMA, languageRule, overviewInstructions, OVERVIEW_SCHEMA, renderProfile, summaryInstructions, SESSION_TYPE_LABEL,
 } from './prompts.ts';
 import { ProviderError, parseJsonLoose, type CompletionRequest } from './provider.ts';
 import type { ProviderRegistry } from './registry.ts';
@@ -530,5 +530,45 @@ export class Assistant {
         };
       },
     });
+  }
+
+  // ------------------------------------------------------------------ project handoff draft
+  /**
+   * Draft the decisions, actions and open questions a meeting implies (structured JSON). The caller turns
+   * the result into reviewable handoff items; nothing here is shown to an agent before the user confirms it.
+   */
+  handoffDraft(sessionId: string, o: { projectName: string | null; onResult: (row: OutputRow, parsed: unknown, captures: Array<{ id: number; t: number }>) => void; onFail: (row: OutputRow) => void }): string {
+    let captures: Array<{ id: number; t: number }> = [];
+    const id = this.start({
+      sessionId, kind: 'handoff', prio: PRIO.manual, question: 'Handoff draft',
+      build: async (signal) => {
+        const all = this.store.segments(sessionId);
+        if (!all.length) throw new ProviderError('bad_response', 'This meeting has no transcript yet, so there is nothing to hand off.');
+        const end = all[all.length - 1].t_end;
+        let body: string;
+        if (totalChars(all) <= 60_000) body = `FULL TRANSCRIPT [${fmtT(all[0].t_start)}–${fmtT(end)}]:\n${renderSegments(all, 62_000).text}`;
+        else {
+          const recentFrom = end - RECENT_WINDOW_MS;
+          await this.ensureDigests(sessionId, recentFrom, signal);
+          body = `NOTES ON THE SESSION (AI-generated digests of the transcript, with times):\n${renderDigests(digests(this.store, sessionId), recentFrom)}\n\nFINAL ${RECENT_WINDOW_MS / 60000} MINUTES (verbatim):\n${renderSegments(this.store.segments(sessionId, recentFrom, end), 16_000).text}`;
+        }
+        const vis = await this.pickImages(sessionId, { kind: 'spread', max: 4 });
+        captures = vis.used;
+        return {
+          instructions: this.system(sessionId, handoffInstructions(o.projectName)),
+          input: `${this.header(sessionId)}\n${vis.text ? `\n${vis.text}\n` : ''}\n${body}`,
+          coveredFrom: all[0].t_start, coveredTo: end, schema: HANDOFF_SCHEMA as unknown as Record<string, unknown>,
+          effort: this.effort('summary'), images: vis.images, extra: { images: vis.used },
+        };
+      },
+      finalize: (text) => {
+        const parsed = parseJsonLoose<{ decisions?: unknown[]; actions?: unknown[]; open_questions?: unknown[] }>(text);
+        if (!parsed) throw new ProviderError('bad_response', 'The AI provider returned a handoff that could not be read. Try again.');
+        return { content: `Handoff draft: ${parsed.decisions?.length ?? 0} decision(s), ${parsed.actions?.length ?? 0} action(s), ${parsed.open_questions?.length ?? 0} open question(s).`, data: { handoff: parsed } };
+      },
+      after: (row) => o.onResult(row, JSON.parse(row.data_json ?? '{}').handoff, captures),
+      onSettled: () => { const row = this.store.getOutput(id); if (row && row.status !== 'done') o.onFail(row); },
+    });
+    return id;
   }
 }

@@ -7,6 +7,7 @@ import { DEPTH_LABEL } from './TopBar.tsx';
 import { Markdown } from './Markdown.tsx';
 import { focusTime } from './Transcript.tsx';
 import type { Depth, Effort, Output } from '../types.ts';
+import { HandoffBox } from './Handoff.tsx';
 
 const EFFORT_LABEL: Record<string, string> = { auto: msg('Auto'), low: msg('Low'), medium: msg('Medium'), high: msg('High'), xhigh: msg('Extra high'), max: msg('Max') };
 
@@ -171,6 +172,7 @@ export function AssistantPanel() {
         </div>
       </div>
       {!isLive && ended && !hasSummary && data.segments.length > 0 && <button className="btn small summary-btn" onClick={() => summarize()}>{t('Generate final summary')}</button>}
+      <HandoffBox />
       <AskBox />
       <div className="cards">
         {cards.length === 0 && <p className="muted pad small">{t('Answers, catch-ups and background cards appear here. They stay put while the transcript keeps moving. Use Refresh to update a catch-up.')}</p>}

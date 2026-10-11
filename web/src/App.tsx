@@ -12,6 +12,7 @@ import { SettingsDialog } from './components/SettingsDialog.tsx';
 import { HistoryDialog } from './components/HistoryDialog.tsx';
 import { Notices } from './components/Notices.tsx';
 import { FrameViewer, SlideStrip, WindowDialog } from './components/Slides.tsx';
+import { HandoffDialog } from './components/Handoff.tsx';
 import { fmtDate, fmtT } from './util.ts';
 import { resolveLang, setLang, t } from './i18n.ts';
 import { openSession } from './actions.ts';
@@ -63,6 +64,7 @@ export function App() {
       {dialog === 'history' && <HistoryDialog />}
       {dialog === 'window' && <WindowDialog />}
       {dialog === 'frame' && <FrameViewer />}
+      {dialog === 'handoff' && <HandoffDialog />}
     </div>
   );
 }

@@ -6,9 +6,10 @@ import { locale, msg, plural, t, tn } from '../i18n.ts';
 import { sourceLabel, SESSION_TYPES, typeLabel } from '../util.ts';
 import { Dialog } from './Dialog.tsx';
 import { TranscriptionTab } from './TranscriptionTab.tsx';
+import { AgentsTab, ProjectsTab } from './Projects.tsx';
 import type { ProviderStatus } from '../types.ts';
 
-const TABS = [['language', msg('Language')], ['audio', msg('Audio')], ['quick', msg('Quick start')], ['screen', msg('Screen')], ['asr', msg('Transcription')], ['ai', msg('AI provider')], ['assist', msg('Assistance')], ['integrations', msg('Integrations')], ['privacy', msg('Privacy & data')]] as const;
+const TABS = [['language', msg('Language')], ['audio', msg('Audio')], ['quick', msg('Quick start')], ['screen', msg('Screen')], ['asr', msg('Transcription')], ['ai', msg('AI provider')], ['assist', msg('Assistance')], ['projects', msg('Projects')], ['agents', msg('Claude Code & Codex')], ['integrations', msg('Integrations')], ['privacy', msg('Privacy & data')]] as const;
 
 function QuotaView({ p }: { p: ProviderStatus }) {
   return (
@@ -176,6 +177,8 @@ export function SettingsDialog() {
       )}
 
       {tab === 'asr' && <TranscriptionTab />}
+      {tab === 'projects' && <ProjectsTab />}
+      {tab === 'agents' && <AgentsTab />}
 
       {tab === 'ai' && (
         <section>

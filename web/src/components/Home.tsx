@@ -24,6 +24,7 @@ export function Home() {
   const asr = useStore((s) => s.live?.asr);
   const live = useStore((s) => s.live);
   const hotkey = useStore((s) => s.hotkey);
+  const projects = useStore((s) => s.projects);
   const [recent, setRecent] = useState<Session[] | null>(null);
   useEffect(() => { void api<{ sessions: Session[] }>('/api/sessions').then((r) => setRecent(r.sessions.slice(0, 6))).catch(() => setRecent([])); }, [live?.status]);
 
@@ -102,7 +103,7 @@ export function Home() {
                   <button onClick={() => void openSession(s.id)}>
                     <span className={`type-dot t-${s.type}`} />
                     <span className="recent-main">
-                      <span className="recent-title">{s.title}</span>
+                      <span className="recent-title">{s.title}{projects.find((p) => p.id === s.project_id) ? <span className="tag project-tag">{projects.find((p) => p.id === s.project_id)!.name}</span> : null}</span>
                       <span className="muted small">{typeLabel(s.type)} · {fmtDate(s.started_at ?? s.created_at)} · {fmtT(s.duration_ms)} · {plural(s.segment_count ?? 0, '{n} line', '{n} lines')}</span>
                     </span>
                     {s.status === 'interrupted' && <span className="tag tag-warn">{t('interrupted')}</span>}

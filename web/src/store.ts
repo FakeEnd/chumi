@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { LiveState, Notice, Output, Profile, ProviderStatus, SessionData, Settings } from './types.ts';
+import type { LiveState, Notice, Output, Profile, Project, ProviderStatus, SessionData, Settings } from './types.ts';
 
 export interface AppState {
   connected: boolean;
@@ -21,7 +21,9 @@ export interface AppState {
   data: SessionData | null;
   deltas: Record<string, string>;
   notices: Notice[];
-  dialog: null | 'profile' | 'settings' | 'history' | 'start' | 'window' | 'frame';
+  dialog: null | 'profile' | 'settings' | 'history' | 'start' | 'window' | 'frame' | 'handoff';
+  /** All projects, including archived ones (pickers hide archived). */
+  projects: Project[];
   frameView: number | null;
   screenToolBuilt: boolean;
   hotkey: { state: string; shortcut: string; message: string | null } | null;
@@ -39,7 +41,7 @@ export interface AppState {
 let state: AppState = {
   connected: false, loaded: false, settings: null, profile: null, provider: null, live: null, liveReceivedAt: 0, levels: {}, partials: {},
   devMode: false, helperBuilt: false, appMode: false, dataDir: '', samples: [], viewId: null, data: null, deltas: {}, notices: [],
-  dialog: null, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null,
+  dialog: null, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [],
 };
 const listeners = new Set<() => void>();
 

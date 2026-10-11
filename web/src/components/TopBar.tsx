@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { setState, useStore } from '../store.ts';
-import { endSession, openSession, pauseSession, quickStart, renameSession, resumeLive, saveProfile, saveSettings } from '../actions.ts';
+import { assignProject, endSession, openSession, pauseSession, quickStart, renameSession, resumeLive, saveProfile, saveSettings } from '../actions.ts';
+import { ProjectSelect } from './Projects.tsx';
 import { fmtT, SESSION_TYPES, sourceLabel, typeLabel } from '../util.ts';
 import { locale, msg, t } from '../i18n.ts';
 import type { Depth } from '../types.ts';
@@ -83,6 +84,8 @@ export function TopBar() {
             <select className="type-select" value={data.session.type} onChange={(e) => renameSession(data.session.id, { type: e.target.value })} aria-label={t('Session type')}>
               {SESSION_TYPES.map((id) => <option key={id} value={id}>{typeLabel(id)}</option>)}
             </select>
+            <ProjectSelect className="type-select project-select" value={data.session.project_id ?? null}
+              onChange={(id) => { if (!data.handoff?.items.length || confirm(t('Move this meeting to another project? Its handoff will need to be reviewed again for the new project.'))) void assignProject(data.session.id, id); }} />
           </>
         ) : <><span className="crumb-sep">/</span><span className="crumb">{t('Home')}</span></>}
       </div>

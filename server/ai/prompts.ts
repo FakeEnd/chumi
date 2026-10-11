@@ -192,3 +192,40 @@ Requirements:
 - Owners and deadlines: include only if explicitly stated. Otherwise write "not stated" — do not guess (not even "soon" or "next meeting").
 - Clearly mark anything you add beyond the transcript as "(added by Chumi)".`;
 }
+
+// ------------------------------------------------------------------ project handoff
+const TIMES = { type: 'array', items: { type: 'string' }, description: 'Transcript times supporting this item, exactly as they appear ("m:ss" or "m:ss–m:ss")' } as const;
+export const HANDOFF_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['decisions', 'actions', 'open_questions'],
+  properties: {
+    decisions: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['text', 'origin', 'evidence'], properties: {
+      text: { type: 'string' }, origin: { type: 'string', enum: ['agreed', 'suggested'] }, evidence: TIMES,
+    } } },
+    actions: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['text', 'origin', 'rationale', 'conditions', 'acceptance_criteria', 'owner', 'due', 'evidence', 'captures'], properties: {
+      text: { type: 'string' }, origin: { type: 'string', enum: ['agreed', 'suggested', 'chumi'] }, rationale: { type: 'string' },
+      conditions: { type: 'array', items: { type: 'string' } }, acceptance_criteria: { type: 'array', items: { type: 'string' } },
+      owner: { type: ['string', 'null'] }, due: { type: ['string', 'null'] }, evidence: TIMES,
+      captures: { type: 'array', items: { type: 'integer' }, description: 'Numbers of the attached screen captures that support this action' },
+    } } },
+    open_questions: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['text', 'evidence'], properties: { text: { type: 'string' }, evidence: TIMES } } },
+  },
+} as const;
+
+export function handoffInstructions(projectName: string | null): string {
+  return `TASK: Prepare a handoff of the work this meeting implies${projectName ? ` for the project "${projectName}"` : ''}. The user will review every item before anything is handed to their coding/research agent, so be accurate rather than complete.
+Return JSON with:
+- decisions: things the group actually decided. origin "agreed" only when the transcript shows agreement or a clear decision; use "suggested" if it was proposed but not settled.
+- actions: concrete work that follows from the meeting.
+  - origin: "agreed" = someone explicitly committed to it or the group agreed it should be done; "suggested" = a speaker proposed it but it was not agreed; "chumi" = not said in the meeting but clearly needed to carry out an agreed item (use sparingly).
+  - text: one imperative sentence describing the work (in the output language; keep technical terms, file names, parameters as spoken).
+  - rationale: why, as stated in the meeting (with the reasoning given), one or two sentences.
+  - conditions: anything unresolved that blocks or changes the work (e.g. "100 vs 200 barcodes not decided"). Empty if none.
+  - acceptance_criteria: 1–3 checks that would show the work is done. These are YOUR proposals, not statements from the meeting.
+  - owner and due: ONLY if explicitly stated in the transcript; otherwise null. Never guess, never write "TBD".
+  - evidence: the transcript times that support the item. Every item needs at least one.
+  - captures: numbers of attached screen captures that support it, if any.
+- open_questions: questions raised and not resolved that matter for the work.
+Rules: Do not turn a tentative statement into a decision or an agreed action. Do not invent numbers, datasets, parameters, names or deadlines. Skip small talk and housekeeping unrelated to the work. If nothing qualifies for a list, return it empty.`;
+}

@@ -23,7 +23,7 @@ interface Run {
   restarts: number;
 }
 
-export interface StartOptions { title: string; type: SessionType; source: AudioSourceMode | 'file'; filePath?: string; speed?: number; window?: { id: number; title?: string; app?: string } | null }
+export interface StartOptions { title: string; type: SessionType; source: AudioSourceMode | 'file'; filePath?: string; speed?: number; window?: { id: number; title?: string; app?: string } | null; projectId?: string | null }
 
 /**
  * Owns the live session: audio input → per-source segmenter → transcriber → persisted segments.
@@ -132,6 +132,7 @@ export class SessionManager {
     }
     const id = uid('s_');
     this.session = this.store.createSession({ id, title: o.title || `Session ${new Date().toLocaleString()}`, type: o.type, audio_source: o.source });
+    if (o.projectId) { this.store.assignSession(id, o.projectId); this.session = this.store.getSession(id)!; }
     this.source = o.source;
     this.fileOpts = o.source === 'file' && o.filePath ? { path: o.filePath, speed: o.speed ?? 1, posSec: 0 } : null;
     this.warnings = []; this.partials.clear(); this.droppedDuplicates = 0;

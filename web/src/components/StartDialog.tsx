@@ -5,6 +5,7 @@ import { SESSION_TYPES, typeLabel } from '../util.ts';
 import { locale, t, tn } from '../i18n.ts';
 import { Dialog } from './Dialog.tsx';
 import { WindowPicker } from './WindowPicker.tsx';
+import { ProjectSelect } from './Projects.tsx';
 import type { WindowInfo } from '../types.ts';
 
 export function StartDialog() {
@@ -20,9 +21,10 @@ export function StartDialog() {
   const [busy, setBusy] = useState(false);
   const [capture, setCapture] = useState(false);
   const [win, setWin] = useState<WindowInfo | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const go = async () => {
     setBusy(true);
-    await startSession({ title: title || `${typeLabel(type)} ${new Date().toLocaleDateString(locale())}`, type, source, ...(source === 'file' ? { filePath: file, speed } : {}), window: capture && win ? { id: win.id, title: win.title, app: win.app } : null });
+    await startSession({ title: title || `${typeLabel(type)} ${new Date().toLocaleDateString(locale())}`, type, source, ...(source === 'file' ? { filePath: file, speed } : {}), window: capture && win ? { id: win.id, title: win.title, app: win.app } : null, project_id: projectId });
     setBusy(false);
   };
   return (
@@ -30,6 +32,9 @@ export function StartDialog() {
       <label className="field"><span>{t('Title')}</span><input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('e.g. Lab meeting: enhancer model')} onKeyDown={(e) => e.key === 'Enter' && go()} /></label>
       <label className="field"><span>{t('Session type')}</span>
         <select value={type} onChange={(e) => setType(e.target.value)}>{SESSION_TYPES.map((id) => <option key={id} value={id}>{typeLabel(id)}</option>)}</select>
+      </label>
+      <label className="field"><span>{t('Project (optional): the folder where this work continues in Claude Code or Codex')}</span>
+        <ProjectSelect value={projectId} onChange={setProjectId} />
       </label>
       <fieldset className="field">
         <span>{t('Audio source')}</span>

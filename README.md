@@ -90,6 +90,17 @@ Research talk moves fast and borrows from neighbouring fields. A deep-learning p
 
 Setup, the export format and the privacy model are in [docs/mybot.md](docs/mybot.md).
 
+## Continue the work in Claude Code or Codex
+
+A meeting often ends with work to do in a project: rerun with a different split, add a noise ceiling, fix a figure. Chumi carries that work into the project **you already use Claude Code or Codex in**, with the original evidence, so you don't brief the agent all over again.
+
+1. **Assign the meeting to a project**: a folder you work in. Pick it when you start, or later in the top bar. Nothing is assigned automatically.
+2. **Prepare a handoff.** Chumi drafts the decisions, actions and open questions, each cited to the transcript. Things that were only suggested stay "suggested", and owners and deadlines appear only if someone said them.
+3. **Review and confirm.** Edit, confirm or reject each item. Only confirmed actions are handed on.
+4. **Continue in Claude Code or Codex.** Chumi opens the agent in the project folder with the confirmed work. The agent reads the handoff, the original passages and the captured slides through Chumi's local MCP server, then proposes a plan under its usual permission prompts.
+
+Connect each agent once in **Settings → Claude Code & Codex**. If the meeting changes after you confirm, for example a regenerated summary or a resumed recording, Chumi and the agent both see that the handoff may need another look. Setup, the MCP tools and the privacy model are in [docs/agents.md](docs/agents.md).
+
 ## Quick start
 
 **Requirements:** an Apple Silicon Mac on macOS 14.4 or later, plus [Homebrew](https://brew.sh), Node.js 24 or later, and the Xcode Command Line Tools (`xcode-select --install`).

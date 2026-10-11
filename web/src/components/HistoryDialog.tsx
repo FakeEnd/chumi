@@ -9,22 +9,31 @@ import { plural, t } from '../i18n.ts';
 
 export function HistoryDialog() {
   const [q, setQ] = useState('');
+  const [project, setProject] = useState('');
+  const projects = useStore((s) => s.projects);
   const [list, setList] = useState<Session[]>([]);
   const live = useStore((s) => s.live);
   const settings = useStore((s) => s.settings);
-  const load = (query: string) => void api<{ sessions: Session[] }>(`/api/sessions${query ? `?q=${encodeURIComponent(query)}` : ''}`).then((r) => setList(r.sessions));
-  useEffect(() => { const t = setTimeout(() => load(q), 200); return () => clearTimeout(t); }, [q]);
+  const load = (query: string) => { const ps = new URLSearchParams(); if (query) ps.set('q', query); if (project) ps.set('project', project); void api<{ sessions: Session[] }>(`/api/sessions${ps.size ? `?${ps}` : ''}`).then((r) => setList(r.sessions)); };
+  useEffect(() => { const tm = setTimeout(() => load(q), 200); return () => clearTimeout(tm); }, [q, project]);
+  const projectName = (id: string | null) => projects.find((p) => p.id === id)?.name;
   const idle = !live || live.status === 'idle';
   return (
     <Dialog title={t('Session history')} wide>
-      <input className="search" placeholder={t('Search transcripts, summaries and titles (English or 中文)…')} value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+      <div className="field-row">
+        <input className="search grow" placeholder={t('Search transcripts, summaries and titles (English or 中文)…')} value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+        <select value={project} onChange={(e) => setProject(e.target.value)} aria-label={t('Filter by project')}>
+          <option value="">{t('All projects')}</option><option value="none">{t('No project')}</option>
+          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      </div>
       <ul className="history">
         {list.length === 0 && <li className="muted pad">{q ? t('No matches.') : t('No saved sessions yet.')}</li>}
         {list.map((s) => (
           <li key={s.id}>
             <div className="h-main" onClick={() => { void openSession(s.id); setState({ dialog: null }); }}>
               <div className="h-title">{s.title} {s.status === 'interrupted' && <span className="tag tag-warn">{t('interrupted')}</span>}{(s.status === 'recording' || s.status === 'paused') && <span className="tag tag-live">{t('live')}</span>}</div>
-              <div className="muted small">{typeLabel(s.type)} · {fmtDate(s.started_at ?? s.created_at)} · {fmtT(s.duration_ms)} · {plural(s.segment_count ?? 0, '{n} line', '{n} lines')}</div>
+              <div className="muted small">{projectName(s.project_id) ? <span className="tag project-tag">{projectName(s.project_id)}</span> : null}{typeLabel(s.type)} · {fmtDate(s.started_at ?? s.created_at)} · {fmtT(s.duration_ms)} · {plural(s.segment_count ?? 0, '{n} line', '{n} lines')}</div>
               {s.snippet && <div className="snippet small">…{s.snippet}…</div>}
             </div>
             <div className="h-actions">

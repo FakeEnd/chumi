@@ -67,6 +67,11 @@ def iter_chumi_events(path: str) -> Iterator[tuple[str, str, str, dict]]:
                 yield "assistant", f"Chumi {entry.get('kind', 'answer')}{covered} for \"{question}\" (AI-generated):\n{entry.get('answer', '')}", str(entry.get("created_at") or ""), entry
             elif kind == "gap":
                 yield "actions", f"[{_clock(entry.get('t_ms'))}] recording {entry.get('kind')}: {entry.get('detail') or ''}".strip(), str(entry.get("timestamp") or ""), entry
+            elif kind == "handoff":
+                labels = {"decision": "Decision", "action": "Action", "question": "Open question"}
+                rows = [f"- {labels.get(i.get('kind'), 'Item')}: {i.get('text', '')}" + (f" (owner: {i['owner']})" if i.get("owner") else "") for i in entry.get("items") or []]
+                if rows:
+                    yield "assistant", "Confirmed meeting handoff (reviewed by the user):\n" + "\n".join(rows), str(entry.get("confirmed_at") or ""), entry
 
 
 def read_header(path: str) -> dict | None:
@@ -126,7 +131,10 @@ class ChumiSourceAdapter(TrajectorySourceAdapter):
                 "tool": "chumi",
                 "account": self.account.name,
                 "raw_session_id": raw_session_id,
-                "cwd": "",
+                # The project folder the user assigned this meeting to (empty when unassigned).
+                "cwd": str(((header.get("project") or {}).get("workspace")) or header.get("cwd") or ""),
+                "project_id": (header.get("project") or {}).get("id"),
+                "project": (header.get("project") or {}).get("name"),
                 "origin": "meeting",
                 "session_type": header.get("session_type"),
                 "audio_source": header.get("audio_source"),

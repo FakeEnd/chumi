@@ -47,13 +47,15 @@ Format `chumi-transcript/1`, one JSON object per line:
 
 | `type` | Fields | Meaning |
 |---|---|---|
-| `session` (first line) | `format`, `id`, `title`, `session_type`, `status`, `started_at`, `ended_at`, `duration_ms`, `audio_source`, `visibility` | Header. `visibility` is `private` unless sharing is enabled. |
-| `segment` | `t_ms`, `t_end_ms`, `timestamp` (ISO), `source` (`mic` / `system`), `lang`, `text` | One transcript line: what was actually said |
+| `session` (first line) | `format`, `id`, `title`, `session_type`, `status`, `started_at`, `ended_at`, `duration_ms`, `audio_source`, `visibility`, `project` (`id`, `name`, `workspace`, or `null`), `cwd`, `revision` | Header. `visibility` is `private` unless sharing is enabled. `project` is set only when you assigned the meeting to a project; `cwd` is its folder. |
+| `segment` | `id`, `t_ms`, `t_end_ms`, `timestamp` (ISO), `source` (`mic` / `system`), `lang`, `text` | One transcript line: what was actually said. `id` is stable. |
 | `gap` | `kind` (`pause` / `resume` / `gap` / `interrupted`), `t_ms`, `timestamp`, `detail` | Recording pauses and gaps |
-| `qa` | `kind` (`answer` / `explain` / `catchup`), `question`, `answer`, `created_at`, `covered_from_ms`, `covered_to_ms` | Your questions and Chumi's AI-written answers |
-| `summary` | `text`, `created_at` | The final AI-written summary (Markdown with `[m:ss]` citations) |
+| `qa` | `id`, `kind` (`answer` / `explain` / `catchup`), `question`, `answer`, `created_at`, `covered_from_ms`, `covered_to_ms` | Your questions and Chumi's AI-written answers |
+| `summary` | `id`, `text`, `created_at` | The final AI-written summary (Markdown with `[m:ss]` citations) |
+| `frame` | `id`, `t_ms`, `timestamp`, `window_title` | A captured slide or screen (metadata only; agents fetch the image through Chumi's MCP server) |
+| `handoff` | `id`, `project_id`, `confirmed_at`, `confirmed_revision`, `items` | Only a handoff you confirmed: confirmed decisions and actions, open questions, with origin, owner/deadline if stated, and evidence references. See [agents.md](agents.md). |
 
-In mybot, speech lines become `user` events (highest search weight). Chumi's summaries and answers become `assistant` events, labelled *AI-generated*. Gaps become `actions`. Titles read like *"Lab meeting: enhancer model (lab meeting, 2026-10-10)"*.
+In mybot, speech lines become `user` events (highest search weight). Chumi's summaries and answers become `assistant` events, labelled *AI-generated*, and a confirmed handoff becomes an `assistant` event labelled *reviewed by the user*. Gaps become `actions`. A meeting's project folder becomes the session's `cwd`, so it sits next to the agent sessions from that folder. Titles read like *"Lab meeting: enhancer model (lab meeting, 2026-10-10)"*.
 
 ## Privacy
 

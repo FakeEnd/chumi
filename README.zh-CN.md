@@ -90,6 +90,17 @@
 
 完整的设置步骤、导出格式和隐私说明见 [docs/mybot.md](docs/mybot.md)（英文）。
 
+## 在 Claude Code 或 Codex 中继续工作
+
+会议结束时常常留下要在项目里做的事：换一种数据划分重跑、加上 noise ceiling、修改一张图。Chumi 会把这些工作带进**你本来就在用 Claude Code 或 Codex 的那个项目**，并附上原始依据，你不用再向智能体从头讲一遍。
+
+1. **把会议分配给项目**：项目就是你工作的文件夹。可以在开始时选择，也可以之后在顶栏修改。Chumi 不会自动分配。
+2. **准备交接。** Chumi 起草会上的决定、行动项和待解决的问题，每一条都标注转写出处。只是提议的内容会标为“提议”，负责人和截止时间只有会上明确说过才会出现。
+3. **审核并确认。** 逐条编辑、确认或不采用。只有确认过的行动项才会交出去。
+4. **在 Claude Code 或 Codex 中继续。** Chumi 在项目文件夹中打开智能体，并带上已确认的工作。智能体通过 Chumi 的本地 MCP 服务读取交接、转写原文和截取的幻灯片，然后在它原有的权限提示下提出计划。
+
+在 **设置 → Claude Code 与 Codex** 中为每个智能体连接一次即可。如果确认之后会议又有变化，例如重新生成了总结或继续了录音，Chumi 和智能体都会看到交接可能需要重新审核。设置方法、MCP 工具和隐私说明见 [docs/agents.md](docs/agents.md)。
+
 ## 快速开始
 
 **环境要求：** Apple Silicon 芯片的 Mac，macOS 14.4 或更高版本；需要 [Homebrew](https://brew.sh)、Node.js 24 或更高版本，以及 Xcode Command Line Tools（`xcode-select --install`）。
