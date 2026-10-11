@@ -16,6 +16,11 @@
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
+<p align="center">
+  <a href="docs/assets/chumi-promo-zh.mp4"><img src="docs/assets/chumi-promo-zh-poster.jpg" width="760" alt="观看 60 秒 Chumi 介绍视频：实时转写、帮我跟上、按你的水平解释、幻灯片截图和可信的总结"></a><br>
+  <sub>▶ <a href="docs/assets/chumi-promo-zh.mp4">观看 60 秒介绍视频</a> · <a href="docs/assets/chumi-promo.mp4">English version</a></sub>
+</p>
+
 ---
 
 **Chumi 是为学术交流打造的听会助手。** 它在你的 Mac 上实时转写实验室组会、导师一对一、课堂和学术报告，英文、普通话、中英混杂都能听懂。讨论进行时，它随时告诉你讲到了哪里；走神时一键帮你跟上；遇到陌生的方法和术语，按你的背景来解释。每一个回答都能追溯到原话出现的时刻。
@@ -190,7 +195,7 @@ node scripts/check-audio.ts system 6 --play
 node scripts/demo-shoot.ts
 ```
 
-重新生成 README 截图。`bash scripts/make-banner.sh` 可以重新渲染横幅。
+重新生成 README 截图。`bash scripts/make-banner.sh` 可以重新渲染横幅；`node scripts/make-video.ts`（加 `--lang zh` 生成中文版）会根据 `docs/video/promo.html` 重新渲染介绍视频。
 
 ```bash
 npm run build:tools

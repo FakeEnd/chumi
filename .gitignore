@@ -2,6 +2,7 @@
 node_modules/
 build/
 web/dist/
+/dist/
 
 # generated test audio (recreate with: npm run sample)
 samples/**/*.wav

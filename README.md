@@ -16,6 +16,11 @@
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
+<p align="center">
+  <a href="docs/assets/chumi-promo.mp4"><img src="docs/assets/chumi-promo-poster.jpg" width="760" alt="Watch the 60-second Chumi video: live transcription, Catch me up, explanations at your level, slide capture and trustworthy summaries"></a><br>
+  <sub>▶ <a href="docs/assets/chumi-promo.mp4">Watch the 60-second video</a> · <a href="docs/assets/chumi-promo-zh.mp4">中文版</a></sub>
+</p>
+
 ---
 
 **Chumi is a listening companion for academic conversations.** It transcribes lab meetings, advisor 1:1s, lectures and seminars on your Mac, in English, Mandarin, or both at once. While the talk goes on, it tells you where the discussion is, catches you up when you drift, and explains unfamiliar methods and terms at your level. Every answer is cited back to the moment it came from.
@@ -190,7 +195,7 @@ That confirms real computer-audio capture. Use `mic 6` instead to test the micro
 node scripts/demo-shoot.ts
 ```
 
-This regenerates the README screenshots. `bash scripts/make-banner.sh` re-renders the banner.
+This regenerates the README screenshots. `bash scripts/make-banner.sh` re-renders the banner, and `node scripts/make-video.ts` (add `--lang zh` for Chinese) re-renders the promo video from `docs/video/promo.html`.
 
 ```bash
 npm run build:tools
