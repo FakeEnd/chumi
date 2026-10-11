@@ -15,6 +15,7 @@ export interface Settings {
   };
   assist: { autoExplain: boolean; autoExplainFrequency: 'low' | 'medium' | 'high'; defaultDepth: Depth; autoOverview: boolean };
   quickStart: { hotkey: string; source: 'default' | 'mic' | 'system' | 'both'; type: SessionType; notify: boolean };
+  integrations: { mybot: { enabled: boolean; exportDir: string; shareWithTeam: boolean } };
   screen: { sendImagesToAI: boolean; intervalSec: number };
   devMode: boolean;
 }

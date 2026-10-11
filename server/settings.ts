@@ -51,6 +51,10 @@ export interface Settings {
     /** Show a macOS notification when the shortcut starts/pauses/resumes, since Chumi may be in the background. */
     notify: boolean;
   };
+  integrations: {
+    /** Export finished sessions as JSONL for mybot (github.com/jzhoulab/mybot) to index. Off by default. */
+    mybot: { enabled: boolean; exportDir: string; shareWithTeam: boolean };
+  };
   screen: {
     /** Attach captured slides/screens to AI questions, catch-ups and summaries (images go to the AI provider). */
     sendImagesToAI: boolean;
@@ -84,6 +88,7 @@ export const DEFAULT_SETTINGS: Settings = {
     autoOverview: true,
   },
   quickStart: { hotkey: 'ctrl+opt+cmd+L', source: 'default', type: 'other', notify: true },
+  integrations: { mybot: { enabled: false, exportDir: '~/Library/Application Support/Chumi/exports/mybot', shareWithTeam: false } },
   screen: { sendImagesToAI: true, intervalSec: 3 },
   devMode: false,
 };

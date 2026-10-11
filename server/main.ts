@@ -11,6 +11,7 @@ import { Assistant, publicOutput, type CatchupScope, type Selection } from './ai
 import { SessionManager, publicFrame } from './session/manager.ts';
 import { listWindows, requestScreenPermission, screenPermission } from './screen/watcher.ts';
 import { HotkeyAgent } from './hotkey.ts';
+import { MybotExporter } from './integrations/mybot.ts';
 import { exportSession } from './export.ts';
 import { checkPermissions, listDevices } from './audio/capture.ts';
 import { storeKey, deleteKey } from './ai/anthropic-api.ts';
@@ -38,6 +39,11 @@ const assistant = new Assistant(store, registry, broadcast);
 const manager = new SessionManager(store, whisper, assistant, broadcast);
 assistant.visual = manager;
 manager.recoverOnBoot();
+
+// mybot export: refresh a session's JSONL when it ends, gets its summary or Q&A, is renamed; remove it on delete.
+const mybot = new MybotExporter(store);
+const syncMybot = (id: string) => { try { mybot.sync(id); } catch (e) { log('mybot', `export failed: ${(e as Error).message}`); } };
+assistant.onOutputDone = (row) => { if (row.kind !== 'digest' && row.kind !== 'overview') syncMybot(row.session_id); };
 
 // ---------------------------------------------------------------- quick start (button + global shortcut)
 const hotkey = new HotkeyAgent();
@@ -154,6 +160,7 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   if (before.assist.autoExplain !== next.assist.autoExplain) assistant.setAutoExplain(next.assist.autoExplain);
   if (before.asr.model !== next.asr.model || before.asr.threads !== next.asr.threads) whisper.configure({ model: next.asr.model, threads: next.asr.threads });
   if (before.quickStart.hotkey !== next.quickStart.hotkey && !process.env.CHUMI_NO_HOTKEY) hotkey.configure(next.quickStart.hotkey);
+  if (next.integrations.mybot.enabled && (before.integrations.mybot.shareWithTeam !== next.integrations.mybot.shareWithTeam || !before.integrations.mybot.enabled || before.integrations.mybot.exportDir !== next.integrations.mybot.exportDir)) mybot.exportAll();
   if (before.ai.provider !== next.ai.provider || JSON.stringify(before.ai) !== JSON.stringify(next.ai)) void registry.status(true).catch(() => {});
   broadcast('settings', next);
   return next;
@@ -213,7 +220,7 @@ route('POST', '/api/session/quick-start', async () => {
 });
 route('POST', '/api/session/pause', async () => { await manager.pause(); return manager.state(); });
 route('POST', '/api/session/resume', async () => { await manager.resume(); return manager.state(); });
-route('POST', '/api/session/end', async () => manager.end());
+route('POST', '/api/session/end', async () => { const r = await manager.end(); syncMybot(r.sessionId); return r; });
 route('POST', '/api/session/window', async (req) => {
   const b = await readJson(req);
   if (!manager.session) throw new HttpError(400, 'No active session.');
@@ -252,6 +259,7 @@ route('PATCH', '/api/sessions/:id', async (req, _res, p) => {
   if (typeof b.title === 'string') patch.title = b.title.slice(0, 200);
   if (typeof b.type === 'string') patch.type = b.type;
   store.updateSession(p.id, patch);
+  syncMybot(p.id);
   broadcast('session-updated', store.getSession(p.id));
   return { session: store.getSession(p.id) };
 });
@@ -259,6 +267,7 @@ route('DELETE', '/api/sessions/:id', (_req, _res, p) => {
   if (manager.session?.id === p.id) throw new HttpError(409, 'End the session before deleting it.');
   store.deleteSession(p.id);
   for (const dir of [join(FRAMES_DIR, p.id), join(AUDIO_DIR, p.id)]) rmSync(dir, { recursive: true, force: true });
+  mybot.remove(p.id);
   return { ok: true };
 });
 route('GET', '/api/sessions/:id/export', (_req, res, p, url) => {
@@ -295,6 +304,8 @@ route('POST', '/api/ai/summary', async (req) => { const b = await readJson(req);
 route('POST', '/api/ai/outputs/:id/refresh', (_req, _res, p) => { const id = assistant.refresh(p.id); if (!id) throw new HttpError(404, 'Cannot refresh'); return { id }; });
 route('POST', '/api/ai/outputs/:id/cancel', (_req, _res, p) => ({ ok: assistant.cancel(p.id) }));
 
+route('GET', '/api/integrations/mybot', () => mybot.status());
+route('POST', '/api/integrations/mybot/export-all', () => mybot.exportAll());
 route('GET', '/api/settings', () => store.getSettings());
 route('PUT', '/api/settings', async (req) => applySettingsPatch(await readJson(req)));
 route('GET', '/api/profile', () => store.getProfile());

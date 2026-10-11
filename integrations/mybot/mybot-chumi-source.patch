@@ -1,0 +1,77 @@
+diff --git a/sources/access.py b/sources/access.py
+index 6102874..8b2aef8 100644
+--- a/sources/access.py
++++ b/sources/access.py
+@@ -17,6 +17,8 @@ _POLICY_KEY_MEMO: dict[str, str] = {}
+ DEFAULT_BASE_DIRS = {
+     "codex": "~/.codex",
+     "claude": "~/.claude/projects",
++    # Chumi meeting transcripts (https://github.com/FakeEnd/chumi), exported as chumi-transcript/1 JSONL.
++    "chumi": "~/Library/Application Support/Chumi/exports/mybot",
+ }
+ 
+ 
+@@ -614,6 +616,8 @@ def account_patterns(account: TrajectoryAccessAccount) -> list[str]:
+         ]
+     if account.source_name == "claude":
+         return [os.path.join(account.expanded_base_dir, "*", "*.jsonl")]
++    if account.source_name == "chumi":
++        return [os.path.join(account.expanded_base_dir, "*.jsonl")]
+     return []
+ 
+ 
+diff --git a/sources/registry.py b/sources/registry.py
+index 85fb646..0e86043 100644
+--- a/sources/registry.py
++++ b/sources/registry.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+ 
++from .chumi import ChumiSourceAdapter
+ from .claude import ClaudeSourceAdapter
+ from .codex import CodexSourceAdapter
+ from .access import load_access_config
+@@ -10,6 +11,7 @@ def _registry() -> dict[str, type[TrajectorySourceAdapter]]:
+     return {
+         "codex": CodexSourceAdapter,
+         "claude": ClaudeSourceAdapter,
++        "chumi": ChumiSourceAdapter,
+     }
+ 
+ 
+diff --git a/sources/trajectory_lookup.py b/sources/trajectory_lookup.py
+index 2a2f2aa..329682f 100644
+--- a/sources/trajectory_lookup.py
++++ b/sources/trajectory_lookup.py
+@@ -376,11 +376,22 @@ def _read_codex_events(path: str) -> list[ParsedEvent]:
+     return events
+ 
+ 
++def _read_chumi_events(path: str) -> list[ParsedEvent]:
++    from .chumi import iter_chumi_events
++
++    events: list[ParsedEvent] = []
++    for role, text, ts, _raw in iter_chumi_events(path):
++        _append_event(events, role, text, ts)
++    return events
++
++
+ def read_events_for_session(session: NormalizedTrajectory) -> list[ParsedEvent]:
+     if session.source_name == "claude":
+         return _read_claude_events(session.file_path)
+     if session.source_name == "codex":
+         return _read_codex_events(session.file_path)
++    if session.source_name == "chumi":
++        return _read_chumi_events(session.file_path)
+     return [ParsedEvent(role=turn.role, text=turn.text, timestamp=turn.timestamp or "") for turn in session.turns]
+ 
+ 
+@@ -424,6 +435,8 @@ def read_payload_from_file(
+         events = _read_claude_events(file_path)
+     elif source_name == "codex":
+         events = _read_codex_events(file_path)
++    elif source_name == "chumi":
++        events = _read_chumi_events(file_path)
+     else:
+         return None
+     transcript = render_events(events)

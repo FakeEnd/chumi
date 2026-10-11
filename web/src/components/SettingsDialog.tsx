@@ -5,7 +5,7 @@ import { api } from '../api.ts';
 import { Dialog } from './Dialog.tsx';
 import type { ProviderStatus } from '../types.ts';
 
-const TABS = [['audio', 'Audio'], ['quick', 'Quick start'], ['screen', 'Screen'], ['asr', 'Transcription'], ['ai', 'AI provider'], ['assist', 'Assistance'], ['privacy', 'Privacy & data']] as const;
+const TABS = [['audio', 'Audio'], ['quick', 'Quick start'], ['screen', 'Screen'], ['asr', 'Transcription'], ['ai', 'AI provider'], ['assist', 'Assistance'], ['integrations', 'Integrations'], ['privacy', 'Privacy & data']] as const;
 
 function QuotaView({ p }: { p: ProviderStatus }) {
   return (
@@ -41,12 +41,16 @@ export function SettingsDialog() {
   const [perm, setPerm] = useState<Record<string, string>>({});
   const [glossary, setGlossary] = useState(settings.asr.glossary.join(', '));
   const [apiKey, setApiKey] = useState('');
+  const [mybot, setMybot] = useState<{ enabled: boolean; dir: string; files: number; shareWithTeam: boolean } | null>(null);
+  const [exportDir, setExportDir] = useState(settings.integrations.mybot.exportDir);
+  const loadMybot = () => void api('/api/integrations/mybot').then(setMybot).catch(() => {});
   useEffect(() => {
     if (tab === 'audio') {
       void api('/api/audio/devices').then((d) => setDevices(d.devices ?? [])).catch(() => {});
       void api('/api/audio/permissions').then(setPerm).catch(() => {});
     }
     if (tab === 'ai') void refreshProvider();
+    if (tab === 'integrations') loadMybot();
   }, [tab]);
   const S = saveSettings;
 
@@ -239,6 +243,26 @@ export function SettingsDialog() {
         </section>
       )}
 
+      {tab === 'integrations' && (
+        <section>
+          <h3>mybot: searchable memory across meetings and agent sessions</h3>
+          <p className="small"><a href="https://github.com/jzhoulab/mybot" target="_blank" rel="noreferrer">mybot</a> indexes your Claude Code and Codex conversations into one local, searchable memory. With this on, Chumi also exports your finished meetings, so mybot can answer questions like "what did my advisor say about the holdout split?" with the date and a link to the moment.</p>
+          <label className="field check"><input type="checkbox" checked={settings.integrations.mybot.enabled} onChange={(e) => void S({ integrations: { mybot: { enabled: e.target.checked } } }).then(loadMybot)} /> Export finished sessions for mybot (transcript, summary, and your questions with Chumi's answers)</label>
+          <label className="field"><span>Export folder (mybot's <code>chumi</code> source reads this)</span>
+            <div className="field-row" style={{ marginBottom: 0 }}>
+              <input value={exportDir} onChange={(e) => setExportDir(e.target.value)} />
+              <button className="btn small" disabled={exportDir === settings.integrations.mybot.exportDir} onClick={() => void S({ integrations: { mybot: { exportDir } } }).then(loadMybot)}>Save</button>
+            </div>
+          </label>
+          <label className="field check warn-box"><input type="checkbox" checked={settings.integrations.mybot.shareWithTeam} onChange={(e) => { if (!e.target.checked || confirm('Let mybot use your meeting transcripts when answering teammates? Meetings contain other people\'s words, so only do this if everyone is comfortable with it.')) void S({ integrations: { mybot: { shareWithTeam: e.target.checked } } }).then(loadMybot); }} /> Let mybot share meeting content with teammates (off: meetings are owner-only, marked <code>visibility: private</code>)</label>
+          <div className="btn-row">
+            <button className="btn small" onClick={() => void api('/api/integrations/mybot/export-all', { body: {} }).then(loadMybot)}>Export all sessions now</button>
+            {mybot && <span className="muted small">{mybot.files} session file{mybot.files === 1 ? '' : 's'} in <code>{mybot.dir}</code></span>}
+          </div>
+          <p className="muted small">One-time mybot setup: run <code>bash integrations/mybot/install.sh ~/Code/mybot</code> from the Chumi folder, add <code>chumi</code> to <code>TRAJECTORY_SOURCES</code> in mybot's <code>.env</code>, then restart mybot. Details: docs/mybot.md.</p>
+        </section>
+      )}
+
       {tab === 'privacy' && (
         <section className="prose small">
           <h3>What stays on this Mac</h3>
@@ -247,6 +271,7 @@ export function SettingsDialog() {
             <li>Sessions, transcripts, AI answers, your profile and settings live in a local SQLite database: <code>{dataDir}</code>.</li>
             <li>Raw audio is written to disk only if you turn on “Save raw audio”.</li>
             <li>Window captures (if you choose a window) are stored as JPEG images in the same folder.</li>
+            <li>If you enable the mybot integration, finished sessions are also written as JSONL files to the export folder you choose. They stay on this Mac.</li>
             <li>Credentials: Codex and Claude Code keep their own sign-in and Chumi never reads it. An optional API key is stored in the macOS Keychain.</li>
           </ul>
           <h3>What is sent to the AI provider</h3>

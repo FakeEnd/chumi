@@ -1,20 +1,26 @@
 <p align="center">
-  <img src="assets/logo.svg" width="120" alt="Chumi logo: a speech bubble holding a sound wave, with a spark">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner-light.png">
+    <img src="docs/assets/banner-light.png" alt="Chumi: never lose the thread, understand every talk. A listening companion for lab meetings, advisor 1:1s, lectures and seminars." width="900">
+  </picture>
 </p>
 
-<h1 align="center">Chumi</h1>
-
 <p align="center">
-  <b>Your AI listening companion for lab meetings, advisor 1:1s, lectures and seminars.</b><br>
-  It listens on your Mac, keeps track of where the discussion is, and explains what you need, using the ChatGPT or Claude subscription you already have.
+  <img src="https://img.shields.io/badge/macOS-14.4%2B%20Apple%20Silicon-000000" alt="macOS 14.4+ on Apple Silicon">
+  <img src="https://img.shields.io/badge/node-24%2B-339933" alt="Node 24+">
+  <img src="https://img.shields.io/badge/speech-on--device%20(whisper.cpp)-4f46e5" alt="On-device speech recognition">
+  <img src="https://img.shields.io/badge/AI-ChatGPT%20or%20Claude%20plan-0e9fb8" alt="ChatGPT or Claude plan">
+  <img src="https://img.shields.io/badge/network-localhost%20only-4ade80" alt="Localhost only">
 </p>
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
-<p align="center">
-  <img src="docs/assets/screens/live.png" width="940" alt="Chumi during a lab meeting: live transcript with English and Mandarin lines, a running overview with clickable timestamps, and a catch-up card covering the last two minutes">
-</p>
-<p align="center"><sub>A real run on the bundled 20-minute sample lab meeting: live transcript (English and Mandarin), running overview, and a catch-up on the last two minutes.</sub></p>
+---
+
+**Chumi is a listening companion for academic conversations.** It transcribes lab meetings, advisor 1:1s, lectures and seminars on your Mac, in English, Mandarin, or both at once. While the talk goes on, it tells you where the discussion is, catches you up when you drift, and explains unfamiliar methods and terms at your level. Every answer is cited back to the moment it came from.
+
+Research talk moves fast and borrows from neighbouring fields. A deep-learning person in a wet-lab meeting, or a biologist in a statistics seminar, constantly loses a minute here and a term there. Chumi keeps the thread for you, using the ChatGPT or Claude subscription you already have. It never sends audio off the machine.
 
 ## Highlights
 
@@ -29,6 +35,12 @@
 - **One keystroke when a talk starts.** Press **⌃⌥⌘L** from any app to start listening. Press again to pause.
 
 ## See it in action
+
+**Lost the thread? Catch me up.** Here's a live lab meeting with a running overview and English and Mandarin transcript. The catch-up covers exactly the last two minutes, with every point cited to the transcript:
+
+<p align="center">
+  <img src="docs/assets/screens/live.png" width="900" alt="Chumi during a lab meeting: live transcript with English and Mandarin lines, a running overview with clickable timestamps, and a catch-up card covering the last two minutes">
+</p>
 
 **Ask about the slide on screen.** A captured slide goes with the question, and the answer weighs it against what was actually said. Here it notices that the slide's numbers don't match the library size the speaker described:
 
@@ -55,6 +67,16 @@
 </p>
 
 <sub>All screenshots come from a real run (real local transcription, real Claude answers) on the synthetic sample meeting in <code>samples/lab-meeting</code>. To regenerate them, run <code>node scripts/demo-shoot.ts</code>.</sub>
+
+## Works with mybot
+
+[**mybot**](https://github.com/jzhoulab/mybot) unifies your Claude Code and Codex conversations into one local, searchable memory. With Chumi's export turned on, **your meetings join that memory too**. Ask mybot *"what did my advisor ask me to rerun last week?"* or *"when did we decide on 200 barcodes per variant, and who was unsure?"*, and it answers with the date and a link to the exact moment in the meeting.
+
+- In Chumi, go to **Settings → Integrations** and turn on *Export finished sessions for mybot*.
+- In mybot, run `bash integrations/mybot/install.sh ~/Code/mybot` once, then add `chumi` to `TRAJECTORY_SOURCES`.
+- Meetings are **owner-only by default** (`visibility: private`), because they contain other people's words. Sharing with teammates is a separate opt-in.
+
+Setup, the export format and the privacy model are in [docs/mybot.md](docs/mybot.md).
 
 ## Quick start
 
@@ -168,7 +190,7 @@ That confirms real computer-audio capture. Use `mic 6` instead to test the micro
 node scripts/demo-shoot.ts
 ```
 
-This regenerates the README screenshots.
+This regenerates the README screenshots. `bash scripts/make-banner.sh` re-renders the banner.
 
 ```bash
 npm run build:tools
@@ -183,7 +205,15 @@ That rebuilds the window-capture and shortcut helpers without touching Chumi.app
 | `native/` | Swift app shell and helpers ([native/README.md](native/README.md)) |
 | `scripts/` | Setup, acceptance test, audio check, screenshots, sample generator |
 | `samples/lab-meeting/` | Synthetic bilingual lab meeting, generated with `npm run sample` |
-| `docs/` | [Provider research](docs/provider-research.md) and the [verification log](docs/verification.md) |
+| `integrations/mybot/` | mybot source adapter, patch, installer and test ([docs/mybot.md](docs/mybot.md)) |
+| `docs/` | [Provider research](docs/provider-research.md), the [verification log](docs/verification.md), [mybot integration](docs/mybot.md), and banner source |
+
+## Related projects
+
+| Project | What it is |
+|---|---|
+| [mybot](https://github.com/jzhoulab/mybot) | The connectivity layer for coding agents: every Claude Code and Codex conversation in one searchable memory, shared across your team. Chumi meetings plug in as a source. |
+| [nebula-notebook](https://github.com/jzhoulab/nebula-notebook) | An agent-native notebook: you and your AI work in the same cells |
 
 ## Status and roadmap
 

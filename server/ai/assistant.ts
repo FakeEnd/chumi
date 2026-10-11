@@ -72,6 +72,8 @@ export class Assistant {
   private backoffUntil = 0;
   /** Counters exposed for tests and the UI. */
   stats = { suppressedAuto: 0, autoRequests: 0 };
+  /** Called when any output finishes (used by integrations such as the mybot export). */
+  onOutputDone: (row: OutputRow) => void = () => {};
   /** Window captures (slides / shared screen); set by the server once the session manager exists. */
   visual: VisualSource | null = null;
 
@@ -149,6 +151,7 @@ export class Assistant {
         });
         this.backoffUntil = 0;
         o.after?.(this.store.getOutput(id)!);
+        this.onOutputDone(this.store.getOutput(id)!);
       } catch (e) {
         if (flushTimer) clearTimeout(flushTimer);
         const err = e as ProviderError;

@@ -1,20 +1,26 @@
 <p align="center">
-  <img src="assets/logo.svg" width="120" alt="Chumi 标志：装着声波的对话气泡，旁边一颗星火">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-zh-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner-zh-light.png">
+    <img src="docs/assets/banner-zh-light.png" alt="Chumi：开会不再跟丢，每个概念都听得懂。为实验室组会、导师一对一、课堂和学术报告打造的听会助手。" width="900">
+  </picture>
 </p>
 
-<h1 align="center">Chumi</h1>
-
 <p align="center">
-  <b>你的 AI 听会助手：实验室组会、导师一对一、课堂讲座和学术报告都能用。</b><br>
-  它在你的 Mac 上实时收听，随时告诉你讨论到了哪里，并按需解释你不熟悉的内容。AI 部分直接使用你已有的 ChatGPT 或 Claude 订阅。
+  <img src="https://img.shields.io/badge/macOS-14.4%2B%20Apple%20Silicon-000000" alt="macOS 14.4+，Apple Silicon">
+  <img src="https://img.shields.io/badge/node-24%2B-339933" alt="Node 24+">
+  <img src="https://img.shields.io/badge/speech-on--device%20(whisper.cpp)-4f46e5" alt="本地语音识别">
+  <img src="https://img.shields.io/badge/AI-ChatGPT%20or%20Claude%20plan-0e9fb8" alt="ChatGPT 或 Claude 订阅">
+  <img src="https://img.shields.io/badge/network-localhost%20only-4ade80" alt="仅本机网络">
 </p>
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
-<p align="center">
-  <img src="docs/assets/screens/live.png" width="940" alt="组会进行中的 Chumi：中英混合的实时转写、带可点击时间戳的讨论概览，以及覆盖最近两分钟的“帮我跟上”卡片">
-</p>
-<p align="center"><sub>真实运行截图：使用项目自带的 20 分钟示例组会，包括实时转写（英文与中文）、讨论概览，以及对最近两分钟的“帮我跟上”。</sub></p>
+---
+
+**Chumi 是为学术交流打造的听会助手。** 它在你的 Mac 上实时转写实验室组会、导师一对一、课堂和学术报告，英文、普通话、中英混杂都能听懂。讨论进行时，它随时告诉你讲到了哪里；走神时一键帮你跟上；遇到陌生的方法和术语，按你的背景来解释。每一个回答都能追溯到原话出现的时刻。
+
+科研讨论节奏快，又经常跨领域：做深度学习的人去听湿实验组会，做生物的人去听统计报告，总会在这里漏掉一分钟、那里错过一个词。Chumi 帮你把线索接住。AI 部分使用你已有的 ChatGPT 或 Claude 订阅，音频始终不离开你的电脑。
 
 ## 亮点
 
@@ -29,6 +35,12 @@
 - **突然开始讨论？一个快捷键就行。** 在任何应用里按 **⌃⌥⌘L** 立即开始收听，再按一次暂停。
 
 ## 实际效果
+
+**跟丢了？一键帮我跟上。** 下面是一场正在进行的组会，左侧有实时概览和中英混合转写，右侧的"帮我跟上"刚好覆盖最近两分钟，每一条都标注了出处：
+
+<p align="center">
+  <img src="docs/assets/screens/live.png" width="900" alt="组会进行中的 Chumi：中英混合的实时转写、带可点击时间戳的讨论概览，以及覆盖最近两分钟的帮我跟上卡片">
+</p>
 
 **直接问屏幕上的幻灯片。** 截到的幻灯片会随问题一起发送，回答会把它和讲者实际说的内容对照。在下图中，它还发现幻灯片上的数字和讲者描述的文库规模对不上：
 
@@ -55,6 +67,16 @@
 </p>
 
 <sub>以上截图都来自真实运行：本地真实转写，加上 Claude 的真实回答，素材是 <code>samples/lab-meeting</code> 中的合成示例组会。运行 <code>node scripts/demo-shoot.ts</code> 可以重新生成。</sub>
+
+## 与 mybot 联动
+
+[**mybot**](https://github.com/jzhoulab/mybot) 把你所有的 Claude Code 和 Codex 对话汇总成一个本地可搜索的记忆库。打开 Chumi 的导出功能后，**你的会议记录也会加入这个记忆库**。你可以问 mybot："上周导师让我重跑什么？"或者"我们什么时候定下每个变体 200 个 barcode，谁还有疑虑？"，它会给出日期，并链接到会议中原话出现的那一刻。
+
+- 在 Chumi 中：**设置 → Integrations**，打开 *Export finished sessions for mybot*。
+- 在 mybot 中：运行一次 `bash integrations/mybot/install.sh ~/Code/mybot`，然后把 `chumi` 加入 `TRAJECTORY_SOURCES`。
+- 会议里有其他人说的话，所以**默认只有你自己能查**（`visibility: private`）。要分享给团队成员，需要另外手动开启。
+
+完整的设置步骤、导出格式和隐私说明见 [docs/mybot.md](docs/mybot.md)（英文）。
 
 ## 快速开始
 
@@ -168,7 +190,7 @@ node scripts/check-audio.ts system 6 --play
 node scripts/demo-shoot.ts
 ```
 
-重新生成 README 截图。
+重新生成 README 截图。`bash scripts/make-banner.sh` 可以重新渲染横幅。
 
 ```bash
 npm run build:tools
@@ -183,7 +205,15 @@ npm run build:tools
 | `native/` | Swift App 外壳和辅助工具（[native/README.md](native/README.md)） |
 | `scripts/` | 安装、验收测试、音频检查、截图、示例生成 |
 | `samples/lab-meeting/` | 合成的双语示例组会，用 `npm run sample` 生成 |
-| `docs/` | [AI 服务调研](docs/provider-research.md)与[验证记录](docs/verification.md) |
+| `integrations/mybot/` | mybot 数据源适配器、补丁、安装脚本和测试（[docs/mybot.md](docs/mybot.md)） |
+| `docs/` | [AI 服务调研](docs/provider-research.md)、[验证记录](docs/verification.md)、[mybot 联动](docs/mybot.md)，以及横幅源文件 |
+
+## 相关项目
+
+| 项目 | 简介 |
+|---|---|
+| [mybot](https://github.com/jzhoulab/mybot) | 编程智能体的连接层：所有 Claude Code 和 Codex 对话汇成一个可搜索的记忆库，并可在团队内共享。Chumi 的会议记录可以作为它的数据源。 |
+| [nebula-notebook](https://github.com/jzhoulab/nebula-notebook) | 为智能体而生的笔记本：你和 AI 在同一组 cell 里协作 |
 
 ## 现状与计划
 

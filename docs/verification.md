@@ -29,3 +29,11 @@ What the real-model run showed:
 | Quick-start shortcut | The shortcut registered system-wide. Start, pause and resume verified through the server. The physical key press is left to the user. |
 | ChatGPT plan answers | Status, quota windows and the credit-spending gate verified against a real account. A real completion **wasn't run**, because that account's weekly window was exhausted and Chumi correctly refused to spend credits. Re-check with `node scripts/acceptance.ts --provider codex`. |
 | Crash recovery | A real crash during a seminar kept all 197 transcript lines and 49 captures. The session reopened as "interrupted", ready to resume. The bug that caused it is fixed and covered by a regression test. |
+
+## mybot integration
+
+| Check | Result |
+|---|---|
+| Chumi export | Unit test: `chumi-transcript/1` JSONL is private by default, has the right line types, and the file is removed when the session is deleted. Live sessions are not exported. |
+| mybot adapter, against a real mybot checkout | `install.sh` applies cleanly to a fresh clone of jzhoulab/mybot, and a second run is safe. `integrations/mybot/test_chumi_source.py` indexed 2 exported sessions (291 turns), both owner-only, produced session and chunk import records, and read transcript windows with timestamped snippets. |
+| mybot's own indexer | `trajectory_memory.py build --sources chumi` indexed both sessions (`by_tool: {"chumi": 2}`), and `search "how many barcodes per variant"` returned them. The embedding and server paths (sentence-transformers, `/chat`) weren't run here. |
