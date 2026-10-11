@@ -1,0 +1,38 @@
+{
+  "_comment": "Example Chumi configuration. No secrets belong here: AI sign-in is handled by the Codex / Claude Code CLIs, and an optional API key goes into the macOS Keychain via Settings. Apply with: node scripts/import-config.ts config/example.config.json",
+  "settings": {
+    "audio": { "source": "mic", "micDeviceUid": null, "aec": true, "saveRawAudio": false },
+    "asr": {
+      "model": "ggml-large-v3-turbo-q8_0.bin",
+      "language": "auto",
+      "threads": 8,
+      "chineseScript": "simplified",
+      "glossary": ["ATAC-seq", "ChIP-seq", "RNA-seq", "enhancer", "promoter", "motif", "transcription factor", "chromatin accessibility", "CRISPR", "eQTL"]
+    },
+    "ai": {
+      "provider": "codex",
+      "codex": { "model": null, "allowCredits": false },
+      "claudeCli": { "model": "sonnet" },
+      "anthropicApi": { "enabled": false, "model": "claude-opus-5-5" }
+    },
+    "assist": { "autoExplain": false, "autoExplainFrequency": "medium", "defaultDepth": "standard", "autoOverview": true },
+    "devMode": false
+  },
+  "profile": {
+    "background": "Software engineering background (professional experience). Now a PhD student in computational biology.",
+    "researchInterests": "Deep learning for genomics; gene regulation; regulatory sequence models.",
+    "domains": [
+      { "name": "Software engineering", "level": 4 },
+      { "name": "Machine learning / deep learning", "level": 3 },
+      { "name": "Statistics", "level": 2, "notes": "Explain assumptions of specific tests and models." },
+      { "name": "Genomics & gene regulation", "level": 2 },
+      { "name": "Wet-lab experimental techniques", "level": 1, "notes": "Do not assume familiarity with specific protocols." },
+      { "name": "Immunology", "level": 0 }
+    ],
+    "knownConcepts": ["convolutional neural network", "transformer", "attention", "cross-validation"],
+    "needsBackground": ["experimental assay design", "biology-specific statistical models"],
+    "explanationLanguage": "Simplified Chinese",
+    "keepEnglishTerms": true,
+    "style": "Concise. Start with the intuition, then the mechanism. Use software/ML analogies when helpful."
+  }
+}

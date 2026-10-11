@@ -1,0 +1,40 @@
+{
+  "name": "chumi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal AI listening companion for academic meetings and lectures (local transcription + subscription-based AI).",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "start": "node server/main.ts",
+    "dev:server": "CHUMI_DEV=1 node --watch server/main.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "build:web": "vite build --config web/vite.config.ts",
+    "build:native": "bash native/build.sh",
+    "build:tools": "bash native/build.sh tools",
+    "build": "npm run build:web && npm run build:native",
+    "app": "open build/Chumi.app",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "test": "node --test tests/*.test.ts",
+    "check": "npm run typecheck && npm test",
+    "sample": "node scripts/make-sample.mjs",
+    "acceptance": "node scripts/acceptance.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "marked": "^18.1.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

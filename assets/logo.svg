@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Chumi logo">
+  <title>Chumi</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4338CA"/>
+      <stop offset="1" stop-color="#0E9FB8"/>
+    </linearGradient>
+    <linearGradient id="wave" gradientUnits="userSpaceOnUse" x1="296" y1="0" x2="744" y2="0">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#0891B2"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FDE68A"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+  </defs>
+  <!-- app tile -->
+  <rect x="100" y="100" width="824" height="824" rx="190" fill="url(#tile)"/>
+  <!-- speech bubble: someone is talking -->
+  <path fill="#FFFFFF" d="M342 300H682A110 110 0 0 1 792 410V530A110 110 0 0 1 682 640H448L330 742L356 640H342A110 110 0 0 1 232 530V410A110 110 0 0 1 342 300Z"/>
+  <!-- sound wave: Chumi is listening -->
+  <g fill="url(#wave)">
+    <rect x="296" y="435" width="40" height="70" rx="20"/>
+    <rect x="364" y="400" width="40" height="140" rx="20"/>
+    <rect x="432" y="365" width="40" height="210" rx="20"/>
+    <rect x="500" y="345" width="40" height="250" rx="20"/>
+    <rect x="568" y="365" width="40" height="210" rx="20"/>
+    <rect x="636" y="400" width="40" height="140" rx="20"/>
+    <rect x="704" y="435" width="40" height="70" rx="20"/>
+  </g>
+  <!-- spark: and helps you understand -->
+  <path fill="url(#spark)" stroke="#FFFFFF" stroke-width="14" stroke-linejoin="round" d="M790 196Q790 290 884 290Q790 290 790 384Q790 290 696 290Q790 290 790 196Z"/>
+  <circle cx="866" cy="212" r="17" fill="#FDE68A"/>
+</svg>

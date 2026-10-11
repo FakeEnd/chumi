@@ -1,0 +1,12 @@
+# dependencies & build output
+node_modules/
+build/
+web/dist/
+
+# generated test audio (recreate with: npm run sample)
+samples/**/*.wav
+
+# local data, logs, OS files
+config/local.json
+*.log
+.DS_Store
