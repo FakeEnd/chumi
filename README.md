@@ -17,8 +17,8 @@
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
 <p align="center">
-  <a href="docs/assets/chumi-promo.mp4"><img src="docs/assets/chumi-promo-poster.jpg" width="760" alt="Watch the 60-second Chumi video: live transcription, Catch me up, explanations at your level, slide capture and trustworthy summaries"></a><br>
-  <sub>▶ <a href="docs/assets/chumi-promo.mp4">Watch the 60-second video</a> · <a href="docs/assets/chumi-promo-zh.mp4">中文版</a></sub>
+  <a href="docs/assets/chumi-promo.mp4"><img src="docs/assets/chumi-promo-poster.jpg" width="760" alt="Watch the 50-second Chumi video: live transcription, Catch me up, explanations at your level, slide capture, trustworthy summaries and speech models for your Mac"></a><br>
+  <sub>▶ <a href="docs/assets/chumi-promo.mp4">Watch the 50-second video</a> · <a href="docs/assets/chumi-promo-zh.mp4">中文版</a></sub>
 </p>
 
 ---
@@ -41,22 +41,22 @@ Research talk moves fast and borrows from neighbouring fields. A deep-learning p
 
 ## See it in action
 
-**Lost the thread? Catch me up.** Here's a live lab meeting with a running overview and English and Mandarin transcript. The catch-up covers exactly the last two minutes, with every point cited to the transcript:
+**Lost the thread? Catch me up.** Here's a live lab meeting with a running overview and transcript. The catch-up covers exactly the last two minutes, with every point cited to the transcript:
 
 <p align="center">
-  <img src="docs/assets/screens/live.png" width="900" alt="Chumi during a lab meeting: live transcript with English and Mandarin lines, a running overview with clickable timestamps, and a catch-up card covering the last two minutes">
+  <img src="docs/assets/screens/live.png" width="900" alt="Chumi during a lab meeting: live transcript, a running overview with clickable timestamps, and a catch-up card covering the last two minutes">
 </p>
 
-**Ask about the slide on screen.** A captured slide goes with the question, and the answer weighs it against what was actually said. Here it notices that the slide's numbers don't match the library size the speaker described:
+**Ask about the slide on screen.** A captured slide goes with the question, and the answer weighs it against what was actually said. Here it notices that some of the slide's numbers differ from what was said aloud, so it treats the slide as a draft:
 
 <p align="center">
   <img src="docs/assets/screens/window-capture.png" width="900" alt="A captured slide in the Screen strip; the answer explains the slide, cites transcript times, and flags a mismatch between the slide and the discussion">
 </p>
 
-**Explanations in Chinese, English terms kept.** Select *negative binomial* in the transcript and get the intuition, how it was used in this discussion, and why it matters. All of it is pitched to your statistics level:
+**Explanations pitched to you.** Select *negative binomial* in the transcript and get the intuition, how it was used in this discussion, and why it matters. All of it is pitched to your statistics level, in English or Chinese:
 
 <p align="center">
-  <img src="docs/assets/screens/chinese.png" width="900" alt="An explanation card in Simplified Chinese for 'negative binomial model', with transcript citations">
+  <img src="docs/assets/screens/explain.png" width="900" alt="An explanation card for 'negative binomial model', pitched to the profile, with transcript citations">
 </p>
 
 **A structured summary when the meeting ends.** It has sections for research question, methods, findings (labelled established, preliminary or contested), disagreements, open questions and action items, all cited back to the transcript. Dark mode included:
@@ -65,13 +65,19 @@ Research talk moves fast and borrows from neighbouring fields. A deep-learning p
   <img src="docs/assets/screens/summary.png" width="900" alt="Dark mode: the final summary card with an overview and research question, each claim linked to transcript times">
 </p>
 
+**A speech model that fits your Mac.** Settings → Transcription lists seven models from Tiny to Large v3, recommends one for your hardware, and tests the current model's speed and accuracy:
+
+<p align="center">
+  <img src="docs/assets/screens/models.png" width="900" alt="Settings, Transcription tab: speech models with size, speed and accuracy, the recommended model in use, and speed and accuracy test results">
+</p>
+
 **Start in one click.** The home screen offers quick start, presets for in-person, online and hybrid conversations, your recent sessions, and your knowledge profile at a glance:
 
 <p align="center">
   <img src="docs/assets/screens/home.png" width="900" alt="The home screen: greeting, status, four start options, recent sessions, profile summary and tips">
 </p>
 
-<sub>All screenshots come from a real run (real local transcription, real Claude answers) on the synthetic sample meeting in <code>samples/lab-meeting</code>. To regenerate them, run <code>node scripts/demo-shoot.ts</code>.</sub>
+<sub>All screenshots come from a real run (real local transcription, real Claude answers) on a synthetic, all-English sample meeting in <code>samples/lab-meeting-en</code>: a written script with fictional people, voiced by macOS text-to-speech, and a fictional profile. Nothing comes from real meetings. To regenerate them, run <code>node scripts/demo-shoot.ts</code>.</sub>
 
 ## Works with mybot
 
@@ -196,7 +202,7 @@ That confirms real computer-audio capture. Use `mic 6` instead to test the micro
 node scripts/demo-shoot.ts
 ```
 
-This regenerates the README screenshots. `bash scripts/make-banner.sh` re-renders the banner, and `node scripts/make-video.ts` (add `--lang zh` for Chinese) re-renders the promo video from `docs/video/promo.html`.
+This regenerates the English README screenshots; add `--lang zh` for the Chinese set in `docs/assets/screens/zh/`. `bash scripts/make-banner.sh` re-renders the banner, and `node scripts/make-video.ts` (add `--lang zh` for Chinese) re-renders the promo video from `docs/video/promo.html`.
 
 ```bash
 npm run build:tools

@@ -2,7 +2,7 @@
  * Renders the promo video from docs/video/promo.html.
  *
  *   node scripts/make-video.ts               # English → docs/assets/chumi-promo.mp4
- *   node scripts/make-video.ts --lang zh     # Chinese captions → docs/assets/chumi-promo-zh.mp4
+ *   node scripts/make-video.ts --lang zh     # Chinese version (Chinese UI screenshots) → docs/assets/chumi-promo-zh.mp4
  *   node scripts/make-video.ts --preview     # a few still frames into the temp folder, for checking layout
  *
  * Frames are rendered deterministically (render(t) per frame) with headless Chrome over the DevTools
@@ -56,7 +56,7 @@ async function frame(t: number, file: string): Promise<void> {
 }
 
 // ------------------------------------------------------------------ music bed (synthesised)
-function music(duration: number, clicks: number[], file: string): void {
+function music(duration: number, clicks: number[], appWindow: [number, number], file: string): void {
   const SR = 44100, n = Math.ceil(duration * SR);
   const L = new Float32Array(n), R = new Float32Array(n);
   const midi = (m: number) => 440 * 2 ** ((m - 69) / 12);
@@ -80,7 +80,7 @@ function music(duration: number, clicks: number[], file: string): void {
   // gentle plucked arpeggio while the app is on screen, with a small echo
   const eighth = 60 / 88 / 2;
   for (let k = 0; ; k++) {
-    const t0 = 11.4 + k * eighth; if (t0 > 54.4) break;
+    const t0 = appWindow[0] + k * eighth; if (t0 > appWindow[1] - 0.2) break;
     const chord = chords[Math.floor(t0 / chordLen) % chords.length];
     const m = chord[1 + (k % 4)] + 12, f = midi(m), pan = k % 2 ? 0.65 : 0.35;
     for (let echo = 0; echo < 3; echo++) {
@@ -115,11 +115,14 @@ try {
   await openPage();
   const duration = await evaluate('window.DURATION') as number;
   const clicks = await evaluate('window.CLICKS') as number[];
+  const appWindow = await evaluate('window.APP_WINDOW') as [number, number];
+  const posterT = await evaluate('window.POSTER_T') as number;
+  const previewT = await evaluate('window.PREVIEW_T') as number[];
   const poster = async () => {
     // Poster: the catch-up scene with a play button, so the README shows the app rather than the logo.
     await evaluate(`document.getElementById('play').style.display = 'grid'; true`);
     const png = join(TMP, 'poster.jpg');
-    await frame(24.2, png);
+    await frame(posterT, png);
     await evaluate(`document.getElementById('play').style.display = 'none'; true`);
     execFileSync('sips', ['-s', 'format', 'jpeg', '-Z', '1280', png, '--out', WEB.replace(/\.mp4$/, '-poster.jpg')], { stdio: 'ignore' });
   };
@@ -128,7 +131,7 @@ try {
     console.log(`wrote ${WEB.replace(/\.mp4$/, '-poster.jpg')}`);
   } else if (PREVIEW) {
     const dir = join(TMP, 'preview'); mkdirSync(dir, { recursive: true });
-    for (const t of [2.5, 8.6, 16, 21.0, 25.5, 31, 36.4, 40, 45.5, 50, 53, 58]) await frame(t, join(dir, `t${String(t).replace('.', '_')}.jpg`));
+    for (const t of previewT) await frame(t, join(dir, `t${String(t).replace('.', '_')}.jpg`));
     console.log(dir);
   } else {
     const frames = join(TMP, 'frames'); mkdirSync(frames, { recursive: true });
@@ -138,7 +141,7 @@ try {
       await frame(i / FPS, join(frames, `f${String(i).padStart(5, '0')}.jpg`));
       if (i % 300 === 0) console.log(`frame ${i}/${total} (${Math.round((Date.now() - started) / 1000)} s)`);
     }
-    music(duration, clicks, join(TMP, 'music.wav'));
+    music(duration, clicks, appWindow, join(TMP, 'music.wav'));
     mkdirSync(join(ROOT, 'dist/video'), { recursive: true });
     const enc = (out: string, extra: string[]) => execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', join(frames, 'f%05d.jpg'), '-i', join(TMP, 'music.wav'),
       ...extra, '-pix_fmt', 'yuv420p', '-preset', 'slow', '-tune', 'animation', '-movflags', '+faststart', '-c:a', 'aac', '-shortest', out], { stdio: 'inherit' });

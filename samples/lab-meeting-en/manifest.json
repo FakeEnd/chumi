@@ -1,0 +1,1195 @@
+{
+  "title": "Rivera Lab Meeting: Enhancer Activity Model and MPRA Validation Design",
+  "audioFile": "lab-meeting-en.wav",
+  "format": {
+    "container": "WAVE",
+    "encoding": "PCM signed 16-bit little-endian",
+    "sampleRate": 16000,
+    "channels": 1,
+    "bitsPerSample": 16
+  },
+  "durationMs": 1197227,
+  "duration": "19:57",
+  "lineCount": 117,
+  "wordCount": {
+    "latin": 3336,
+    "cjk": 0,
+    "total": 3336,
+    "note": "total = English-style tokens + Chinese characters (each counted as one word)"
+  },
+  "speakers": {
+    "PI": {
+      "name": "Prof. Rivera",
+      "role": "principal investigator",
+      "voice": "Daniel",
+      "rate": 180,
+      "lines": 45
+    },
+    "Maya": {
+      "name": "Maya",
+      "role": "PhD student, presenting",
+      "voice": "Samantha",
+      "rate": 185,
+      "lines": 43
+    },
+    "Wei": {
+      "name": "Wei",
+      "role": "postdoc",
+      "voice": "Karen",
+      "rate": 185,
+      "lines": 17
+    },
+    "Sam": {
+      "name": "Sam",
+      "role": "rotation student",
+      "voice": "Reed (English (US))",
+      "rate": 180,
+      "lines": 12
+    }
+  },
+  "tagIndex": {
+    "unfamiliar_term": [
+      {
+        "index": 3,
+        "startMs": 30143,
+        "at": "00:30"
+      }
+    ],
+    "unseen_visual": [
+      {
+        "index": 21,
+        "startMs": 237500,
+        "at": "03:57"
+      },
+      {
+        "index": 23,
+        "startMs": 258832,
+        "at": "04:18"
+      }
+    ],
+    "tentative_finding": [
+      {
+        "index": 40,
+        "startMs": 401424,
+        "at": "06:41"
+      },
+      {
+        "index": 42,
+        "startMs": 428042,
+        "at": "07:08"
+      },
+      {
+        "index": 43,
+        "startMs": 448200,
+        "at": "07:28"
+      },
+      {
+        "index": 44,
+        "startMs": 463751,
+        "at": "07:43"
+      },
+      {
+        "index": 47,
+        "startMs": 511512,
+        "at": "08:31"
+      },
+      {
+        "index": 50,
+        "startMs": 535443,
+        "at": "08:55"
+      }
+    ],
+    "disagreement": [
+      {
+        "index": 43,
+        "startMs": 448200,
+        "at": "07:28"
+      },
+      {
+        "index": 44,
+        "startMs": 463751,
+        "at": "07:43"
+      },
+      {
+        "index": 45,
+        "startMs": 486185,
+        "at": "08:06"
+      },
+      {
+        "index": 46,
+        "startMs": 495712,
+        "at": "08:15"
+      },
+      {
+        "index": 51,
+        "startMs": 547959,
+        "at": "09:07"
+      }
+    ],
+    "topic_change": [
+      {
+        "index": 60,
+        "startMs": 627314,
+        "at": "10:27"
+      }
+    ],
+    "tangent": [
+      {
+        "index": 79,
+        "startMs": 846336,
+        "at": "14:06"
+      },
+      {
+        "index": 80,
+        "startMs": 853938,
+        "at": "14:13"
+      },
+      {
+        "index": 81,
+        "startMs": 876852,
+        "at": "14:36"
+      },
+      {
+        "index": 82,
+        "startMs": 886561,
+        "at": "14:46"
+      },
+      {
+        "index": 83,
+        "startMs": 892853,
+        "at": "14:52"
+      }
+    ],
+    "action_item_no_deadline": [
+      {
+        "index": 95,
+        "startMs": 1026666,
+        "at": "17:06"
+      }
+    ],
+    "action_item_with_deadline": [
+      {
+        "index": 103,
+        "startMs": 1090783,
+        "at": "18:10"
+      },
+      {
+        "index": 104,
+        "startMs": 1101108,
+        "at": "18:21"
+      }
+    ],
+    "open_question": [
+      {
+        "index": 107,
+        "startMs": 1125733,
+        "at": "18:45"
+      },
+      {
+        "index": 108,
+        "startMs": 1136724,
+        "at": "18:56"
+      },
+      {
+        "index": 109,
+        "startMs": 1146888,
+        "at": "19:06"
+      },
+      {
+        "index": 114,
+        "startMs": 1174620,
+        "at": "19:34"
+      }
+    ]
+  },
+  "lines": [
+    {
+      "index": 0,
+      "speaker": "PI",
+      "startMs": 800,
+      "endMs": 16517,
+      "text": "OK, let's get started. I think everyone's here. Quick housekeeping first: the cluster maintenance got moved, so the GPU queue might be slow this week. Plan around that. OK. Maya, you're presenting today, so whenever you're ready.",
+      "tags": []
+    },
+    {
+      "index": 1,
+      "speaker": "Maya",
+      "startMs": 17217,
+      "endMs": 28169,
+      "text": "Thanks. So I want to give an update on the enhancer model, and then we agreed to use the second half to plan the validation experiment. Let me share my screen. Can everyone see the title slide?",
+      "tags": []
+    },
+    {
+      "index": 2,
+      "speaker": "Sam",
+      "startMs": 28669,
+      "endMs": 29743,
+      "text": "Yep, it's up.",
+      "tags": []
+    },
+    {
+      "index": 3,
+      "speaker": "Maya",
+      "startMs": 30143,
+      "endMs": 52226,
+      "text": "Great. Quick recap, mostly for Sam, since this is your first lab meeting with us. The goal of the project is to predict enhancer activity directly from DNA sequence in one hematopoietic cell type. We're working in erythroid progenitors, because that's where we have the deepest chromatin data. And the long-term plan is to take the most interesting predictions and test them in a lenti MPRA screen.",
+      "tags": [
+        "unfamiliar_term"
+      ]
+    },
+    {
+      "index": 4,
+      "speaker": "PI",
+      "startMs": 52826,
+      "endMs": 60735,
+      "text": "Before you go on, remind everyone what the training label is. When you say enhancer activity, what does the model actually see?",
+      "tags": []
+    },
+    {
+      "index": 5,
+      "speaker": "Maya",
+      "startMs": 61235,
+      "endMs": 83511,
+      "text": "Right. The labels come from ATAC seq. We call peaks in the erythroid cells, and each training example is a one thousand base pair window centered on a peak, along with matched background windows as negatives. The model predicts the accessibility signal at the center of the window. So strictly speaking, it predicts accessibility, and we're using accessibility as a proxy for enhancer activity.",
+      "tags": []
+    },
+    {
+      "index": 6,
+      "speaker": "PI",
+      "startMs": 84111,
+      "endMs": 94414,
+      "text": "I want to flag that right now, because it's going to come back later. Accessible is not the same thing as active. Plenty of open chromatin doesn't drive any expression at all.",
+      "tags": []
+    },
+    {
+      "index": 7,
+      "speaker": "Maya",
+      "startMs": 94914,
+      "endMs": 103398,
+      "text": "Agreed. That's exactly why the MPRA matters. If the predictions don't hold up in the MPRA, then we've learned something important about the label.",
+      "tags": []
+    },
+    {
+      "index": 8,
+      "speaker": "Wei",
+      "startMs": 103998,
+      "endMs": 113686,
+      "text": "Right, accessibility and activity really are different things. We saw the same thing in another cell line: lots of strong ATAC peaks with basically no signal in the MPRA.",
+      "tags": []
+    },
+    {
+      "index": 9,
+      "speaker": "Maya",
+      "startMs": 114386,
+      "endMs": 136357,
+      "text": "Yeah, I remember that. OK, so the architecture. The front end is a stack of convolutional layers. The first layer has three hundred filters of width nineteen, and those tend to learn motif-like patterns. Then there are dilated convolutions to grow the receptive field, and then four attention layers on top, so the model can learn interactions between motifs that are far apart in the window.",
+      "tags": []
+    },
+    {
+      "index": 10,
+      "speaker": "Sam",
+      "startMs": 136857,
+      "endMs": 141734,
+      "text": "Why both, though? Couldn't the attention layers learn the motifs by themselves?",
+      "tags": []
+    },
+    {
+      "index": 11,
+      "speaker": "Maya",
+      "startMs": 142134,
+      "endMs": 157190,
+      "text": "In principle, yes. But in practice the convolutions are a really good inductive bias for short motifs, and they shrink the sequence length before the attention layers, which saves a lot of memory. Full attention over a thousand individual base pairs gets expensive quickly.",
+      "tags": []
+    },
+    {
+      "index": 12,
+      "speaker": "PI",
+      "startMs": 157690,
+      "endMs": 168039,
+      "text": "How are you picking the negatives? Because if they're just random background, the model can get a long way by learning GC content, and that tells us nothing about enhancers.",
+      "tags": []
+    },
+    {
+      "index": 13,
+      "speaker": "Maya",
+      "startMs": 168439,
+      "endMs": 184902,
+      "text": "They're GC-matched. For every peak, I sample a background window from the same chromosome with GC content within one percent. I also train with reverse complement augmentation, so the model sees both strands, and at prediction time I average the forward and reverse complement predictions.",
+      "tags": []
+    },
+    {
+      "index": 14,
+      "speaker": "PI",
+      "startMs": 185402,
+      "endMs": 192254,
+      "text": "Good. And what about peaks near promoters? Those are going to be the easiest to predict, and they're not enhancers.",
+      "tags": []
+    },
+    {
+      "index": 15,
+      "speaker": "Maya",
+      "startMs": 192654,
+      "endMs": 199663,
+      "text": "I removed anything within two kilobases of an annotated transcription start site. That took out about eighteen percent of the peaks.",
+      "tags": []
+    },
+    {
+      "index": 16,
+      "speaker": "PI",
+      "startMs": 200263,
+      "endMs": 207243,
+      "text": "Did you try it without attention? Because if the convolution-only model does just as well, I'd rather have the simpler model.",
+      "tags": []
+    },
+    {
+      "index": 17,
+      "speaker": "Maya",
+      "startMs": 207643,
+      "endMs": 220771,
+      "text": "I did, that's the next slide. The convolution-only baseline gets a Pearson correlation of about zero point six two on held-out peaks. With attention, it's zero point six eight. So it's a real gain, but it's not, um,",
+      "tags": []
+    },
+    {
+      "index": 18,
+      "speaker": "PI",
+      "startMs": 220921,
+      "endMs": 224892,
+      "text": "Six points. Sorry to cut you off. Is that a single run?",
+      "tags": []
+    },
+    {
+      "index": 19,
+      "speaker": "Maya",
+      "startMs": 225292,
+      "endMs": 234402,
+      "text": "No, that's the average over five random seeds. The standard deviation across seeds is about zero point zero one, so the gap is well outside the seed noise.",
+      "tags": []
+    },
+    {
+      "index": 20,
+      "speaker": "PI",
+      "startMs": 234902,
+      "endMs": 237000,
+      "text": "OK, good. Keep going.",
+      "tags": []
+    },
+    {
+      "index": 21,
+      "speaker": "Maya",
+      "startMs": 237500,
+      "endMs": 255395,
+      "text": "So the full training set is about one hundred twenty thousand sequences. One thing I looked at this week is how performance scales with the amount of training data. As you can see in this plot, the curve flattens after about fifty thousand training sequences. Past that point, adding more data barely moves the validation correlation.",
+      "tags": [
+        "unseen_visual"
+      ]
+    },
+    {
+      "index": 22,
+      "speaker": "Sam",
+      "startMs": 255895,
+      "endMs": 258432,
+      "text": "Sorry, which line is the attention model?",
+      "tags": []
+    },
+    {
+      "index": 23,
+      "speaker": "Maya",
+      "startMs": 258832,
+      "endMs": 268052,
+      "text": "The blue one. Orange is the convolution-only baseline. They both plateau, but the blue one plateaus higher, and the gap stays about the same the whole way across.",
+      "tags": [
+        "unseen_visual"
+      ]
+    },
+    {
+      "index": 24,
+      "speaker": "PI",
+      "startMs": 268652,
+      "endMs": 280713,
+      "text": "That plateau worries me a bit. It could mean you've extracted everything the sequence can tell you, or it could mean you're limited by noise in the labels. Those have very different implications for what we do next.",
+      "tags": []
+    },
+    {
+      "index": 25,
+      "speaker": "Maya",
+      "startMs": 281213,
+      "endMs": 290022,
+      "text": "I think it's label noise, at least partly. The ATAC replicates only correlate with each other at about zero point eight, so that's roughly a ceiling for any model.",
+      "tags": []
+    },
+    {
+      "index": 26,
+      "speaker": "Wei",
+      "startMs": 290622,
+      "endMs": 301177,
+      "text": "That ceiling matters a lot. If the correlation between replicates is only point eight, then a model at point six eight is actually pretty good. You could compute a noise ceiling and draw it right on this plot.",
+      "tags": []
+    },
+    {
+      "index": 27,
+      "speaker": "Sam",
+      "startMs": 301777,
+      "endMs": 305072,
+      "text": "Sorry, how do you actually compute a noise ceiling?",
+      "tags": []
+    },
+    {
+      "index": 28,
+      "speaker": "Maya",
+      "startMs": 305472,
+      "endMs": 314048,
+      "text": "Roughly, you ask how well one replicate predicts another replicate. The model can't predict the measurement noise, so that's about the best you could ever hope for.",
+      "tags": []
+    },
+    {
+      "index": 29,
+      "speaker": "PI",
+      "startMs": 314548,
+      "endMs": 319148,
+      "text": "Yes, please add that to the plot. Any reviewer is going to ask about it.",
+      "tags": []
+    },
+    {
+      "index": 30,
+      "speaker": "Maya",
+      "startMs": 319548,
+      "endMs": 330058,
+      "text": "Will do. OK, so the validation setup. Right now I'm holding out ten percent of the peaks for validation and another ten percent for test, sampled randomly across the genome.",
+      "tags": []
+    },
+    {
+      "index": 31,
+      "speaker": "PI",
+      "startMs": 330458,
+      "endMs": 334257,
+      "text": "Randomly across peaks, or randomly across chromosomes?",
+      "tags": []
+    },
+    {
+      "index": 32,
+      "speaker": "Maya",
+      "startMs": 334657,
+      "endMs": 339484,
+      "text": "Across peaks. So peaks from the same chromosome can end up in both training and test.",
+      "tags": []
+    },
+    {
+      "index": 33,
+      "speaker": "PI",
+      "startMs": 339984,
+      "endMs": 347977,
+      "text": "Hmm. OK. I have some thoughts about that, but let's hold them for the second half. Show us the attribution results first.",
+      "tags": []
+    },
+    {
+      "index": 34,
+      "speaker": "Maya",
+      "startMs": 348577,
+      "endMs": 366225,
+      "text": "Sure. So to understand what the model is actually using, I computed attribution maps with integrated gradients, and I also ran in silico mutagenesis, where you mutate every position to each of the other three bases and measure how much the prediction changes. The two methods mostly agree, which is reassuring.",
+      "tags": []
+    },
+    {
+      "index": 35,
+      "speaker": "Sam",
+      "startMs": 366725,
+      "endMs": 371718,
+      "text": "How long does the mutagenesis take? That sounds like a lot of forward passes.",
+      "tags": []
+    },
+    {
+      "index": 36,
+      "speaker": "Maya",
+      "startMs": 372118,
+      "endMs": 380625,
+      "text": "It's three thousand forward passes per sequence, so I only ran it on the top two thousand predicted enhancers. It took most of a night on one GPU.",
+      "tags": []
+    },
+    {
+      "index": 37,
+      "speaker": "PI",
+      "startMs": 381125,
+      "endMs": 388060,
+      "text": "And for integrated gradients, what did you use as the reference sequence? That choice changes the maps quite a lot.",
+      "tags": []
+    },
+    {
+      "index": 38,
+      "speaker": "Maya",
+      "startMs": 388460,
+      "endMs": 398221,
+      "text": "I used ten dinucleotide-shuffled versions of each sequence and averaged over them. I tried an all-zeros reference too, and the maps were noisier, but the main motifs were the same.",
+      "tags": []
+    },
+    {
+      "index": 39,
+      "speaker": "PI",
+      "startMs": 398721,
+      "endMs": 400924,
+      "text": "Fine. So what did you find?",
+      "tags": []
+    },
+    {
+      "index": 40,
+      "speaker": "Maya",
+      "startMs": 401424,
+      "endMs": 422454,
+      "text": "So this is the part I really want feedback on. When I cluster the attribution patterns, there's a subset of enhancers, roughly fifteen percent of the top two thousand, where the model seems to rely heavily on a GATA motif. The high-attribution bases line up with the GATA consensus, and when you mutate that motif in silico, the predicted accessibility drops sharply.",
+      "tags": [
+        "tentative_finding"
+      ]
+    },
+    {
+      "index": 41,
+      "speaker": "PI",
+      "startMs": 422954,
+      "endMs": 427542,
+      "text": "Before anyone gets excited, how consistent is that across replicates?",
+      "tags": []
+    },
+    {
+      "index": 42,
+      "speaker": "Maya",
+      "startMs": 428042,
+      "endMs": 447500,
+      "text": "That's the big caveat. The GATA pattern only shows up in models trained on two of the three replicates. When I train on the third replicate, the GATA cluster basically disappears. So it might be a batch effect. Replicates one and two were sequenced together, and replicate three was a separate run, a few months later. So I wouldn't claim this yet.",
+      "tags": [
+        "tentative_finding"
+      ]
+    },
+    {
+      "index": 43,
+      "speaker": "Wei",
+      "startMs": 448200,
+      "endMs": 463151,
+      "text": "I think the GATA motif result might be real, because GATA1 is so important in erythroid cells. It's basically the master regulator. If the model hadn't learned GATA at all, that would surprise me. But we do need to understand why the third replicate looks different.",
+      "tags": [
+        "tentative_finding",
+        "disagreement"
+      ]
+    },
+    {
+      "index": 44,
+      "speaker": "PI",
+      "startMs": 463751,
+      "endMs": 485585,
+      "text": "I hear you, Wei, and I agree GATA1 is exactly what we'd expect biologically. But that's what makes me nervous. When a result matches our expectations, we stop checking it. Two out of three replicates, and the two that agree were sequenced in the same batch? Until we've checked the third replicate, my working assumption is that this is a batch artifact.",
+      "tags": [
+        "disagreement",
+        "tentative_finding"
+      ]
+    },
+    {
+      "index": 45,
+      "speaker": "Wei",
+      "startMs": 486185,
+      "endMs": 495212,
+      "text": "But batch effects usually hit global things, like GC content or fragment length. They're unlikely to produce such a specific GATA motif by chance.",
+      "tags": [
+        "disagreement"
+      ]
+    },
+    {
+      "index": 46,
+      "speaker": "PI",
+      "startMs": 495712,
+      "endMs": 510912,
+      "text": "Not necessarily. Suppose the third run had lower library complexity. Then the weaker peaks drop out, and if the GATA enhancers happen to be the weaker peaks, you'd see exactly this pattern. I'm not saying it isn't real. I'm saying we don't know yet.",
+      "tags": [
+        "disagreement"
+      ]
+    },
+    {
+      "index": 47,
+      "speaker": "Maya",
+      "startMs": 511512,
+      "endMs": 518919,
+      "text": "That's roughly where I am too. I think it's plausible, but I don't want it on a poster until I understand what's going on with replicate three.",
+      "tags": [
+        "tentative_finding"
+      ]
+    },
+    {
+      "index": 48,
+      "speaker": "PI",
+      "startMs": 519419,
+      "endMs": 526840,
+      "text": "Do we have any GATA1 binding data in these cells? CUT and Tag, anything? That would be an independent line of evidence.",
+      "tags": []
+    },
+    {
+      "index": 49,
+      "speaker": "Wei",
+      "startMs": 527340,
+      "endMs": 534943,
+      "text": "We have a GATA1 CUT and Tag from last year, but it's only one replicate and the quality is so-so, so at most it's supporting evidence.",
+      "tags": []
+    },
+    {
+      "index": 50,
+      "speaker": "PI",
+      "startMs": 535443,
+      "endMs": 547459,
+      "text": "Then it's suggestive at best. OK, so for the record: the GATA result is interesting, it is not confirmed, and it doesn't go on any slides outside this room until the third replicate is sorted out.",
+      "tags": [
+        "tentative_finding"
+      ]
+    },
+    {
+      "index": 51,
+      "speaker": "Wei",
+      "startMs": 547959,
+      "endMs": 552628,
+      "text": "OK, I agree we shouldn't conclude anything yet. But I'd still bet it's real.",
+      "tags": [
+        "disagreement"
+      ]
+    },
+    {
+      "index": 52,
+      "speaker": "PI",
+      "startMs": 553028,
+      "endMs": 554970,
+      "text": "Noted. We'll see who's right.",
+      "tags": []
+    },
+    {
+      "index": 53,
+      "speaker": "Sam",
+      "startMs": 555670,
+      "endMs": 565395,
+      "text": "Can I ask about the attention layers? Did you look at the attention weights directly? Like, do any of the heads connect the GATA sites to other motifs?",
+      "tags": []
+    },
+    {
+      "index": 54,
+      "speaker": "Maya",
+      "startMs": 565795,
+      "endMs": 582057,
+      "text": "I looked, but attention weights are notoriously hard to interpret, so I wouldn't read much into them. There's one head that seems to link GATA sites to nearby E box motifs, which would fit with GATA1 working together with its usual partner factors. But honestly, I'd call that anecdotal.",
+      "tags": []
+    },
+    {
+      "index": 55,
+      "speaker": "PI",
+      "startMs": 582557,
+      "endMs": 588040,
+      "text": "Agreed. Let's not go down that road today. Anything else on the model before we move on?",
+      "tags": []
+    },
+    {
+      "index": 56,
+      "speaker": "Maya",
+      "startMs": 588540,
+      "endMs": 607100,
+      "text": "Just one more slide. I compared the model to a simple baseline that only counts known motifs in each window. The motif count baseline gets a correlation of about zero point four five, so the deep model is clearly capturing more than motif presence. My guess is that spacing and orientation matter, but I haven't tested that directly.",
+      "tags": []
+    },
+    {
+      "index": 57,
+      "speaker": "PI",
+      "startMs": 607600,
+      "endMs": 615283,
+      "text": "That's a nice comparison. Keep it in. It answers the question of whether we need deep learning at all, which someone always asks.",
+      "tags": []
+    },
+    {
+      "index": 58,
+      "speaker": "Wei",
+      "startMs": 615783,
+      "endMs": 623688,
+      "text": "One more small suggestion: the motif count baseline is too simple. You could add a gapped k-mer model, so the comparison is a bit fairer.",
+      "tags": []
+    },
+    {
+      "index": 59,
+      "speaker": "Maya",
+      "startMs": 624088,
+      "endMs": 626414,
+      "text": "Good idea. I'll add that if I have time.",
+      "tags": []
+    },
+    {
+      "index": 60,
+      "speaker": "PI",
+      "startMs": 627314,
+      "endMs": 636303,
+      "text": "Great. OK, let's switch gears and talk about the validation experiment and the statistics for the new screen. Maya, do you want to keep driving?",
+      "tags": [
+        "topic_change"
+      ]
+    },
+    {
+      "index": 61,
+      "speaker": "Maya",
+      "startMs": 637203,
+      "endMs": 666542,
+      "text": "Sure, I'll start, and Wei can jump in on the cloning side. So the plan is a lenti MPRA in the same erythroid progenitors. I'm proposing about ten thousand sequences in total. Roughly six thousand would be predicted enhancers chosen across the full range of model scores, not just the top ones, so we can actually check calibration. Then about three thousand variant sequences, where we disrupt the highest-attribution motif in a top enhancer, including the GATA ones. And then about a thousand controls.",
+      "tags": []
+    },
+    {
+      "index": 62,
+      "speaker": "PI",
+      "startMs": 667042,
+      "endMs": 668589,
+      "text": "What kind of controls?",
+      "tags": []
+    },
+    {
+      "index": 63,
+      "speaker": "Maya",
+      "startMs": 668989,
+      "endMs": 677223,
+      "text": "Five hundred scrambled sequences with matched GC content as negatives, and five hundred known strong enhancers from published screens as positives.",
+      "tags": []
+    },
+    {
+      "index": 64,
+      "speaker": "PI",
+      "startMs": 677723,
+      "endMs": 691878,
+      "text": "Good. And I like that the variants include the GATA enhancers. That's a much cleaner test of the GATA story than anything we can do computationally. If disrupting the GATA motif kills activity in the MPRA, that's real evidence.",
+      "tags": []
+    },
+    {
+      "index": 65,
+      "speaker": "Wei",
+      "startMs": 692478,
+      "endMs": 704091,
+      "text": "Yes, I like this design. But watch the library size. Ten thousand sequences at two hundred barcodes each is two million barcodes, so we'd need a lot of cells at transduction to get enough coverage.",
+      "tags": []
+    },
+    {
+      "index": 66,
+      "speaker": "Sam",
+      "startMs": 704591,
+      "endMs": 709852,
+      "text": "Sorry, how do the barcodes get assigned? Are they part of the synthesized oligo?",
+      "tags": []
+    },
+    {
+      "index": 67,
+      "speaker": "Wei",
+      "startMs": 710252,
+      "endMs": 720984,
+      "text": "No, the barcodes are random. They're added by PCR during cloning. Then we do a first round of sequencing to pair each barcode with its sequence. That step is called association.",
+      "tags": []
+    },
+    {
+      "index": 68,
+      "speaker": "PI",
+      "startMs": 721484,
+      "endMs": 739204,
+      "text": "Right, and that's why barcodes per variant is a real design decision and not just a free parameter. More barcodes gives you a better estimate of each sequence's activity, but every barcode has to be represented in enough cells, and these progenitors don't transduce nearly as well as the usual cell lines.",
+      "tags": []
+    },
+    {
+      "index": 69,
+      "speaker": "Maya",
+      "startMs": 739704,
+      "endMs": 756705,
+      "text": "So that's the tradeoff I want to settle. With one hundred barcodes per variant, my simulations say we can detect a two-fold change in activity with about eighty percent power. With two hundred, we get closer to ninety-five percent power, but we'd need roughly twice as many cells and twice the sequencing depth.",
+      "tags": []
+    },
+    {
+      "index": 70,
+      "speaker": "PI",
+      "startMs": 757205,
+      "endMs": 760737,
+      "text": "And how many replicates are you assuming in those simulations?",
+      "tags": []
+    },
+    {
+      "index": 71,
+      "speaker": "Maya",
+      "startMs": 761137,
+      "endMs": 766074,
+      "text": "Three biological replicates, meaning three independent transductions on different days.",
+      "tags": []
+    },
+    {
+      "index": 72,
+      "speaker": "PI",
+      "startMs": 766574,
+      "endMs": 777642,
+      "text": "Three is the minimum I'd accept. Honestly, I'd prefer four, but I understand the cell numbers are the bottleneck. Let's say three, and we'll revisit if the first replicate looks noisy.",
+      "tags": []
+    },
+    {
+      "index": 73,
+      "speaker": "Wei",
+      "startMs": 778142,
+      "endMs": 785662,
+      "text": "Three replicates should be fine. When we did this in another cell type, the correlation between the three replicates was already very high.",
+      "tags": []
+    },
+    {
+      "index": 74,
+      "speaker": "Maya",
+      "startMs": 786162,
+      "endMs": 799496,
+      "text": "OK, so three replicates. Then the statistics. For each barcode we get a DNA count and an RNA count, and activity is basically the log ratio of RNA over DNA, aggregated over all the barcodes for each sequence.",
+      "tags": []
+    },
+    {
+      "index": 75,
+      "speaker": "PI",
+      "startMs": 799896,
+      "endMs": 806620,
+      "text": "What happens to barcodes with very low DNA counts? The ratio gets unstable when the denominator is tiny.",
+      "tags": []
+    },
+    {
+      "index": 76,
+      "speaker": "Maya",
+      "startMs": 807020,
+      "endMs": 816398,
+      "text": "I'll drop barcodes with fewer than ten DNA reads, and require at least ten passing barcodes per sequence. Anything below that gets reported as missing, not as inactive.",
+      "tags": []
+    },
+    {
+      "index": 77,
+      "speaker": "PI",
+      "startMs": 816798,
+      "endMs": 826170,
+      "text": "Good. And report how many sequences get dropped that way, in every replicate. Now, what do the counts themselves look like, distribution-wise?",
+      "tags": []
+    },
+    {
+      "index": 78,
+      "speaker": "Maya",
+      "startMs": 826570,
+      "endMs": 845836,
+      "text": "Very overdispersed. I looked at pilot data from Wei's earlier screen, and for barcodes with the same expected count, the variance is something like five to ten times the mean. So a Poisson model is clearly wrong. I'm planning to use a negative binomial model, where each sequence's activity is a coefficient and the DNA counts go in as an offset.",
+      "tags": []
+    },
+    {
+      "index": 79,
+      "speaker": "Sam",
+      "startMs": 846336,
+      "endMs": 853438,
+      "text": "Sorry, this might be a really basic question, but why is it called negative binomial? What's negative about it?",
+      "tags": [
+        "tangent"
+      ]
+    },
+    {
+      "index": 80,
+      "speaker": "PI",
+      "startMs": 853938,
+      "endMs": 876352,
+      "text": "Ha, that's a fair question, and honestly the name is a bit of a historical accident. One way to define it is the number of failures you see before you reach a fixed number of successes, and the name comes from a binomial expansion with a negative exponent. But for our purposes, just think of it as a Poisson distribution with one extra parameter that lets the variance be bigger than the mean.",
+      "tags": [
+        "tangent"
+      ]
+    },
+    {
+      "index": 81,
+      "speaker": "Wei",
+      "startMs": 876852,
+      "endMs": 886161,
+      "text": "I had the same question when I first learned it. You can think of it as many Poisson distributions mixed together, each with a different rate. That's the gamma-Poisson mixture.",
+      "tags": [
+        "tangent"
+      ]
+    },
+    {
+      "index": 82,
+      "speaker": "Sam",
+      "startMs": 886561,
+      "endMs": 892453,
+      "text": "Oh, OK. So is that related to the beta binomial thing people use for allele counts?",
+      "tags": [
+        "tangent"
+      ]
+    },
+    {
+      "index": 83,
+      "speaker": "PI",
+      "startMs": 892853,
+      "endMs": 900031,
+      "text": "Related in spirit, but not the same, and that is definitely a tangent for another day. Let's get back to the design.",
+      "tags": [
+        "tangent"
+      ]
+    },
+    {
+      "index": 84,
+      "speaker": "Maya",
+      "startMs": 900731,
+      "endMs": 919533,
+      "text": "OK. So with ten thousand sequences we're doing ten thousand tests, which means we need multiple testing correction. The plan is to control the false discovery rate at five percent. And for the variants, the test is whether each variant differs from its matched reference sequence, so that's a separate family of about three thousand tests.",
+      "tags": []
+    },
+    {
+      "index": 85,
+      "speaker": "PI",
+      "startMs": 920033,
+      "endMs": 930705,
+      "text": "Make sure you define those families before you see the data. If you pool everything into one FDR correction after the fact, you'll be tempted to slice it whichever way gives the most hits.",
+      "tags": []
+    },
+    {
+      "index": 86,
+      "speaker": "Maya",
+      "startMs": 931105,
+      "endMs": 934442,
+      "text": "Yes, that's fair. The families should be fixed up front.",
+      "tags": []
+    },
+    {
+      "index": 87,
+      "speaker": "Wei",
+      "startMs": 934942,
+      "endMs": 945376,
+      "text": "Also, the FDR should be calibrated against a null distribution from scrambled negative controls. If the negative-control p-values aren't uniform, something is wrong with the model.",
+      "tags": []
+    },
+    {
+      "index": 88,
+      "speaker": "Maya",
+      "startMs": 945876,
+      "endMs": 950612,
+      "text": "That's a great point. The scrambled controls basically give us an empirical null for free.",
+      "tags": []
+    },
+    {
+      "index": 89,
+      "speaker": "PI",
+      "startMs": 951312,
+      "endMs": 973890,
+      "text": "OK. Now let me come back to the thing I flagged earlier, the held-out split. I think the random split is a real problem. Neighboring peaks are often correlated, some enhancers overlap each other, and there are repeats and duplicated regions all over the genome. If nearly identical sequences end up in both training and test, your test correlation is inflated. That's leakage.",
+      "tags": []
+    },
+    {
+      "index": 90,
+      "speaker": "Maya",
+      "startMs": 974390,
+      "endMs": 977916,
+      "text": "I was worried about that too. How big do you think the effect is?",
+      "tags": []
+    },
+    {
+      "index": 91,
+      "speaker": "PI",
+      "startMs": 978316,
+      "endMs": 989627,
+      "text": "In my experience it can be a few points of correlation, sometimes more. Which, notice, is about the same size as the gain you're getting from the attention layers. So it matters.",
+      "tags": []
+    },
+    {
+      "index": 92,
+      "speaker": "Wei",
+      "startMs": 990127,
+      "endMs": 1002172,
+      "text": "Right, the standard approach is to split by chromosome. For example, chromosomes eight and nine for test, chromosome ten for validation, and everything else for training. That way sequences don't leak.",
+      "tags": []
+    },
+    {
+      "index": 93,
+      "speaker": "PI",
+      "startMs": 1002672,
+      "endMs": 1020392,
+      "text": "Exactly. And there's a second reason, which connects to the screen. If we pick the MPRA candidates from chromosomes the model never saw during training, then the MPRA becomes a genuinely out-of-sample test of the model. Otherwise we're partly testing sequences it has already memorized.",
+      "tags": []
+    },
+    {
+      "index": 94,
+      "speaker": "Maya",
+      "startMs": 1020892,
+      "endMs": 1026266,
+      "text": "That makes sense. So the MPRA library should be drawn mostly from the held-out chromosomes.",
+      "tags": []
+    },
+    {
+      "index": 95,
+      "speaker": "PI",
+      "startMs": 1026666,
+      "endMs": 1034471,
+      "text": "Mostly, yes. Maya, can you rerun the model with the chromosome-level holdout split? No rush, whenever you get to it.",
+      "tags": [
+        "action_item_no_deadline"
+      ]
+    },
+    {
+      "index": 96,
+      "speaker": "Maya",
+      "startMs": 1034971,
+      "endMs": 1041717,
+      "text": "Sure, I can do that. Should I redo the attribution analysis on the new split too, or just the performance numbers?",
+      "tags": []
+    },
+    {
+      "index": 97,
+      "speaker": "PI",
+      "startMs": 1042117,
+      "endMs": 1049769,
+      "text": "Start with the performance numbers and the scaling curve. If the attention advantage survives the new split, then redo the attribution.",
+      "tags": []
+    },
+    {
+      "index": 98,
+      "speaker": "Sam",
+      "startMs": 1050269,
+      "endMs": 1058209,
+      "text": "Would it also make sense to hold out by cell type? Like, train on erythroid cells and test on megakaryocytes or something?",
+      "tags": []
+    },
+    {
+      "index": 99,
+      "speaker": "PI",
+      "startMs": 1058609,
+      "endMs": 1068312,
+      "text": "That's a different question, generalization across cell types. It's interesting, but it's out of scope for this project. Let's keep it to one cell type for now.",
+      "tags": []
+    },
+    {
+      "index": 100,
+      "speaker": "Maya",
+      "startMs": 1068912,
+      "endMs": 1077486,
+      "text": "OK. So going back to the library, the next thing we need is the actual barcode design. Wei, you've done this before. What do you need from me?",
+      "tags": []
+    },
+    {
+      "index": 101,
+      "speaker": "Wei",
+      "startMs": 1077886,
+      "endMs": 1086464,
+      "text": "I need your final sequence list, with the category for each sequence: enhancer, variant or control. Then I'll do the barcode and primer design.",
+      "tags": []
+    },
+    {
+      "index": 102,
+      "speaker": "Maya",
+      "startMs": 1086864,
+      "endMs": 1090383,
+      "text": "The list is already on the lab drive, in the MPRA folder.",
+      "tags": []
+    },
+    {
+      "index": 103,
+      "speaker": "Wei",
+      "startMs": 1090783,
+      "endMs": 1100608,
+      "text": "OK, no problem. I'll send everyone the barcode design spreadsheet before this Friday. It will list the cell numbers and sequencing depth needed for different barcode counts.",
+      "tags": [
+        "action_item_with_deadline"
+      ]
+    },
+    {
+      "index": 104,
+      "speaker": "PI",
+      "startMs": 1101108,
+      "endMs": 1109751,
+      "text": "Perfect. So Wei sends the barcode design spreadsheet by Friday. That's the one hard deadline we have, because the oligo order depends on it.",
+      "tags": [
+        "action_item_with_deadline"
+      ]
+    },
+    {
+      "index": 105,
+      "speaker": "Maya",
+      "startMs": 1110251,
+      "endMs": 1116436,
+      "text": "And that spreadsheet is what we'll use to decide on the barcodes, right? One hundred versus two hundred per variant?",
+      "tags": []
+    },
+    {
+      "index": 106,
+      "speaker": "PI",
+      "startMs": 1116836,
+      "endMs": 1125233,
+      "text": "It'll inform it, but I don't think the spreadsheet alone answers it. Part of it is a judgment call about how small an effect we actually care about.",
+      "tags": []
+    },
+    {
+      "index": 107,
+      "speaker": "Wei",
+      "startMs": 1125733,
+      "endMs": 1136224,
+      "text": "Personally I lean toward two hundred barcodes. A lot of the variant effects are small, and if we don't have enough power, most variants end up not significant and the results are hard to interpret.",
+      "tags": [
+        "open_question"
+      ]
+    },
+    {
+      "index": 108,
+      "speaker": "Maya",
+      "startMs": 1136724,
+      "endMs": 1146388,
+      "text": "But with two hundred, we might not be able to get enough cells for three replicates. I'd rather have three solid replicates at one hundred barcodes than two shaky ones at two hundred.",
+      "tags": [
+        "open_question"
+      ]
+    },
+    {
+      "index": 109,
+      "speaker": "PI",
+      "startMs": 1146888,
+      "endMs": 1154344,
+      "text": "Both fair points. I don't think we're going to settle one hundred versus two hundred barcodes today. Let's leave that open.",
+      "tags": [
+        "open_question"
+      ]
+    },
+    {
+      "index": 110,
+      "speaker": "Sam",
+      "startMs": 1154844,
+      "endMs": 1158831,
+      "text": "Could we run a small pilot with both and see which one gives cleaner data?",
+      "tags": []
+    },
+    {
+      "index": 111,
+      "speaker": "PI",
+      "startMs": 1159231,
+      "endMs": 1165782,
+      "text": "Maybe. That costs time, though, so let's not decide that today either. Everyone think about it.",
+      "tags": []
+    },
+    {
+      "index": 112,
+      "speaker": "PI",
+      "startMs": 1166382,
+      "endMs": 1171569,
+      "text": "OK, we're about out of time. Wei, Friday for the spreadsheet, right?",
+      "tags": []
+    },
+    {
+      "index": 113,
+      "speaker": "Wei",
+      "startMs": 1171969,
+      "endMs": 1174120,
+      "text": "Yes, Friday. No problem.",
+      "tags": []
+    },
+    {
+      "index": 114,
+      "speaker": "PI",
+      "startMs": 1174620,
+      "endMs": 1189483,
+      "text": "Great. And the barcode number is still an open question, so think about whether one hundred or two hundred barcodes per variant makes more sense, and we'll come back to it. Thanks, Maya, really nice progress. And Sam, welcome again.",
+      "tags": [
+        "open_question"
+      ]
+    },
+    {
+      "index": 115,
+      "speaker": "Maya",
+      "startMs": 1189983,
+      "endMs": 1191404,
+      "text": "Thanks, everyone.",
+      "tags": []
+    },
+    {
+      "index": 116,
+      "speaker": "Sam",
+      "startMs": 1191704,
+      "endMs": 1195427,
+      "text": "Thanks, Professor Rivera. See you all next week.",
+      "tags": []
+    }
+  ]
+}

@@ -1,9 +1,16 @@
 <!doctype html>
 <!--
   Chumi promo video source. Every frame is a pure function of time: render(t) sets the scene.
-  Rendered to MP4 by scripts/make-video.ts (headless Chrome + ffmpeg).  ?lang=zh for Chinese captions.
+  Rendered to MP4 by scripts/make-video.ts (headless Chrome + ffmpeg).  ?lang=zh for the Chinese version.
+  Screenshots and their element boxes (regions.js) come from scripts/demo-shoot.ts: docs/assets/screens/ (English)
+  and docs/assets/screens/zh/ (中文).
 -->
 <html><head><meta charset="utf-8">
+<script>
+  const LANG = new URLSearchParams(location.search).get('lang') === 'zh' ? 'zh' : 'en';
+  const SHOTS = '../assets/screens/' + (LANG === 'zh' ? 'zh/' : '');
+  document.write('<script src="' + SHOTS + 'regions.js"><\/script>');
+</script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { width: 1920px; height: 1080px; overflow: hidden; background: #0b0e1d; }
@@ -29,14 +36,8 @@
   .blurshot { position: absolute; inset: -60px; background-size: cover; background-position: center; filter: blur(22px) saturate(.8); opacity: .18; }
 
   /* app scenes */
-  .window { position: absolute; left: 610px; top: 120px; width: 1240px; height: 828px; border-radius: 22px; overflow: hidden;
+  .window { position: absolute; left: 610px; top: 148px; width: 1240px; height: 784px; border-radius: 18px; overflow: hidden;
     background: #f4f6fb; box-shadow: 0 50px 120px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.08); }
-  .chrome { height: 44px; display: flex; align-items: center; gap: 9px; padding: 0 18px; background: #e9ecf5; border-bottom: 1px solid #d9deea; color: #1b2033; font-size: 15px; font-weight: 650; }
-  .chrome.dark { background: #1a1e2e; border-color: #2b3040; color: #e6e8f0; }
-  .tl { width: 13px; height: 13px; border-radius: 50%; } .r { background: #ff5f57; } .y { background: #febc2e; } .g { background: #28c840; }
-  .chrome .t { margin-left: 12px; }
-  .chrome .rec { margin-left: auto; display: flex; align-items: center; gap: 8px; color: #e0352b; font-weight: 750; font-size: 14px; }
-  .chrome .rec i { width: 10px; height: 10px; border-radius: 50%; background: #e0352b; }
   .viewport { position: relative; width: 1240px; height: 784px; overflow: hidden; }
   .shot { position: absolute; left: 0; top: 0; width: 1360px; height: 860px; transform-origin: 0 0; }
   .hl { position: absolute; z-index: 5; border: 3px solid #f59e0b; border-radius: 10px; box-shadow: 0 0 0 9999px rgba(10,13,27,.0); opacity: 0; }
@@ -105,20 +106,20 @@
     <div class="tag" id="introTag"><span data-t="tag1"></span><br><span class="grad" data-t="tag2"></span></div>
   </div></div>
 
-  <div class="scene" id="problem"><div class="blurshot" style="background-image:url(../assets/screens/live.png)"></div>
+  <div class="scene" id="problem"><div class="blurshot" id="blurshot"></div>
     <div class="lines"><div class="line" data-t="p1"></div><div class="line" data-t="p2"></div><div class="line grad" data-t="p3"></div></div>
   </div>
 
   <div class="scene" id="app">
     <div class="cap"><div class="kick" id="kick"></div><div class="ctitle" id="ctitle"></div><div class="csub" id="csub"></div></div>
-    <div class="progress"><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="progress"><span></span><span></span><span></span><span></span><span></span><span></span></div>
     <div class="window" id="win">
-      <div class="chrome" id="chrome"><span class="tl r"></span><span class="tl y"></span><span class="tl g"></span><span class="t">Chumi · Lab meeting: enhancer model</span><span class="rec" id="rec"><i></i>REC</span></div>
       <div class="viewport" id="vp">
-        <img class="shot" data-shot="live" src="../assets/screens/live.png">
-        <img class="shot" data-shot="zh" src="../assets/screens/chinese.png" style="opacity:0">
-        <img class="shot" data-shot="win" src="../assets/screens/window-capture.png" style="opacity:0">
-        <img class="shot" data-shot="sum" src="../assets/screens/summary.png" style="opacity:0">
+        <img class="shot" data-shot="live" data-file="live.png">
+        <img class="shot" data-shot="explain" data-file="explain.png" style="opacity:0">
+        <img class="shot" data-shot="win" data-file="window-capture.png" style="opacity:0">
+        <img class="shot" data-shot="sum" data-file="summary.png" style="opacity:0">
+        <img class="shot" data-shot="models" data-file="models.png" style="opacity:0">
         <div class="hl" id="hl"></div>
         <div class="ripple" id="ripple"></div>
         <svg class="cursor" id="cursor" viewBox="0 0 24 24"><path d="M3 2l17 9.5-7.4 1.6L9 20.5z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>
@@ -176,18 +177,21 @@
   </div></div>
 </div>
 <script>
-const lang = new URLSearchParams(location.search).get('lang') === 'zh' ? 'zh' : 'en';
+const lang = LANG;
 document.documentElement.lang = lang;
+for (const img of document.querySelectorAll('.shot')) img.src = SHOTS + img.dataset.file;
+document.getElementById('blurshot').style.backgroundImage = `url(${SHOTS}live.png)`;
 const TXT = {
   en: {
     tag1: 'Never lose the thread.', tag2: 'Understand every talk.',
     p1: 'Lab meetings move fast.', p2: 'Methods from the field next door.', p3: 'Miss one minute, lose the thread.',
     s: [
-      ['Listens on your Mac', 'Live transcription', 'English, 中文, or both at once. Speech never leaves your Mac.'],
-      ['One click', 'Lost the thread?\nCatch me up.', 'What you missed, how it connects, and what is being argued right now. Every point cited.'],
-      ['Explained for you', 'Answers at\nyour level.', 'Select any term. Chumi explains it for your background, in English or 中文.'],
-      ['Window capture', 'It sees the\nslides too.', 'Capture the Zoom share or slide deck. Answers check the slide against what was actually said.'],
-      ['After the meeting', 'A summary\nyou can trust.', 'Preliminary stays preliminary. Deadlines appear only if someone said them.'],
+      ['Listens on your Mac', 'Live transcription', 'English, Mandarin, or both at once. Speech never leaves your Mac.'],
+      ['One click', 'Lost the thread?\nCatch me up.', 'What you missed and what is being argued now. Every point cited.'],
+      ['Explained for you', 'Answers at\nyour level.', 'Select any term. Chumi explains it for your background.'],
+      ['Window capture', 'It sees the\nslides too.', 'Answers check the slide against what was actually said.'],
+      ['After the meeting', 'A summary\nyou can trust.', 'Preliminary stays preliminary. No invented deadlines.'],
+      ['Fits your Mac', 'Pick your\nspeech model.', 'From tiny to large. Chumi recommends one and tests its speed.'],
     ],
     t1: 'Speech stays on your Mac', t1s: 'Local whisper.cpp transcription. No audio upload, ever.',
     t2: 'Uses the plan you have', t2s: 'Your ChatGPT or Claude subscription, with quota shown live.',
@@ -200,10 +204,11 @@ const TXT = {
     p1: '组会节奏太快。', p2: '方法来自隔壁领域。', p3: '走神一分钟，就再也跟不上。',
     s: [
       ['在你的 Mac 上收听', '实时转写', '英文、中文、中英混杂都能听懂。音频从不离开你的 Mac。'],
-      ['一键', '跟丢了？\n帮我跟上。', '你错过了什么、和前面有什么联系、现在在争论什么。每一点都有出处。'],
-      ['为你解释', '按你的水平讲解。', '选中任何术语，Chumi 按你的背景解释，中文或英文都行。'],
-      ['窗口截图', '还能看懂幻灯片。', '截取 Zoom 共享屏幕或幻灯片，回答会把幻灯片和讲者原话对照。'],
-      ['会后', '值得信赖的总结。', '初步结论不会被写成定论；截止时间只有真说过才会写上。'],
+      ['一键', '跟丢了？\n帮我跟上。', '你错过了什么、现在在争论什么，每一点都有出处。'],
+      ['为你解释', '按你的水平讲解。', '选中任何术语，Chumi 按你的背景用中文解释，保留英文术语。'],
+      ['窗口捕获', '还能看懂幻灯片。', '回答会把幻灯片和讲者原话对照。'],
+      ['会后', '值得信赖的总结。', '初步结论不写成定论，没说过的截止时间不会编造。'],
+      ['适配你的 Mac', '选择语音模型。', '从 Tiny 到 Large 任选，Chumi 按你的电脑推荐并测速。'],
     ],
     t1: '音频留在你的 Mac', t1s: '本地 whisper.cpp 转写，音频从不上传。',
     t2: '用你已有的订阅', t2s: 'ChatGPT 或 Claude 订阅，实时显示额度。',
@@ -224,19 +229,35 @@ const fade = (t, a, b, c, d) => Math.min(seg(t, a, b), 1 - seg(t, c, d));
 const lerp = (a, b, x) => a + (b - a) * x;
 const VW = 1240, VH = 784, IW = 1360, IH = 860, BASE = VW / IW;
 const FULL = { z: BASE, x: 0, y: 0 };
-function focus(rx, ry, rw, rh, pad = .9) {
-  const z = Math.min(VW / rw, VH / rh) * pad;
+function focus(r, pad = .9) {
+  const [rx, ry, rw, rh] = r;
+  const z = Math.max(BASE, Math.min(VW / rw, VH / rh) * pad);
   let x = VW / 2 - (rx + rw / 2) * z, y = VH / 2 - (ry + rh / 2) * z;
   x = clamp(x, VW - IW * z, 0); y = clamp(y, VH - IH * z, 0);
   return { z, x, y };
 }
 const mix = (A, B, k) => ({ z: lerp(A.z, B.z, k), x: lerp(A.x, B.x, k), y: lerp(A.y, B.y, k) });
-// regions in screenshot CSS px (1360 × 860)
-const R = {
-  transcript: focus(20, 350, 867, 493, .98), card: focus(904, 343, 436, 500, .96), catchBtn: [976, 134],
-  thumb: focus(20, 360, 420, 110, .9), mismatch: focus(900, 500, 440, 160, .95), summary: focus(904, 377, 436, 466, .96),
+// Element boxes measured in the screenshots by demo-shoot (fallbacks keep the page usable without them).
+const G = window.REGIONS ?? {};
+const box = (r, fb) => (Array.isArray(r) && r.length === 4 ? r : fb);
+const B = {
+  transcript: box(G.live?.transcript, [20, 350, 867, 493]), catchBtn: box(G.live?.catchBtn, [930, 120, 92, 36]),
+  card: box(G.live?.card, [904, 343, 436, 500]), covers: box(G.live?.covers, [912, 368, 118, 24]),
+  explain: box(G.explain?.card, [904, 343, 436, 500]),
+  thumb: box(G.win?.thumb, [20, 360, 420, 110]), winHl: box(G.win?.hl, [900, 500, 440, 160]),
+  sum: box(G.sum?.card, [904, 377, 436, 466]), ref: box(G.sum?.ref, [914, 520, 90, 26]),
+  list: box(G.models?.list, [300, 140, 760, 420]), active: box(G.models?.active, [300, 400, 760, 60]), bench: box(G.models?.bench, [300, 600, 560, 140]),
 };
-// All four screenshots are loaded up front and crossfaded (never re-sourced) so no frame shows a half-loaded image.
+// The slide thumbnail (older shoots measured the whole Screen strip; the thumbnail sits at its left).
+const T0 = B.thumb, TH = T0[2] > 300 ? [T0[0] + 10, T0[1] + 32, 100, 78] : T0;
+const THUMB = [TH[0] - 20, TH[1] - 50, 560, TH[3] + 100];
+const R = {
+  transcript: focus(B.transcript, .98), card: focus(B.card, .96), explain: focus(B.explain, .96), thumb: focus(THUMB, 1),
+  winHl: focus([B.winHl[0] - 12, B.winHl[1] - 60, B.winHl[2] + 24, B.winHl[3] + 120], .95), sum: focus(B.sum, .96),
+  list: focus(B.list, .95), bench: focus([B.bench[0] - 20, B.bench[1] - 40, B.bench[2] + 40, B.bench[3] + 80], .95),
+};
+const center = (r) => [r[0] + r[2] / 2, r[1] + r[3] / 2];
+// All screenshots are loaded up front and crossfaded (never re-sourced) so no frame shows a half-loaded image.
 function setShots(a, b, k) {
   for (const img of document.querySelectorAll('.shot')) {
     const n = img.dataset.shot;
@@ -246,72 +267,79 @@ function setShots(a, b, k) {
 }
 function applyView(v) { for (const img of document.querySelectorAll('.shot')) img.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`; return v; }
 const toVp = (v, px, py) => [v.x + px * v.z, v.y + py * v.z];
+const hlBox = (v, r, k) => { const [x1, y1] = toVp(v, r[0], r[1]); const [x2, y2] = toVp(v, r[0] + r[2], r[1] + r[3]); return [x1, y1, x2 - x1, y2 - y1, k]; };
 
-// ---------- timeline (seconds)
-const T = { introEnd: 5.2, probEnd: 11.4, appEnd: 47.6, trustEnd: 54.6, end: 62 };
-const APP = [ [11.4, 19.0], [19.0, 27.0], [27.0, 34.6], [34.6, 41.0], [41.0, 47.6] ];
+// ---------- timeline (seconds): about 50 s
+const T = { introEnd: 3.2, probEnd: 7.4, appEnd: 41.4, trustEnd: 46.4, end: 50.5 };
+const APP = [[7.4, 13.0], [13.0, 19.2], [19.2, 24.8], [24.8, 30.4], [30.4, 35.8], [35.8, 41.4]];
 window.DURATION = T.end;
-window.CLICKS = [21.7];
+window.CLICKS = [15.0];
+window.APP_WINDOW = [T.probEnd, T.appEnd];
+window.POSTER_T = 18.2;
+window.PREVIEW_T = [1.6, 5.8, 10.5, 15.0, 18.2, 22.5, 26.2, 29.2, 33.8, 37.4, 40.6, 44.5, 48.4];
 
 window.render = function (t) {
   // intro
-  const io = fade(t, 0, .4, 4.6, 5.2);
-  $('intro').style.opacity = io;
-  const lk = outBack(seg(t, .2, 1.3));
+  $('intro').style.opacity = fade(t, 0, .3, 2.7, 3.2);
+  const lk = outBack(seg(t, .1, .9));
   $('introLogo').style.transform = `scale(${lerp(.4, 1, lk)})`;
-  $('introLogo').style.opacity = seg(t, .2, .7);
-  $('introWord').style.opacity = seg(t, 1.0, 1.7); $('introWord').style.transform = `translateY(${lerp(30, 0, ease(seg(t, 1.0, 1.8)))}px)`;
-  $('introTag').style.opacity = seg(t, 2.0, 2.8); $('introTag').style.transform = `translateY(${lerp(24, 0, ease(seg(t, 2.0, 2.9)))}px)`;
+  $('introLogo').style.opacity = seg(t, .1, .5);
+  $('introWord').style.opacity = seg(t, .6, 1.1); $('introWord').style.transform = `translateY(${lerp(30, 0, ease(seg(t, .6, 1.2)))}px)`;
+  $('introTag').style.opacity = seg(t, 1.1, 1.7); $('introTag').style.transform = `translateY(${lerp(24, 0, ease(seg(t, 1.1, 1.8)))}px)`;
 
   // problem
-  $('problem').style.opacity = fade(t, 5.0, 5.5, 10.8, 11.4);
+  $('problem').style.opacity = fade(t, 3.0, 3.4, 6.9, 7.4);
   document.querySelectorAll('#problem .line').forEach((el, i) => {
-    const s0 = 5.5 + i * 1.5;
-    el.style.opacity = seg(t, s0, s0 + .5); el.style.transform = `translateX(${lerp(-40, 0, ease(seg(t, s0, s0 + .7)))}px)`;
+    const s0 = 3.4 + i * .9;
+    el.style.opacity = seg(t, s0, s0 + .4); el.style.transform = `translateX(${lerp(-40, 0, ease(seg(t, s0, s0 + .6)))}px)`;
   });
 
   // app
-  const appOn = fade(t, 11.2, 11.9, 47.0, 47.6);
+  const appOn = fade(t, 7.2, 7.8, 40.9, 41.4);
   $('app').style.opacity = appOn;
-  $('win').style.transform = `translateY(${lerp(60, 0, ease(seg(t, 11.2, 12.2)))}px) scale(${lerp(.96, 1, ease(seg(t, 11.2, 12.2)))})`;
-  let idx = APP.findIndex(([a, b]) => t >= a && t < b); if (idx < 0) idx = t < APP[0][0] ? 0 : 4;
+  $('win').style.transform = `translateY(${lerp(60, 0, ease(seg(t, 7.2, 8.1)))}px) scale(${lerp(.96, 1, ease(seg(t, 7.2, 8.1)))})`;
+  let idx = APP.findIndex(([a, b]) => t >= a && t < b); if (idx < 0) idx = t < APP[0][0] ? 0 : APP.length - 1;
   const [a, b] = APP[idx];
-  const capK = fade(t, a + .1, a + .6, b - .45, b - .05);
+  const capK = fade(t, a + .05, a + .5, b - .4, b - .05);
   const [k1, k2, k3] = TXT.s[idx];
   $('kick').textContent = k1; $('ctitle').textContent = k2; $('csub').textContent = k3;
-  document.querySelector('.cap').style.opacity = idx === 0 && t < a + .6 ? Math.min(capK, appOn) : capK;
-  document.querySelector('.cap').style.transform = `translateY(${lerp(18, 0, ease(seg(t, a + .1, a + .7)))}px)`;
+  document.querySelector('.cap').style.opacity = idx === 0 && t < a + .5 ? Math.min(capK, appOn) : capK;
+  document.querySelector('.cap').style.transform = `translateY(${lerp(18, 0, ease(seg(t, a + .05, a + .6)))}px)`;
   document.querySelectorAll('.progress span').forEach((s, i) => s.classList.toggle('on', i <= idx));
-  $('chrome').classList.toggle('dark', idx === 4);
-  $('rec').style.opacity = idx <= 1 ? .55 + .45 * Math.abs(Math.sin(t * 3)) : 0;
 
   let v = FULL, hl = null, cur = null, rip = 0;
-  if (idx === 0) {            // live transcript: slow push-in on the transcript
+  if (idx === 0) {            // live transcript: slow push-in
     setShots('live', 'live', 0);
-    v = mix(FULL, R.transcript, ease(seg(t, 12.6, 18.4)) * .55);
-  } else if (idx === 1) {     // cursor clicks Catch me up, then zoom into the card
+    v = mix(FULL, R.transcript, ease(seg(t, 8.0, 12.6)) * .55);
+  } else if (idx === 1) {     // cursor clicks Catch me up, then zoom into the card and its covered interval
     setShots('live', 'live', 0);
-    const back = ease(seg(t, 19.0, 19.8));
-    const v0 = mix(mix(FULL, R.transcript, .55), FULL, back);
-    v = mix(v0, R.card, ease(seg(t, 22.3, 24.6)));
-    const p = ease(seg(t, 19.9, 21.5));
-    const [bx, by] = toVp(v, ...R.catchBtn);
-    cur = [lerp(VW * .55, bx, p), lerp(VH * .9, by, p), fade(t, 19.8, 20.1, 22.2, 22.6)];
-    rip = seg(t, 21.7, 22.4);
-    if (t > 24.4) { const [x1, y1] = toVp(v, 912, 368); const [x2, y2] = toVp(v, 1030, 392); hl = [x1, y1, x2 - x1, y2 - y1, fade(t, 24.6, 25.0, 26.4, 26.8)]; }
-  } else if (idx === 2) {     // Chinese explanation
-    setShots('live', 'zh', ease(seg(t, 27.0, 27.6)));
-    v = mix(mix(R.card, FULL, ease(seg(t, 27.0, 27.6))), R.card, ease(seg(t, 28.0, 30.2)));
-  } else if (idx === 3) {     // window capture: thumbnail, then the mismatch sentence
-    setShots('zh', 'win', ease(seg(t, 34.6, 35.2)));
-    const v1 = mix(R.card, FULL, ease(seg(t, 34.6, 35.2)));
-    const v2 = mix(v1, R.thumb, ease(seg(t, 35.4, 36.8)));
-    v = mix(v2, R.mismatch, ease(seg(t, 37.4, 39.0)));
-    if (t > 38.8) { const [x1, y1] = toVp(v, 912, 512); const [x2, y2] = toVp(v, 1336, 574); hl = [x1, y1, x2 - x1, y2 - y1, fade(t, 39.0, 39.4, 40.5, 40.9)]; }
-  } else {                    // summary (dark mode)
-    setShots('win', 'sum', ease(seg(t, 41.0, 41.6)));
-    v = mix(mix(R.mismatch, FULL, ease(seg(t, 41.0, 41.6))), R.summary, ease(seg(t, 41.9, 44.0)));
-    if (t > 44.0) { const [x1, y1] = toVp(v, 914, 520); const [x2, y2] = toVp(v, 1004, 546); hl = [x1, y1, x2 - x1, y2 - y1, fade(t, 44.3, 44.7, 46.4, 46.9)]; }
+    const v0 = mix(mix(FULL, R.transcript, .55), FULL, ease(seg(t, 13.0, 13.6)));
+    v = mix(v0, R.card, ease(seg(t, 15.5, 17.0)));
+    const p = ease(seg(t, 13.6, 14.8));
+    const [bx, by] = toVp(v, ...center(B.catchBtn));
+    cur = [lerp(VW * .55, bx, p), lerp(VH * .9, by, p), fade(t, 13.5, 13.8, 15.4, 15.8)];
+    rip = seg(t, 15.0, 15.7);
+    if (t > 17.0) hl = hlBox(v, B.covers, fade(t, 17.2, 17.5, 18.7, 19.0));
+  } else if (idx === 2) {     // explanation pitched to the profile
+    setShots('live', 'explain', ease(seg(t, 19.2, 19.7)));
+    v = mix(mix(R.card, FULL, ease(seg(t, 19.2, 19.7))), R.explain, ease(seg(t, 19.9, 21.6)));
+  } else if (idx === 3) {     // window capture: the slide strip, then the sentence that checks the slide
+    setShots('explain', 'win', ease(seg(t, 24.8, 25.3)));
+    const v1 = mix(R.explain, FULL, ease(seg(t, 24.8, 25.3)));
+    const v2 = mix(v1, R.thumb, ease(seg(t, 25.4, 26.5)));
+    v = mix(v2, R.winHl, ease(seg(t, 26.9, 28.3)));
+    if (t > 28.2) hl = hlBox(v, B.winHl, fade(t, 28.4, 28.7, 29.9, 30.3));
+  } else if (idx === 4) {     // summary (dark mode) with a cited moment
+    setShots('win', 'sum', ease(seg(t, 30.4, 30.9)));
+    v = mix(mix(R.winHl, FULL, ease(seg(t, 30.4, 30.9))), R.sum, ease(seg(t, 31.1, 32.8)));
+    if (t > 32.8) hl = hlBox(v, B.ref, fade(t, 33.0, 33.3, 35.2, 35.6));
+  } else {                    // speech models: the list with the recommended one, then the speed test
+    setShots('sum', 'models', ease(seg(t, 35.8, 36.3)));
+    const v1 = mix(R.sum, FULL, ease(seg(t, 35.8, 36.3)));
+    const v2 = mix(v1, R.list, ease(seg(t, 36.6, 37.9)));
+    v = mix(v2, R.bench, ease(seg(t, 39.0, 40.0)));
+    if (t > 37.9 && t < 39.1) hl = hlBox(v, B.active, fade(t, 38.0, 38.3, 38.8, 39.1));
+    if (t > 40.0) hl = hlBox(v, B.bench, fade(t, 40.1, 40.4, 41.0, 41.3));
   }
   applyView(v);
   const H = $('hl');
@@ -322,19 +350,19 @@ window.render = function (t) {
   if (rip > 0 && rip < 1 && cur) { const s = 1 + rip * 4; P.style.transform = `translate(${cur[0] - 10}px, ${cur[1] - 10}px) scale(${s})`; P.style.opacity = 1 - rip; } else P.style.opacity = 0;
 
   // trust + shortcut
-  $('trust').style.opacity = fade(t, 47.6, 48.1, 54.0, 54.6);
+  $('trust').style.opacity = fade(t, 41.4, 41.8, 45.9, 46.4);
   document.querySelectorAll('.tcard').forEach((el, i) => {
-    const s0 = 48.0 + i * .45;
-    el.style.opacity = seg(t, s0, s0 + .5); el.style.transform = `translateY(${lerp(40, 0, ease(seg(t, s0, s0 + .7)))}px)`;
+    const s0 = 41.7 + i * .3;
+    el.style.opacity = seg(t, s0, s0 + .4); el.style.transform = `translateY(${lerp(40, 0, ease(seg(t, s0, s0 + .6)))}px)`;
   });
-  $('keys').style.opacity = seg(t, 50.6, 51.1);
+  $('keys').style.opacity = seg(t, 43.2, 43.6);
   document.querySelectorAll('.key').forEach((el, i) => {
-    const press = fade(t, 51.4 + i * .18, 51.5 + i * .18, 53.0, 53.2);
+    const press = fade(t, 43.8 + i * .15, 43.9 + i * .15, 45.3, 45.5);
     el.style.transform = `translateY(${press * 6}px)`; el.style.boxShadow = `0 ${8 - press * 6}px 0 #9aa3bf, 0 ${14 - press * 8}px 26px rgba(0,0,0,.4)`;
   });
 
   // outro
-  $('outro').style.opacity = seg(t, 54.6, 55.3) * (1 - seg(t, 61.2, 62));
+  $('outro').style.opacity = seg(t, 46.4, 47.0) * (1 - seg(t, 49.8, 50.5));
 };
 render(0);
 </script>

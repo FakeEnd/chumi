@@ -17,8 +17,8 @@
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
 <p align="center">
-  <a href="docs/assets/chumi-promo-zh.mp4"><img src="docs/assets/chumi-promo-zh-poster.jpg" width="760" alt="观看 60 秒 Chumi 介绍视频：实时转写、帮我跟上、按你的水平解释、幻灯片截图和可信的总结"></a><br>
-  <sub>▶ <a href="docs/assets/chumi-promo-zh.mp4">观看 60 秒介绍视频</a> · <a href="docs/assets/chumi-promo.mp4">English version</a></sub>
+  <a href="docs/assets/chumi-promo-zh.mp4"><img src="docs/assets/chumi-promo-zh-poster.jpg" width="760" alt="观看 50 秒 Chumi 介绍视频：实时转写、帮我跟上、按你的水平解释、幻灯片截图、可信的总结和适配你电脑的语音模型"></a><br>
+  <sub>▶ <a href="docs/assets/chumi-promo-zh.mp4">观看 50 秒介绍视频</a> · <a href="docs/assets/chumi-promo.mp4">English version</a></sub>
 </p>
 
 ---
@@ -44,34 +44,40 @@
 **跟丢了？一键帮我跟上。** 下面是一场正在进行的组会，左侧有实时概览和中英混合转写，右侧的"帮我跟上"刚好覆盖最近两分钟，每一条都标注了出处：
 
 <p align="center">
-  <img src="docs/assets/screens/live.png" width="900" alt="组会进行中的 Chumi：中英混合的实时转写、带可点击时间戳的讨论概览，以及覆盖最近两分钟的帮我跟上卡片">
+  <img src="docs/assets/screens/zh/live.png" width="900" alt="组会进行中的 Chumi：中英混合的实时转写、带可点击时间戳的讨论概览，以及覆盖最近两分钟的帮我跟上卡片">
 </p>
 
 **直接问屏幕上的幻灯片。** 截到的幻灯片会随问题一起发送，回答会把它和讲者实际说的内容对照。在下图中，它还发现幻灯片上的数字和讲者描述的文库规模对不上：
 
 <p align="center">
-  <img src="docs/assets/screens/window-capture.png" width="900" alt="Screen 栏中的幻灯片截图；回答解释了幻灯片内容、引用转写时间，并指出幻灯片与讨论内容不一致">
+  <img src="docs/assets/screens/zh/window-capture.png" width="900" alt="屏幕栏中的幻灯片截图；回答解释了幻灯片内容、引用转写时间，并指出幻灯片与讨论内容不一致">
 </p>
 
 **中文解释，保留英文术语。** 在转写中选中 *negative binomial*，就能看到直观理解、它在这场讨论里的用法，以及为什么重要，全部按你的统计学水平来写：
 
 <p align="center">
-  <img src="docs/assets/screens/chinese.png" width="900" alt="关于 negative binomial model 的简体中文解释卡片，附转写时间引用">
+  <img src="docs/assets/screens/zh/explain.png" width="900" alt="关于 negative binomial model 的简体中文解释卡片，附转写时间引用">
 </p>
 
 **会议结束，自动生成结构化总结。** 总结包括研究问题、方法、结果（标注为已确立、初步或有争议）、分歧、未决问题和行动项，每一条都能追溯到转写原文。也支持深色模式：
 
 <p align="center">
-  <img src="docs/assets/screens/summary.png" width="900" alt="深色模式下的最终总结卡片，包含概览和研究问题，每条结论都链接到转写时间">
+  <img src="docs/assets/screens/zh/summary.png" width="900" alt="深色模式下的最终总结卡片，包含概览和研究问题，每条结论都链接到转写时间">
+</p>
+
+**适配你电脑的语音模型。** “设置 → 转写”列出从 Tiny 到 Large v3 的七种模型，按你的硬件推荐一个，并测试当前模型的速度和准确度：
+
+<p align="center">
+  <img src="docs/assets/screens/zh/models.png" width="900" alt="设置的转写页：各语音模型的大小、速度和准确度，推荐并正在使用的模型，以及速度和准确度测试结果">
 </p>
 
 **一键开始。** 首页提供快速开始，以及线下、线上、混合三种会议预设，并展示最近的会话和你的知识背景概况：
 
 <p align="center">
-  <img src="docs/assets/screens/home.png" width="900" alt="首页：问候语、状态、四种开始方式、最近会话、个人背景概况和使用提示">
+  <img src="docs/assets/screens/zh/home.png" width="900" alt="首页：问候语、状态、四种开始方式、最近会话、个人背景概况和使用提示">
 </p>
 
-<sub>以上截图都来自真实运行：本地真实转写，加上 Claude 的真实回答，素材是 <code>samples/lab-meeting</code> 中的合成示例组会。运行 <code>node scripts/demo-shoot.ts</code> 可以重新生成。</sub>
+<sub>以上截图都来自真实运行：本地真实转写，加上 Claude 的真实回答，界面为中文。素材是 <code>samples/lab-meeting</code> 中的合成示例组会：按剧本编写、人物均为虚构、由 macOS 语音朗读，个人档案也是虚构的，没有使用任何真实会议内容。运行 <code>node scripts/demo-shoot.ts --lang zh</code> 可以重新生成。</sub>
 
 ## 与 mybot 联动
 
@@ -196,7 +202,7 @@ node scripts/check-audio.ts system 6 --play
 node scripts/demo-shoot.ts
 ```
 
-重新生成 README 截图。`bash scripts/make-banner.sh` 可以重新渲染横幅；`node scripts/make-video.ts`（加 `--lang zh` 生成中文版）会根据 `docs/video/promo.html` 重新渲染介绍视频。
+重新生成英文 README 截图；加 `--lang zh` 生成 `docs/assets/screens/zh/` 中的中文截图。`bash scripts/make-banner.sh` 可以重新渲染横幅；`node scripts/make-video.ts`（加 `--lang zh` 生成中文版）会根据 `docs/video/promo.html` 重新渲染介绍视频。
 
 ```bash
 npm run build:tools
