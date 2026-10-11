@@ -7,11 +7,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/macOS-14.4%2B%20Apple%20Silicon-000000" alt="macOS 14.4+ on Apple Silicon">
-  <img src="https://img.shields.io/badge/node-24%2B-339933" alt="Node 24+">
-  <img src="https://img.shields.io/badge/speech-on--device%20(whisper.cpp)-4f46e5" alt="On-device speech recognition">
-  <img src="https://img.shields.io/badge/AI-ChatGPT%20or%20Claude%20plan-0e9fb8" alt="ChatGPT or Claude plan">
-  <img src="https://img.shields.io/badge/network-localhost%20only-4ade80" alt="Localhost only">
+  <img src="docs/assets/badges/macos.svg" alt="macOS 14.4+ on Apple Silicon">
+  <img src="docs/assets/badges/node.svg" alt="Node 24+">
+  <img src="docs/assets/badges/speech.svg" alt="On-device speech recognition">
+  <img src="docs/assets/badges/ai.svg" alt="ChatGPT or Claude plan">
+  <img src="docs/assets/badges/network.svg" alt="Localhost only">
 </p>
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
