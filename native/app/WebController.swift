@@ -5,8 +5,10 @@ import AppKit
 import WebKit
 
 @MainActor
-final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownloadDelegate {
-    let webView: WKWebView
+final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownloadDelegate, WKScriptMessageHandler {
+    let webView: ChumiWebView
+    /// Called when the page reports its top bar (CSS px), so the window chrome can follow it.
+    var onTopBar: ((CGRect) -> Void)?
     private(set) var baseURL: URL
     private var downloadDestinations: [ObjectIdentifier: URL] = [:]
 
@@ -16,14 +18,38 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
         config.mediaTypesRequiringUserActionForPlayback = []
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
         config.websiteDataStore = .default()
-        webView = WKWebView(frame: .zero, configuration: config)
+        // Tell the page it runs inside Chumi.app with a unified title bar (before first paint, so nothing jumps).
+        config.userContentController.addUserScript(WKUserScript(
+            source: "document.documentElement.dataset.shell='mac';document.documentElement.style.setProperty('--traffic-inset','86px');",
+            injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        webView = ChumiWebView(frame: .zero, configuration: config)
         super.init()
+        config.userContentController.add(WeakScriptHandler(self), name: "chumiShell")
         webView.uiDelegate = self
         webView.navigationDelegate = self
         webView.isInspectable = true
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsMagnification = true
         webView.customUserAgent = nil
+    }
+
+    /// Page → app: {type: 'topbar', bar: [x, y, w, h], noDrag: [[x, y, w, h], …]} in CSS px.
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "chumiShell", let body = message.body as? [String: Any], body["type"] as? String == "topbar" else { return }
+        func rect(_ v: Any?) -> CGRect? {
+            guard let a = v as? [NSNumber], a.count == 4 else { return nil }
+            return CGRect(x: a[0].doubleValue, y: a[1].doubleValue, width: a[2].doubleValue, height: a[3].doubleValue)
+        }
+        guard let bar = rect(body["bar"]) else { return }
+        webView.dragBar = bar
+        webView.noDrag = (body["noDrag"] as? [Any] ?? []).compactMap(rect)
+        onTopBar?(bar)
+    }
+
+    /// App → page: where the traffic lights end, and whether the window is full screen.
+    func setChrome(inset: CGFloat, fullScreen: Bool) {
+        let px = Int((inset / max(0.25, webView.pageZoom)).rounded())
+        webView.evaluateJavaScript("document.documentElement.style.setProperty('--traffic-inset','\(px)px');document.documentElement.dataset.fullscreen='\(fullScreen ? 1 : 0)';", completionHandler: nil)
     }
 
     func load(_ url: URL) {
@@ -225,5 +251,14 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
             i += 1
         }
         return candidate
+    }
+}
+
+/// WKUserContentController retains its handlers; this breaks the cycle with WebController.
+final class WeakScriptHandler: NSObject, WKScriptMessageHandler {
+    weak var target: WKScriptMessageHandler?
+    init(_ target: WKScriptMessageHandler) { self.target = target }
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        target?.userContentController(controller, didReceive: message)
     }
 }

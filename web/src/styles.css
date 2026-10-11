@@ -364,3 +364,8 @@ table.bench { border-collapse: collapse; margin: 8px 0 4px; width: 100%; max-wid
 table.bench th, table.bench td { text-align: left; padding: 4px 10px 4px 0; border-bottom: 1px solid var(--border); }
 table.bench tfoot td { border: none; padding-top: 6px; }
 @media (max-width: 640px) { .model-row { flex-direction: column; align-items: stretch; } .model-actions { justify-content: flex-start; } }
+
+/* Inside Chumi.app the top bar is also the window's title bar: the traffic lights sit at its left. */
+html[data-shell="mac"] .topbar { padding-left: var(--traffic-inset, 86px); min-height: 52px; -webkit-user-select: none; user-select: none; }
+html[data-shell="mac"][data-fullscreen="1"] .topbar { padding-left: 18px; }
+html[data-shell="mac"] .topbar .title-input { -webkit-user-select: text; user-select: text; }

@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow!
     private let server = ServerManager()
     private var web: WebController?
+    private var chrome: WindowChrome!
+    private var lastChrome: (CGFloat, Bool)?
     private var loadingView: NSView?
     private var statusLabel: NSTextField?
 
@@ -48,14 +50,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window = NSWindow(contentRect: frame,
                           styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                           backing: .buffered, defer: false)
-        window.title = "Chumi"
+        window.title = "Chumi"  // hidden in the title bar; still used by the Window menu and Mission Control
+        chrome = WindowChrome(window: window)
         window.minSize = NSSize(width: 1000, height: 640)
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
         window.setFrameAutosaveName("ChumiMainWindow")
         window.makeKeyAndOrderFront(nil)
+        chrome.layout()
     }
+
+    // MARK: - Unified title bar
+
+    private func relayoutChrome() {
+        chrome.layout()
+        let state = (chrome.trafficLightsInset, chrome.isFullScreen)
+        if let last = lastChrome, last == state { return }
+        lastChrome = state
+        web?.setChrome(inset: state.0, fullScreen: state.1)
+    }
+
+    func windowDidResize(_ notification: Notification) { relayoutChrome() }
+    func windowDidBecomeKey(_ notification: Notification) { chrome.layout() }
+    func windowDidResignKey(_ notification: Notification) { chrome.layout() }
+    func windowDidEnterFullScreen(_ notification: Notification) { relayoutChrome() }
+    func windowDidExitFullScreen(_ notification: Notification) { relayoutChrome() }
+    func windowDidChangeBackingProperties(_ notification: Notification) { relayoutChrome() }
 
     private func showLoading(_ text: String) {
         let container = NSView()
@@ -98,7 +119,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func showWeb(_ url: URL) {
         let controller = web ?? WebController(baseURL: url)
         web = controller
+        controller.onTopBar = { [weak self, weak controller] bar in
+            guard let self, let controller else { return }
+            self.chrome.barHeight = bar.maxY * controller.webView.pageZoom
+            self.relayoutChrome()
+        }
         window.contentView = controller.webView
+        lastChrome = nil
         loadingView = nil
         controller.load(url)
     }
@@ -163,9 +190,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSWorkspace.shared.open(web?.webView.url ?? server.baseURL)
     }
 
-    @objc func zoomIn(_ sender: Any?) { web.map { $0.webView.pageZoom = min(3, $0.webView.pageZoom + 0.1) } }
-    @objc func zoomOut(_ sender: Any?) { web.map { $0.webView.pageZoom = max(0.5, $0.webView.pageZoom - 0.1) } }
-    @objc func actualSize(_ sender: Any?) { web?.webView.pageZoom = 1 }
+    @objc func zoomIn(_ sender: Any?) { web.map { $0.webView.pageZoom = min(3, $0.webView.pageZoom + 0.1) }; lastChrome = nil; relayoutChrome() }
+    @objc func zoomOut(_ sender: Any?) { web.map { $0.webView.pageZoom = max(0.5, $0.webView.pageZoom - 0.1) }; lastChrome = nil; relayoutChrome() }
+    @objc func actualSize(_ sender: Any?) { web?.webView.pageZoom = 1; lastChrome = nil; relayoutChrome() }
 
     @objc func showServerLog(_ sender: Any?) {
         NSWorkspace.shared.open(server.logURL)

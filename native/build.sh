@@ -5,6 +5,7 @@
 #   build/chumi-screen  window capture tool (slides / shared screen)
 #   build/chumi-hotkey  global quick-start shortcut listener
 #   `native/build.sh tools` rebuilds only these two (Chumi.app and its permissions stay untouched)
+#   `native/build.sh app`   rebuilds only Chumi.app and the audio helper (the two tools keep their permissions)
 #
 # Env:
 #   CHUMI_SIGN_IDENTITY  codesign identity (e.g. "Apple Development: …"). Default: ad-hoc ("-").
@@ -113,8 +114,10 @@ codesign "${SIGN_ARGS[@]}" --identifier local.chumi.audio "$BUILD_DIR/chumi-audi
 codesign --verify --strict "$APP"
 codesign --verify --strict "$BUILD_DIR/chumi-audio"
 
-build_screen
-build_hotkey
+if [[ "${1:-all}" != "app" ]]; then
+  build_screen
+  build_hotkey
+fi
 
 echo
 echo "Built:"
