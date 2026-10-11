@@ -2,24 +2,25 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { getState, setState, useStore } from '../store.ts';
 import { explain, frameUrl } from '../actions.ts';
 import { fmtT } from '../util.ts';
+import { msg, t } from '../i18n.ts';
 import type { Frame, Segment, TimelineEvent } from '../types.ts';
 
 type Item = { kind: 'seg'; seg: Segment } | { kind: 'mark'; ev: TimelineEvent } | { kind: 'frame'; f: Frame };
 
 const MARK_TEXT: Record<string, (e: TimelineEvent) => string> = {
-  pause: (e) => `Paused at ${fmtT(e.t)}`,
-  resume: (e) => `Resumed at ${fmtT(e.t)}`,
-  gap: (e) => `Recording gap — ${e.detail ?? `at ${fmtT(e.t)}`}`,
-  interrupted: (e) => `Recording interrupted at ${fmtT(e.t)} — ${e.detail ?? ''}`,
-  error: (e) => `Error at ${fmtT(e.t)}: ${e.detail ?? ''}`,
-  window: (e) => `${e.detail ?? 'Window capture'} (from ${fmtT(e.t)})`,
+  pause: (e) => t('Paused at {t}', { t: fmtT(e.t) }),
+  resume: (e) => t('Resumed at {t}', { t: fmtT(e.t) }),
+  gap: (e) => t('Recording gap: {detail}', { detail: e.detail ?? t('at {t}', { t: fmtT(e.t) }) }),
+  interrupted: (e) => t('Recording interrupted at {t}. {detail}', { t: fmtT(e.t), detail: e.detail ?? '' }),
+  error: (e) => t('Error at {t}: {detail}', { t: fmtT(e.t), detail: e.detail ?? '' }),
+  window: (e) => t('{detail} (from {t})', { detail: e.detail ?? t('Window capture'), t: fmtT(e.t) }),
 };
 
 const Row = memo(function Row({ seg, hl, showSource }: { seg: Segment; hl: boolean; showSource: boolean }) {
   return (
     <div className={`seg${hl ? ' hl' : ''}`} data-seg="" data-t={seg.t_start} data-tend={seg.t_end} lang={seg.lang === 'zh' ? 'zh-CN' : seg.lang ?? undefined}>
-      <button className="ts" title="Attach this line to a question" onClick={() => setState({ attached: { fromT: seg.t_start, toT: seg.t_end, text: seg.text } })}>{fmtT(seg.t_start)}</button>
-      <span className="txt">{showSource && seg.source === 'system' && <span className="src-tag">computer</span>}{seg.text}</span>
+      <button className="ts" title={t('Attach this line to a question')} onClick={() => setState({ attached: { fromT: seg.t_start, toT: seg.t_end, text: seg.text } })}>{fmtT(seg.t_start)}</button>
+      <span className="txt">{showSource && seg.source === 'system' && <span className="src-tag">{t('computer')}</span>}{seg.text}</span>
     </div>
   );
 });
@@ -108,38 +109,38 @@ export function Transcript() {
 
   const returnToLive = () => { setFollow(true); setNewCount(0); scrollToBottom(); };
 
-  if (!data) return <div className="transcript empty-state"><p>Start a session or open one from History.</p></div>;
+  if (!data) return <div className="transcript empty-state"><p>{t('Start a session or open one from History.')}</p></div>;
 
   return (
     <div className="transcript-wrap">
-      <div className="transcript" ref={scroller} onScroll={onScroll} onMouseUp={onMouseUp} role="log" aria-live="off" aria-label="Transcript">
+      <div className="transcript" ref={scroller} onScroll={onScroll} onMouseUp={onMouseUp} role="log" aria-live="off" aria-label={t('Transcript')}>
         {items.length === 0 && partialList.length === 0 && (
-          <p className="empty-state">{isLive ? (live?.status === 'paused' ? 'Paused.' : 'Listening… the transcript appears here a second or two after speech.') : 'No transcript in this session.'}</p>
+          <p className="empty-state">{isLive ? (live?.status === 'paused' ? t('Paused.') : t('Listening… the transcript appears here a second or two after speech.')) : t('No transcript in this session.')}</p>
         )}
         {items.map((it) => it.kind === 'seg'
           ? <Row key={`s${it.seg.id}`} seg={it.seg} hl={hl.has(it.seg.id)} showSource={showSource} />
           : it.kind === 'frame'
-            ? <button key={`f${it.f.id}`} className="frame-marker" onClick={() => setState({ dialog: 'frame', frameView: it.f.id })} title="Screen changed here — click to view">
-                <span className="ts">{fmtT(it.f.t)}</span><img src={frameUrl(it.f.id)} alt="" loading="lazy" /><span className="muted small">Screen changed</span>
+            ? <button key={`f${it.f.id}`} className="frame-marker" onClick={() => setState({ dialog: 'frame', frameView: it.f.id })} title={t('Screen changed here. Click to view.')}>
+                <span className="ts">{fmtT(it.f.t)}</span><img src={frameUrl(it.f.id)} alt="" loading="lazy" /><span className="muted small">{t('Screen changed')}</span>
               </button>
             : <div key={`m${it.ev.id}`} className={`marker marker-${it.ev.kind}`}>{MARK_TEXT[it.ev.kind](it.ev)}</div>)}
         {partialList.map(([src, p]) => (
           <div key={`p-${src}`} className="seg partial" aria-hidden="true">
             <span className="ts">{fmtT(p.t)}</span>
-            <span className="txt">{showSource && src === 'system' && <span className="src-tag">computer</span>}{p.text}<span className="dots"> …</span></span>
+            <span className="txt">{showSource && src === 'system' && <span className="src-tag">{t('computer')}</span>}{p.text}<span className="dots"> …</span></span>
           </div>
         ))}
         {toolbar && (
           <div className="sel-toolbar" style={{ left: toolbar.x, top: Math.max(0, toolbar.y) }} onMouseDown={(e) => e.preventDefault()}>
-            <button onClick={() => { explain(toolbar.text.length <= 80 ? toolbar.text : 'the selected passage', toolbar, defaultDepth); setToolbar(null); window.getSelection()?.removeAllRanges(); }}>Explain</button>
-            <button onClick={() => { setState({ attached: { fromT: toolbar.fromT, toT: toolbar.toT, text: toolbar.text } }); setToolbar(null); document.getElementById('ask-input')?.focus(); }}>Ask about this…</button>
-            <button onClick={() => { void navigator.clipboard?.writeText(`[${fmtT(toolbar.fromT)}] ${toolbar.text}`); setToolbar(null); }}>Copy</button>
+            <button onClick={() => { explain(toolbar.text.length <= 80 ? toolbar.text : t('the selected passage'), toolbar, defaultDepth); setToolbar(null); window.getSelection()?.removeAllRanges(); }}>{t('Explain')}</button>
+            <button onClick={() => { setState({ attached: { fromT: toolbar.fromT, toT: toolbar.toT, text: toolbar.text } }); setToolbar(null); document.getElementById('ask-input')?.focus(); }}>{t('Ask about this…')}</button>
+            <button onClick={() => { void navigator.clipboard?.writeText(`[${fmtT(toolbar.fromT)}] ${toolbar.text}`); setToolbar(null); }}>{t('Copy')}</button>
           </div>
         )}
       </div>
       {!follow && (
         <button className="return-live" onClick={returnToLive}>
-          {newCount > 0 ? `${newCount} new line${newCount === 1 ? '' : 's'} · ` : ''}{isLive ? 'Return to live ↓' : 'Jump to end ↓'}
+          {newCount > 0 ? `${t(newCount === 1 ? msg('{n} new line') : msg('{n} new lines'), { n: newCount })} · ` : ''}{isLive ? t('Return to live ↓') : t('Jump to end ↓')}
         </button>
       )}
     </div>

@@ -33,7 +33,7 @@ Research talk moves fast and borrows from neighbouring fields. A deep-learning p
 - **Explanations pitched to you.** Select a phrase and get the background at the right level. Chumi keeps a per-domain profile: it won't explain transformers to an ML person, and it won't assume you know a wet-lab assay. Pick **Quick, Standard or Deep**, and choose how hard the model thinks, from **Low to Max**.
 - **It keeps what was said apart from what it adds.** Answers separate *what the speakers said*, *background added by Chumi*, and *interpretation and uncertainty*. Every claim cites a clickable `[m:ss]` that jumps to the supporting lines. If a speaker points at a slide Chumi can't see, it says so instead of guessing.
 - **It sees the slides too.** Capture the Zoom share, the lecture video or the slide deck. Chumi keeps one picture per slide and can show it to the model, so *"explain this figure"* works.
-- **Bilingual by design.** Transcribes English, Mandarin, and Mandarin with English technical terms. Explains in **中文** (keeping English terms) or **English**, switchable at any time.
+- **Bilingual by design.** Transcribes English, Mandarin, and Mandarin with English technical terms. Explains in **中文** (keeping English terms) or **English**, switchable at any time. The interface itself comes in English and 中文 too.
 - **Summaries you can trust.** Summaries are shaped for lab meetings, advisor 1:1s, lectures or WIP talks. Preliminary results stay preliminary, disagreements are kept, and owners or deadlines appear only if someone actually said them.
 - **Uses the subscription you already pay for.** ChatGPT (through Codex) or Claude (through Claude Code), with live quota and billing shown. Chumi **never** switches to a paid API on its own, and pauses instead of spending purchased credits.
 - **Private and crash-safe.** Speech recognition runs locally with whisper.cpp, so audio never leaves the Mac. Transcript lines are saved as they arrive. After a crash, the session reopens with a gap marker and can be resumed.
@@ -97,7 +97,7 @@ git clone https://github.com/FakeEnd/chumi.git && cd chumi
 bash scripts/setup.sh
 ```
 
-The setup script installs whisper.cpp, downloads the speech model (about 875 MB, stored once in `~/Library/Application Support/Chumi/models/`), installs the npm packages, and builds the app and its helpers.
+The setup script installs whisper.cpp, downloads the speech model that suits your Mac (Large v3 Turbo, about 875 MB, on Apple Silicon with 16 GB or more), installs the npm packages, and builds the app and its helpers. Models are stored once in `~/Library/Application Support/Chumi/models/`.
 
 ### 2. Connect the AI you already have
 
@@ -125,8 +125,9 @@ Click **⚡ Quick start**, or press **⌃⌥⌘L** from anywhere. macOS asks onc
 
 **Listening**
 - Microphone for in-person conversations, computer audio for Zoom, Teams or recorded lectures (headphones are fine), or both for hybrid meetings, with echo cancellation and duplicate filtering.
-- Local whisper.cpp large-v3-turbo on the Metal GPU, about 0.3 s per utterance. Grey partial text is revised in place, never duplicated.
-- English, Mandarin and code-switching. Traditional characters are converted to Simplified, and vocabulary hints improve spelling of jargon and names.
+- Local whisper.cpp on the Metal GPU, about 0.3 s per utterance with Large v3 Turbo. Grey partial text is revised in place, never duplicated.
+- Seven speech models, from Tiny (31 MB) for older Macs to Large v3 (1 GB). Settings → Transcription recommends one for your hardware, downloads and deletes models, and measures the current model's speed and accuracy.
+- English, Mandarin and code-switching. Whisper sometimes writes Mandarin in Traditional characters; Chumi converts them to Simplified unless you turn that off. Vocabulary hints improve spelling of jargon and names.
 - Pause, resume, a quick-start shortcut, level meters, and clear permission guidance.
 
 **Understanding**

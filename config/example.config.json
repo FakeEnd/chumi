@@ -3,6 +3,7 @@
   "settings": {
     "audio": { "source": "mic", "micDeviceUid": null, "aec": true, "saveRawAudio": false },
     "asr": {
+      "_model": "Speech model file. Settings → Transcription lists all sizes and recommends one for your Mac: ggml-tiny-q5_1.bin, ggml-base-q5_1.bin, ggml-small-q5_1.bin, ggml-medium-q5_0.bin, ggml-large-v3-turbo-q5_0.bin, ggml-large-v3-turbo-q8_0.bin, ggml-large-v3-q5_0.bin",
       "model": "ggml-large-v3-turbo-q8_0.bin",
       "language": "auto",
       "threads": 8,
@@ -16,6 +17,7 @@
       "anthropicApi": { "enabled": false, "model": "claude-opus-5-5" }
     },
     "assist": { "autoExplain": false, "autoExplainFrequency": "medium", "defaultDepth": "standard", "autoOverview": true },
+    "ui": { "language": "auto" },
     "devMode": false
   },
   "profile": {

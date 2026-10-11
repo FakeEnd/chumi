@@ -1,4 +1,5 @@
 import { marked } from 'marked';
+import { locale, msg, t as tr } from './i18n.ts';
 
 export function fmtT(ms: number | null | undefined): string {
   if (ms == null || !Number.isFinite(ms)) return '–';
@@ -14,8 +15,8 @@ export function parseT(s: string): number | null {
   if (parts.length === 3) return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
   return null;
 }
-export const fmtClock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-export const fmtDate = (ms: number) => new Date(ms).toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+export const fmtClock = (ms: number) => new Date(ms).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
+export const fmtDate = (ms: number) => new Date(ms).toLocaleString(locale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 
@@ -44,7 +45,7 @@ function refButton(part: string): string {
   const t = parseT(m[1]);
   const t2 = m[2] ? parseT(m[2]) : null;
   if (t == null) return part;
-  return `<button class="ref" data-t="${t}"${t2 != null ? ` data-t2="${t2}"` : ''} title="Show in transcript">${m[2] ? `${m[1]}–${m[2]}` : m[1]}</button>`;
+  return `<button class="ref" data-t="${t}"${t2 != null ? ` data-t2="${t2}"` : ''} title="${tr('Show in transcript')}">${m[2] ? `${m[1]}–${m[2]}` : m[1]}</button>`;
 }
 
 /** Markdown → safe HTML with clickable transcript references. */
@@ -54,8 +55,8 @@ export function renderMd(md: string): string {
   return html.replace(/(^|>)([^<]+)(?=<|$)/g, (_m, lead: string, text: string) => lead + text.replace(REF, (_all, inner: string) => inner.split(/\s*[,;，、]\s*/).map(refButton).join(' ')));
 }
 
-export const SESSION_TYPES: Array<{ id: string; label: string }> = [
-  { id: 'lab_meeting', label: 'Lab meeting' }, { id: 'advisor', label: 'Advisor 1:1' }, { id: 'lecture', label: 'Lecture' }, { id: 'wip', label: 'WIP / seminar' }, { id: 'other', label: 'Other' },
-];
-export const typeLabel = (t: string) => SESSION_TYPES.find((x) => x.id === t)?.label ?? t;
-export const SOURCE_LABEL: Record<string, string> = { mic: 'Microphone', system: 'Computer audio', both: 'Mic + computer', file: 'Audio file (test)' };
+const TYPE_LABEL: Record<string, string> = { lab_meeting: msg('Lab meeting'), advisor: msg('Advisor 1:1'), lecture: msg('Lecture'), wip: msg('WIP / seminar'), other: msg('Other') };
+export const SESSION_TYPES = Object.keys(TYPE_LABEL);
+export const typeLabel = (id: string): string => (TYPE_LABEL[id] ? tr(TYPE_LABEL[id]) : id);
+const SOURCE_LABEL: Record<string, string> = { mic: msg('Microphone'), system: msg('Computer audio'), both: msg('Mic + computer'), file: msg('Audio file (test)') };
+export const sourceLabel = (src: string): string => (SOURCE_LABEL[src] ? tr(SOURCE_LABEL[src]) : src);

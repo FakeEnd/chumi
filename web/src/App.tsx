@@ -13,6 +13,7 @@ import { HistoryDialog } from './components/HistoryDialog.tsx';
 import { Notices } from './components/Notices.tsx';
 import { FrameViewer, SlideStrip, WindowDialog } from './components/Slides.tsx';
 import { fmtDate, fmtT } from './util.ts';
+import { resolveLang, setLang, t } from './i18n.ts';
 import { openSession } from './actions.ts';
 
 function SavedBanner() {
@@ -22,8 +23,8 @@ function SavedBanner() {
   const s = data.session;
   return (
     <div className="saved-banner">
-      Viewing saved session · {fmtDate(s.started_at ?? s.created_at)} · {fmtT(s.duration_ms)}{s.status === 'interrupted' ? ' · recording was interrupted (see gap markers)' : ''}
-      {live?.session && <button className="btn small" onClick={() => void openSession(live.session!.id)}>Back to live session</button>}
+      {t('Viewing saved session')} · {fmtDate(s.started_at ?? s.created_at)} · {fmtT(s.duration_ms)}{s.status === 'interrupted' ? ` · ${t('recording was interrupted (see gap markers)')}` : ''}
+      {live?.session && <button className="btn small" onClick={() => void openSession(live.session!.id)}>{t('Back to live session')}</button>}
     </div>
   );
 }
@@ -32,10 +33,14 @@ export function App() {
   const loaded = useStore((s) => s.loaded);
   const dialog = useStore((s) => s.dialog);
   const data = useStore((s) => s.data);
+  const pref = useStore((s) => s.settings?.ui?.language);
+  const system = useStore((s) => s.systemLanguage);
+  const lang = resolveLang(pref, system);
+  setLang(lang); // before children render; the key below re-renders everything when it changes
   useEffect(() => connectEvents(), []);
-  if (!loaded) return <div className="boot">Connecting to Chumi…</div>;
+  if (!loaded) return <div className="boot">{t('Connecting to Chumi…')}</div>;
   return (
-    <div className="app">
+    <div className="app" key={lang}>
       <TopBar />
       <Notices />
       {data ? (

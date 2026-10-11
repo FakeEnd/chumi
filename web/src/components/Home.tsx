@@ -2,15 +2,19 @@ import { useEffect, useState } from 'react';
 import { setState, useStore } from '../store.ts';
 import { api } from '../api.ts';
 import { openSession, quickStart } from '../actions.ts';
-import { fmtDate, fmtT, SOURCE_LABEL, typeLabel } from '../util.ts';
+import { fmtDate, fmtT, sourceLabel, typeLabel } from '../util.ts';
+import { getLang, msg, plural, t, tn } from '../i18n.ts';
 import type { Session } from '../types.ts';
+import { billingWord, DEPTH_LABEL, providerShort } from './TopBar.tsx';
 import { IconArrow, IconBolt, IconBoth, IconMic, IconMonitor, IconShield, IconSpark, IconText, IconWindow } from './icons.tsx';
 
-const LEVELS = ['new', 'intro', 'working', 'strong', 'expert'];
+const LEVELS = [msg('new'), msg('intro'), msg('working'), msg('strong'), msg('expert')];
+const PROVIDER_STATE: Record<string, string> = { checking: msg('checking'), signed_out: msg('not signed in'), quota_blocked: msg('limit reached'), not_installed: msg('not installed'), disabled: msg('disabled'), error: msg('unavailable') };
+const ASR_STATE: Record<string, string> = { starting: msg('loading…'), stopped: msg('idle'), error: msg('restarting…'), missing_model: msg('model not installed'), missing_binary: msg('not installed') };
 
 function greeting(): string {
   const h = new Date().getHours();
-  return h < 5 ? 'Working late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+  return t(h < 5 ? msg('Working late') : h < 12 ? msg('Good morning') : h < 18 ? msg('Good afternoon') : msg('Good evening'));
 }
 
 export function Home() {
@@ -31,24 +35,25 @@ export function Home() {
   const quickSrc = settings ? (settings.quickStart.source === 'default' ? settings.audio.source : settings.quickStart.source) : 'mic';
   const aiReady = provider?.state === 'ready';
   const topDomains = (profile?.domains ?? []).slice().sort((a, b) => b.level - a.level).slice(0, 6);
+  const srcName = getLang() === 'zh' ? sourceLabel(quickSrc) : sourceLabel(quickSrc).toLowerCase();
 
   return (
     <div className="home">
       {liveSession && (
         <button className="home-live" onClick={() => void openSession(liveSession.id)}>
-          <span className="live-dot" /> {live?.status === 'paused' ? 'Paused' : 'Recording'}: <b>{liveSession.title}</b> <span className="spacer" /> Return to session <IconArrow />
+          <span className="live-dot" /> {live?.status === 'paused' ? t('Paused') : t('Recording')}: <b>{liveSession.title}</b> <span className="spacer" /> {t('Return to session')} <IconArrow />
         </button>
       )}
 
       <section className="hero">
         <img src="/logo.svg" alt="" className="hero-logo" />
         <div className="hero-text">
-          <h1>{greeting()}.</h1>
-          <p>Chumi listens alongside you, keeps track of the discussion, and explains what you need, right when you need it.</p>
+          <h1>{greeting()}{getLang() === 'zh' ? '' : '.'}</h1>
+          <p>{t('Chumi listens alongside you, keeps track of the discussion, and explains what you need, right when you need it.')}</p>
           <div className="hero-status">
-            <span className={`pill ${asr?.state === 'ready' ? 'ok' : 'muted'}`}><span className="dot" />Speech engine {asr?.state === 'ready' ? 'ready (on this Mac)' : asr?.state ?? '…'}</span>
-            <span className={`pill ${aiReady ? 'ok' : 'warn'}`} onClick={() => setState({ dialog: 'settings', settingsTab: 'ai' })} role="button" tabIndex={0}><span className="dot" />{provider ? `${provider.label.split(' (')[0]}${aiReady ? ` · ${provider.billing === 'subscription' ? 'subscription' : provider.billing}` : ` · ${provider.state.replace('_', ' ')}`}` : 'AI: checking…'}</span>
-            {hotkey?.state === 'ready' && <span className="pill accent"><IconBolt width={13} height={13} />{hotkey.shortcut} starts listening from any app</span>}
+            <span className={`pill ${asr?.state === 'ready' ? 'ok' : 'muted'}`}><span className="dot" />{t('Speech engine')} {asr?.state === 'ready' ? t('ready (on this Mac)') : asr?.state ? t(ASR_STATE[asr.state] ?? asr.state) : '…'}</span>
+            <span className={`pill ${aiReady ? 'ok' : 'warn'}`} onClick={() => setState({ dialog: 'settings', settingsTab: 'ai' })} role="button" tabIndex={0}><span className="dot" />{provider ? `${providerShort(provider.label)} · ${aiReady ? billingWord(provider.billing) : t(PROVIDER_STATE[provider.state] ?? provider.state)}` : t('AI: checking…')}</span>
+            {hotkey?.state === 'ready' && <span className="pill accent"><IconBolt width={13} height={13} />{t('{key} starts listening from any app', { key: hotkey.shortcut })}</span>}
           </div>
         </div>
       </section>
@@ -58,37 +63,37 @@ export function Home() {
           <section className="start-row">
             <button className="start-card quick" onClick={() => void quickStart()} disabled={!!liveSession}>
               <span className="start-icon"><IconBolt /></span>
-              <span className="start-title">Quick start</span>
-              <span className="start-sub">Listen now with {SOURCE_LABEL[quickSrc]?.toLowerCase() ?? quickSrc}. Rename later.</span>
+              <span className="start-title">{t('Quick start')}</span>
+              <span className="start-sub">{t('Listen now with {source}. Rename later.', { source: srcName })}</span>
               {hotkey?.state === 'ready' && <span className="kbd big">{hotkey.shortcut}</span>}
             </button>
             <button className="start-card" onClick={() => startWith('mic')} disabled={!!liveSession}>
               <span className="start-icon mic"><IconMic /></span>
-              <span className="start-title">In person</span>
-              <span className="start-sub">Lab meeting, advisor 1:1 or lecture hall, using the microphone</span>
+              <span className="start-title">{t('In person')}</span>
+              <span className="start-sub">{t('Lab meeting, advisor 1:1 or lecture hall, using the microphone')}</span>
             </button>
             <button className="start-card" onClick={() => startWith('system')} disabled={!!liveSession}>
               <span className="start-icon sys"><IconMonitor /></span>
-              <span className="start-title">Online or video</span>
-              <span className="start-sub">Zoom, Teams or recorded lectures, using computer audio (headphones OK)</span>
+              <span className="start-title">{t('Online or video')}</span>
+              <span className="start-sub">{t('Zoom, Teams or recorded lectures, using computer audio (headphones OK)')}</span>
             </button>
             <button className="start-card" onClick={() => startWith('both')} disabled={!!liveSession}>
               <span className="start-icon both"><IconBoth /></span>
-              <span className="start-title">Hybrid</span>
-              <span className="start-sub">The room plus remote speakers, with echo-cancelled mic and computer audio</span>
+              <span className="start-title">{t('Hybrid')}</span>
+              <span className="start-sub">{t('The room plus remote speakers, with echo-cancelled mic and computer audio')}</span>
             </button>
           </section>
 
           <section className="panel">
             <div className="panel-head">
-              <h2>Recent sessions</h2>
-              <button className="btn small ghost" onClick={() => setState({ dialog: 'history' })}>View all <IconArrow width={13} height={13} /></button>
+              <h2>{t('Recent sessions')}</h2>
+              <button className="btn small ghost" onClick={() => setState({ dialog: 'history' })}>{t('View all')} <IconArrow width={13} height={13} /></button>
             </div>
-            {recent === null && <p className="muted small pad">Loading…</p>}
+            {recent === null && <p className="muted small pad">{t('Loading…')}</p>}
             {recent?.length === 0 && (
               <div className="empty-recent">
                 <IconSpark width={28} height={28} />
-                <p>No sessions yet. Your transcripts, catch-ups and summaries will appear here.</p>
+                <p>{t('No sessions yet. Your transcripts, catch-ups and summaries will appear here.')}</p>
               </div>
             )}
             <ul className="recent-list">
@@ -98,10 +103,10 @@ export function Home() {
                     <span className={`type-dot t-${s.type}`} />
                     <span className="recent-main">
                       <span className="recent-title">{s.title}</span>
-                      <span className="muted small">{typeLabel(s.type)} · {fmtDate(s.started_at ?? s.created_at)} · {fmtT(s.duration_ms)} · {s.segment_count ?? 0} lines</span>
+                      <span className="muted small">{typeLabel(s.type)} · {fmtDate(s.started_at ?? s.created_at)} · {fmtT(s.duration_ms)} · {plural(s.segment_count ?? 0, '{n} line', '{n} lines')}</span>
                     </span>
-                    {s.status === 'interrupted' && <span className="tag tag-warn">interrupted</span>}
-                    {(s.status === 'recording' || s.status === 'paused') && <span className="tag tag-live">live</span>}
+                    {s.status === 'interrupted' && <span className="tag tag-warn">{t('interrupted')}</span>}
+                    {(s.status === 'recording' || s.status === 'paused') && <span className="tag tag-live">{t('live')}</span>}
                     <IconArrow width={14} height={14} className="recent-arrow" />
                   </button>
                 </li>
@@ -113,8 +118,8 @@ export function Home() {
         <aside className="home-side">
           <section className="panel">
             <div className="panel-head">
-              <h2>Your profile</h2>
-              <button className="btn small ghost" onClick={() => setState({ dialog: 'profile' })}>Edit</button>
+              <h2>{t('Your profile')}</h2>
+              <button className="btn small ghost" onClick={() => setState({ dialog: 'profile' })}>{t('Edit')}</button>
             </div>
             {profile && (
               <>
@@ -124,22 +129,22 @@ export function Home() {
                     <li key={d.name}>
                       <span className="small">{d.name}</span>
                       <span className="bar"><span style={{ width: `${(d.level / 4) * 100}%` }} /></span>
-                      <span className="muted tiny">{LEVELS[d.level]}</span>
+                      <span className="muted tiny">{t(LEVELS[d.level])}</span>
                     </li>
                   ))}
                 </ul>
-                <p className="muted tiny">Explanations in {profile.explanationLanguage === 'English' ? 'English' : '中文 (Chinese)'} · default depth {settings?.assist.defaultDepth}</p>
+                <p className="muted tiny">{t('AI answers in {lang} · default depth {depth}', { lang: profile.explanationLanguage === 'English' ? 'English' : '中文', depth: t(DEPTH_LABEL[settings?.assist.defaultDepth ?? 'standard']) })}</p>
               </>
             )}
           </section>
 
           <section className="panel tips">
-            <h2>Tips</h2>
+            <h2>{t('Tips')}</h2>
             <ul>
-              <li><IconSpark /><span><b>Lost the thread?</b> Press <b>Catch me up</b> to get the last 2 or 5 minutes, or the whole session so far.</span></li>
-              <li><IconText /><span><b>Select any words</b> in the transcript to get an explanation pitched to your background.</span></li>
-              <li><IconWindow /><span><b>Capture a window</b> (Zoom share, slides) so answers can see the figure being discussed.</span></li>
-              <li><IconShield /><span>Audio stays on this Mac. Only short excerpts go to your AI provider, and only when you ask.</span></li>
+              <li><IconSpark /><span>{tn('{b1} Press {b2} to get the last 2 or 5 minutes, or the whole session so far.', { b1: <b>{t('Lost the thread?')}</b>, b2: <b>{t('Catch me up')}</b> })}</span></li>
+              <li><IconText /><span>{tn('{b} in the transcript to get an explanation pitched to your background.', { b: <b>{t('Select any words')}</b> })}</span></li>
+              <li><IconWindow /><span>{tn('{b} (Zoom share, slides) so answers can see the figure being discussed.', { b: <b>{t('Capture a window')}</b> })}</span></li>
+              <li><IconShield /><span>{t('Audio stays on this Mac. Only short excerpts go to your AI provider, and only when you ask.')}</span></li>
             </ul>
           </section>
         </aside>

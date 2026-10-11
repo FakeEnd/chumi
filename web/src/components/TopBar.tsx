@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react';
 import { setState, useStore } from '../store.ts';
 import { endSession, openSession, pauseSession, quickStart, renameSession, resumeLive, saveProfile, saveSettings } from '../actions.ts';
-import { fmtT, SESSION_TYPES, SOURCE_LABEL } from '../util.ts';
+import { fmtT, SESSION_TYPES, sourceLabel, typeLabel } from '../util.ts';
+import { locale, msg, t } from '../i18n.ts';
 import type { Depth } from '../types.ts';
 import { IconBolt, IconClock, IconGear, IconSpark, IconUser, IconWindow } from './icons.tsx';
+
+export const DEPTH_LABEL: Record<Depth, string> = { quick: msg('Quick'), standard: msg('Standard'), deep: msg('Deep') };
 
 function Meter({ label, source }: { label: string; source: string }) {
   const lvl = useStore((s) => s.levels[source]);
   const fresh = lvl && Date.now() - lvl.at < 1500;
   const pct = fresh ? Math.max(0, Math.min(100, ((lvl.rms + 60) / 50) * 100)) : 0;
   return (
-    <div className="meter" title={fresh ? `${label}: ${lvl.rms.toFixed(0)} dBFS` : `${label}: no signal (silence, or nothing playing)`}>
+    <div className="meter" title={fresh ? `${label}: ${lvl.rms.toFixed(0)} dBFS` : t('{label}: no signal (silence, or nothing playing)', { label })}>
       <span className="meter-label">{label}</span>
       <span className="meter-bar"><span style={{ width: `${pct}%` }} className={pct > 85 ? 'hot' : ''} /></span>
     </div>
@@ -21,34 +24,39 @@ function Clock() {
   const live = useStore((s) => s.live);
   const at = useStore((s) => s.liveReceivedAt);
   const [, tick] = useState(0);
-  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 500); return () => clearInterval(t); }, []);
+  useEffect(() => { const i = setInterval(() => tick((x) => x + 1), 500); return () => clearInterval(i); }, []);
   if (!live) return null;
   const speed = live.file?.speed ?? 1;
-  const t = live.status === 'recording' ? live.nowT + (Date.now() - at) * speed : live.nowT;
-  return <span className="clock">{fmtT(t)}</span>;
+  const ms = live.status === 'recording' ? live.nowT + (Date.now() - at) * speed : live.nowT;
+  return <span className="clock">{fmtT(ms)}</span>;
 }
+
+const BILLING: Record<string, string> = { subscription: msg('subscription'), api: msg('paid API'), credits: msg('credits'), none: msg('no cost') };
+export const billingWord = (b: string): string => (BILLING[b] ? t(BILLING[b]) : b);
+/** Short provider name for badges: "ChatGPT plan (Codex)" → "ChatGPT". */
+export const providerShort = (label: string): string => label.split(' (')[0].replace(' plan', '');
 
 export function ProviderBadge() {
   const p = useStore((s) => s.provider);
-  if (!p) return <button className="badge muted" onClick={() => setState({ dialog: 'settings', settingsTab: 'ai' })}>AI: checking…</button>;
+  if (!p) return <button className="badge muted" onClick={() => setState({ dialog: 'settings', settingsTab: 'ai' })}>{t('AI: checking…')}</button>;
   const maxUsed = Math.max(0, ...(p.quota.windows ?? []).map((w) => w.usedPercent));
   const nearLimit = p.state === 'ready' && maxUsed >= 80;
   const cls = p.state === 'ready' ? (p.billing === 'api' || p.billing === 'credits' || nearLimit ? 'badge warn' : 'badge ok') : p.state === 'quota_blocked' ? 'badge warn' : 'badge bad';
   const reset = p.quota.windows?.find((w) => w.usedPercent >= 100)?.resetsAt;
-  const name = p.label.split(' (')[0].replace(' plan', '');
-  const text = p.state === 'ready' ? `${name} · ${p.billing === 'subscription' ? 'subscription' : p.billing === 'api' ? 'paid API' : p.billing === 'credits' ? 'credits' : p.billing}${nearLimit ? ` · ${maxUsed}% used` : ''}`
-    : p.state === 'quota_blocked' ? `AI paused: limit${reset ? ` · resets ${new Date(reset).toLocaleDateString([], { month: 'short', day: 'numeric' })}` : ''}`
-    : p.state === 'signed_out' ? 'AI: not signed in' : p.state === 'disabled' ? 'AI: disabled' : 'AI: unavailable';
+  const name = providerShort(p.label);
+  const text = p.state === 'ready' ? `${name} · ${billingWord(p.billing)}${nearLimit ? ` · ${t('{n}% used', { n: maxUsed })}` : ''}`
+    : p.state === 'quota_blocked' ? `${t('AI paused: limit')}${reset ? ` · ${t('resets {date}', { date: new Date(reset).toLocaleDateString(locale(), { month: 'short', day: 'numeric' }) })}` : ''}`
+    : p.state === 'signed_out' ? t('AI: not signed in') : p.state === 'disabled' ? t('AI: disabled') : t('AI: unavailable');
   return <button className={cls} title={`${p.label}\n${p.billingLabel}\n${p.quota.summary}${p.message ? `\n${p.message}` : ''}`} onClick={() => setState({ dialog: 'settings', settingsTab: 'ai' })}><span className="dot" />{text}</button>;
 }
 
 function AsrBadge() {
   const asr = useStore((s) => s.live?.asr);
   if (!asr) return null;
-  const label = asr.state === 'ready' ? `Speech${asr.latencyMs ? ` · ${(asr.latencyMs / 1000).toFixed(1)}s` : ''}${asr.backlogSec > 3 ? ` · ${asr.backlogSec}s behind` : ''}`
-    : asr.state === 'starting' ? 'Speech: loading…' : asr.state === 'missing_model' || asr.state === 'missing_binary' ? 'Speech: not installed' : asr.state === 'error' ? 'Speech: restarting…' : 'Speech: idle';
+  const label = asr.state === 'ready' ? `${t('Speech')}${asr.latencyMs ? ` · ${(asr.latencyMs / 1000).toFixed(1)}s` : ''}${asr.backlogSec > 3 ? ` · ${t('{n}s behind', { n: asr.backlogSec })}` : ''}`
+    : asr.state === 'starting' ? t('Speech: loading…') : asr.state === 'missing_model' || asr.state === 'missing_binary' ? t('Speech: not installed') : asr.state === 'error' ? t('Speech: restarting…') : t('Speech: idle');
   const cls = asr.state === 'ready' ? (asr.backlogSec > 10 ? 'badge warn' : 'badge ok') : asr.state === 'starting' || asr.state === 'stopped' ? 'badge muted' : 'badge bad';
-  return <span className={cls} title={asr.message ?? 'Local speech recognition (whisper.cpp). No audio leaves this Mac.'}><span className="dot" />{label}</span>;
+  return <span className={cls} title={asr.message ?? t('Local speech recognition (whisper.cpp). No audio leaves this Mac.')}><span className="dot" />{label}</span>;
 }
 
 /** Tier 1: brand, session, recording controls, status, navigation. */
@@ -66,36 +74,36 @@ export function TopBar() {
 
   return (
     <header className="topbar">
-      <button className="brand" onClick={goHome} title="Home"><img src="/logo.svg" alt="" />Chumi</button>
+      <button className="brand" onClick={goHome} title={t('Home')}><img src="/logo.svg" alt="" />Chumi</button>
       <div className="session-meta">
         {data ? (
           <>
             <span className="crumb-sep">/</span>
-            <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== data.session.title && renameSession(data.session.id, { title })} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} aria-label="Session title" />
-            <select className="type-select" value={data.session.type} onChange={(e) => renameSession(data.session.id, { type: e.target.value })} aria-label="Session type">
-              {SESSION_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== data.session.title && renameSession(data.session.id, { title })} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} aria-label={t('Session title')} />
+            <select className="type-select" value={data.session.type} onChange={(e) => renameSession(data.session.id, { type: e.target.value })} aria-label={t('Session type')}>
+              {SESSION_TYPES.map((id) => <option key={id} value={id}>{typeLabel(id)}</option>)}
             </select>
           </>
-        ) : <><span className="crumb-sep">/</span><span className="crumb">Home</span></>}
+        ) : <><span className="crumb-sep">/</span><span className="crumb">{t('Home')}</span></>}
       </div>
 
       <div className="controls">
         {status === 'idle' && data && (
           <>
-            <button className="btn primary" onClick={() => void quickStart()} title={hotkey?.state === 'ready' ? `Start listening now, or press ${hotkey.shortcut} from any app` : 'Start listening now'}>
-              <IconBolt width={14} height={14} /> Quick start{hotkey?.state === 'ready' ? <span className="kbd">{hotkey.shortcut}</span> : null}
+            <button className="btn primary" onClick={() => void quickStart()} title={hotkey?.state === 'ready' ? t('Start listening now, or press {key} from any app', { key: hotkey.shortcut }) : t('Start listening now')}>
+              <IconBolt width={14} height={14} /> {t('Quick start')}{hotkey?.state === 'ready' ? <span className="kbd">{hotkey.shortcut}</span> : null}
             </button>
-            <button className="btn" onClick={() => setState({ dialog: 'start' })}>Start session…</button>
+            <button className="btn" onClick={() => setState({ dialog: 'start' })}>{t('Start session…')}</button>
           </>
         )}
-        {status === 'starting' && <span className="status-pill">Starting…</span>}
-        {status === 'ending' && <span className="status-pill">Saving…</span>}
+        {status === 'starting' && <span className="status-pill">{t('Starting…')}</span>}
+        {status === 'ending' && <span className="status-pill">{t('Saving…')}</span>}
         {(recording || status === 'paused') && (
           <>
-            <span className={`status-pill ${recording ? 'rec' : 'paused'}`}>{recording ? <span className="live-dot" /> : '❚❚'} {recording ? 'REC' : 'Paused'} <Clock /></span>
-            {recording ? <button className="btn" onClick={() => pauseSession()}>Pause</button> : <button className="btn" onClick={() => resumeLive()}>Resume</button>}
-            <button className="btn danger" onClick={() => { if (confirm('End this session? The transcript is saved and the final summary will be generated.')) void endSession(); }}>End</button>
-            {!viewingLive && <button className="btn link" onClick={() => activeSession && void openSession(activeSession.id)}>Back to live</button>}
+            <span className={`status-pill ${recording ? 'rec' : 'paused'}`}>{recording ? <span className="live-dot" /> : '❚❚'} {recording ? 'REC' : t('Paused')} <Clock /></span>
+            {recording ? <button className="btn" onClick={() => pauseSession()}>{t('Pause')}</button> : <button className="btn" onClick={() => resumeLive()}>{t('Resume')}</button>}
+            <button className="btn danger" onClick={() => { if (confirm(t('End this session? The transcript is saved and the final summary will be generated.'))) void endSession(); }}>{t('End')}</button>
+            {!viewingLive && <button className="btn link" onClick={() => activeSession && void openSession(activeSession.id)}>{t('Back to live')}</button>}
           </>
         )}
       </div>
@@ -103,10 +111,10 @@ export function TopBar() {
       <div className="right">
         <AsrBadge />
         <ProviderBadge />
-        <nav className="nav-icons" aria-label="Main">
-          <button className="icon-btn" onClick={() => setState({ dialog: 'profile' })} title="Knowledge profile" aria-label="Knowledge profile"><IconUser /></button>
-          <button className="icon-btn" onClick={() => setState({ dialog: 'history' })} title="Session history" aria-label="Session history"><IconClock /></button>
-          <button className="icon-btn" onClick={() => setState({ dialog: 'settings' })} title="Settings" aria-label="Settings"><IconGear /></button>
+        <nav className="nav-icons" aria-label={t('Main')}>
+          <button className="icon-btn" onClick={() => setState({ dialog: 'profile' })} title={t('Knowledge profile')} aria-label={t('Knowledge profile')}><IconUser /></button>
+          <button className="icon-btn" onClick={() => setState({ dialog: 'history' })} title={t('Session history')} aria-label={t('Session history')}><IconClock /></button>
+          <button className="icon-btn" onClick={() => setState({ dialog: 'settings' })} title={t('Settings')} aria-label={t('Settings')}><IconGear /></button>
         </nav>
       </div>
     </header>
@@ -128,28 +136,28 @@ export function SessionToolbar() {
       <div className="toolbar-left">
         {isLive ? (
           <>
-            <span className="source-label">{SOURCE_LABEL[src] ?? src}</span>
-            {(src === 'mic' || src === 'both') && <Meter label="Mic" source="mic" />}
-            {(src === 'system' || src === 'both') && <Meter label="Computer" source="system" />}
-            {src === 'file' && <Meter label="File" source="file" />}
-            <button className={`btn small ${live?.screen ? 'win-on' : ''}`} onClick={() => setState({ dialog: 'window' })} title="Capture a window (slides, shared screen, video)">
-              <IconWindow width={14} height={14} /> {live?.screen ? `${live.screen.app}${live.screen.frames ? ` · ${live.screen.frames}` : ''}` : 'Capture window'}
+            <span className="source-label">{sourceLabel(src)}</span>
+            {(src === 'mic' || src === 'both') && <Meter label={t('Mic')} source="mic" />}
+            {(src === 'system' || src === 'both') && <Meter label={t('Computer')} source="system" />}
+            {src === 'file' && <Meter label={t('File')} source="file" />}
+            <button className={`btn small ${live?.screen ? 'win-on' : ''}`} onClick={() => setState({ dialog: 'window' })} title={t('Capture a window (slides, shared screen, video)')}>
+              <IconWindow width={14} height={14} /> {live?.screen ? `${live.screen.app}${live.screen.frames ? ` · ${live.screen.frames}` : ''}` : t('Capture window')}
             </button>
           </>
-        ) : <span className="muted small">Saved session · ask questions, explain passages or regenerate the summary</span>}
+        ) : <span className="muted small">{t('Saved session · ask questions, explain passages or regenerate the summary')}</span>}
       </div>
       <div className="toolbar-right">
-        <label className="switch" title="Automatically show short background cards for unfamiliar concepts">
+        <label className="switch" title={t('Automatically show short background cards for unfamiliar concepts')}>
           <input type="checkbox" checked={settings.assist.autoExplain} onChange={(e) => saveSettings({ assist: { autoExplain: e.target.checked } })} />
-          <span className="slider" /> <IconSpark width={13} height={13} /> Auto-explain
+          <span className="slider" /> <IconSpark width={13} height={13} /> {t('Auto-explain')}
         </label>
-        <div className="seg-control" role="group" aria-label="Default explanation depth" title="Default explanation depth (does not change your profile)">
+        <div className="seg-control" role="group" aria-label={t('Default explanation depth')} title={t('Default explanation depth (does not change your profile)')}>
           {(['quick', 'standard', 'deep'] as Depth[]).map((d) => (
-            <button key={d} className={settings.assist.defaultDepth === d ? 'on' : ''} onClick={() => saveSettings({ assist: { defaultDepth: d } })}>{d === 'quick' ? 'Quick' : d === 'standard' ? 'Standard' : 'Deep'}</button>
+            <button key={d} className={settings.assist.defaultDepth === d ? 'on' : ''} onClick={() => saveSettings({ assist: { defaultDepth: d } })}>{t(DEPTH_LABEL[d])}</button>
           ))}
         </div>
         {profile && (
-          <div className="seg-control" role="group" aria-label="Explanation language" title="Language for explanations, catch-ups and summaries">
+          <div className="seg-control" role="group" aria-label={t('AI answer language')} title={t('Language of AI explanations, catch-ups and summaries')}>
             {([['Simplified Chinese', '中文'], ['English', 'EN']] as const).map(([v, l]) => (
               <button key={v} className={profile.explanationLanguage === v ? 'on' : ''} onClick={() => profile.explanationLanguage !== v && void saveProfile({ ...profile, explanationLanguage: v }, true)}>{l}</button>
             ))}

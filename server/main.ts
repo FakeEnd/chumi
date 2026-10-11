@@ -1,11 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { Store } from './db.ts';
-import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool } from './paths.ts';
+import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool } from './paths.ts';
 import { deepMerge, log } from './util.ts';
 import { WhisperServer } from './asr/whisper.ts';
+import { MODEL_CATALOG, ModelDownloader, benchmark, hardware, isInstalled, recommendModel } from './asr/models.ts';
 import { ProviderRegistry } from './ai/registry.ts';
 import { Assistant, publicOutput, type CatchupScope, type Selection } from './ai/assistant.ts';
 import { SessionManager, publicFrame } from './session/manager.ts';
@@ -28,6 +29,7 @@ store.failStaleOutputs();
 const settings0 = store.getSettings();
 const whisper = new WhisperServer({ model: settings0.asr.model, threads: settings0.asr.threads });
 const registry = new ProviderRegistry(store);
+const downloader = new ModelDownloader();
 
 // ---------------------------------------------------------------- server-sent events
 const clients = new Set<ServerResponse>();
@@ -89,6 +91,7 @@ hotkey.on('pressed', () => void onShortcut());
 if (!process.env.CHUMI_NO_HOTKEY) hotkey.configure(store.getSettings().quickStart.hotkey);
 registry.onStatus = (s) => broadcast('provider', s);
 whisper.on('state', (state, message) => broadcast('asr', { state, message }));
+downloader.on('progress', (d) => broadcast('asr-download', d));
 
 // ---------------------------------------------------------------- helpers
 class HttpError extends Error { status: number; constructor(status: number, msg: string) { super(msg); this.status = status; } }
@@ -135,6 +138,17 @@ function sessionDetail(id: string) {
   };
 }
 
+let sysLang: 'en' | 'zh' | null = null;
+/** macOS preferred language (WKWebView's navigator.language reflects the app bundle, not the user's choice). */
+function systemLanguage(): 'en' | 'zh' {
+  if (sysLang) return sysLang;
+  let first = '';
+  try { first = execFileSync('/usr/bin/defaults', ['read', '-g', 'AppleLanguages'], { encoding: 'utf8', timeout: 2000 }).match(/"?([A-Za-z]{2,3}[-_A-Za-z]*)"?/)?.[1] ?? ''; } catch { /* not macOS or not set */ }
+  if (!first) first = process.env.LANG ?? '';
+  sysLang = first.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+  return sysLang;
+}
+
 function samples(): Array<{ name: string; path: string; sizeMb: number }> {
   const dir = join(REPO_ROOT, 'samples');
   const out: Array<{ name: string; path: string; sizeMb: number }> = [];
@@ -152,6 +166,12 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   const next = deepMerge(before, patch) as Settings;
   if (!['codex', 'claude-cli', 'anthropic-api', 'mock'].includes(next.ai.provider)) throw new HttpError(400, 'Unknown provider');
   if (next.ai.effort !== 'auto' && !EFFORTS.includes(next.ai.effort)) throw new HttpError(400, 'Unknown effort level');
+  if (before.asr.model !== next.asr.model) {
+    if (!isInstalled(next.asr.model)) throw new HttpError(400, 'Download this speech model first.');
+    if (manager.status === 'recording' || manager.status === 'paused') throw new HttpError(409, 'End the current session before switching the speech model.');
+  }
+  if (!['auto', 'en', 'zh'].includes(next.ui.language)) throw new HttpError(400, 'Unknown interface language');
+  if (!['simplified', 'original'].includes(next.asr.chineseScript)) throw new HttpError(400, 'Unknown Chinese script option');
   if (!['low', 'medium', 'high'].includes(next.ai.backgroundEffort)) throw new HttpError(400, 'Unknown background effort level');
   if (next.ai.provider === 'anthropic-api' && !next.ai.anthropicApi.enabled) throw new HttpError(400, 'Enable paid API access first (Settings → AI provider). It is off by default.');
   if (next.ai.provider === 'mock' && !next.devMode && !DEV) throw new HttpError(400, 'The offline test provider is only available in developer mode.');
@@ -188,6 +208,7 @@ route('GET', '/api/state', async () => ({
   hotkey: hotkeyState(),
   screenToolBuilt: !!findScreenTool(),
   appMode: !!process.env.CHUMI_APP,
+  systemLanguage: systemLanguage(),
   dataDir: DATA_DIR,
   samples: (DEV || store.getSettings().devMode) ? samples() : [],
 }));
@@ -306,6 +327,30 @@ route('POST', '/api/ai/outputs/:id/cancel', (_req, _res, p) => ({ ok: assistant.
 
 route('GET', '/api/integrations/mybot', () => mybot.status());
 route('POST', '/api/integrations/mybot/export-all', () => mybot.exportAll());
+route('GET', '/api/asr/models', () => {
+  const active = store.getSettings().asr.model;
+  return {
+    hardware: hardware(), recommended: recommendModel(), active,
+    models: MODEL_CATALOG.map((m) => ({ ...m, installed: isInstalled(m.id), active: m.id === active })),
+    download: downloader.current,
+  };
+});
+route('POST', '/api/asr/models/:id/download', (_req, _res, p) => {
+  if (!MODEL_CATALOG.some((m) => m.id === p.id)) throw new HttpError(404, 'Unknown model');
+  void downloader.start(p.id).catch((e) => log('asr', `download failed: ${(e as Error).message}`));
+  return { started: true };
+});
+route('POST', '/api/asr/models/:id/cancel', () => { downloader.cancel(); return { ok: true }; });
+route('DELETE', '/api/asr/models/:id', (_req, _res, p) => {
+  if (!MODEL_CATALOG.some((m) => m.id === p.id)) throw new HttpError(404, 'Unknown model');
+  if (store.getSettings().asr.model === p.id) throw new HttpError(409, 'This model is in use. Switch to another model first.');
+  rmSync(join(MODELS_DIR, p.id), { force: true });
+  return { ok: true };
+});
+route('POST', '/api/asr/benchmark', async () => {
+  if (manager.status === 'recording') throw new HttpError(409, 'Pause or end the session first; the test would compete with live transcription.');
+  return { model: store.getSettings().asr.model, results: await benchmark(whisper) };
+});
 route('GET', '/api/settings', () => store.getSettings());
 route('PUT', '/api/settings', async (req) => applySettingsPatch(await readJson(req)));
 route('GET', '/api/profile', () => store.getProfile());

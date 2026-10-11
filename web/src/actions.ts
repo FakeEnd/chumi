@@ -1,19 +1,20 @@
 import { api, subscribe } from './api.ts';
 import { getState, notify, setState, upsertOutput, type AppState } from './store.ts';
+import { t } from './i18n.ts';
 import type { Depth, Effort, Frame, Output, Profile, Segment, SessionData, Settings, WindowInfo } from './types.ts';
 
 export async function loadState(): Promise<void> {
   const s = await api('/api/state');
   setState({
     loaded: true, settings: s.settings, profile: s.profile, provider: s.provider, live: s.live, liveReceivedAt: Date.now(), partials: s.live?.partials ?? {},
-    devMode: s.devMode, helperBuilt: s.helperBuilt, screenToolBuilt: s.screenToolBuilt, hotkey: s.hotkey ?? null, appMode: s.appMode, dataDir: s.dataDir, samples: s.samples ?? [],
+    devMode: s.devMode, helperBuilt: s.helperBuilt, screenToolBuilt: s.screenToolBuilt, hotkey: s.hotkey ?? null, appMode: s.appMode, dataDir: s.dataDir, samples: s.samples ?? [], systemLanguage: s.systemLanguage ?? '',
   });
   // Deep links (?session=<id>&dialog=settings&tab=ai) open a view directly; used for scripted screenshots too.
   const q = new URLSearchParams(location.search);
   const want = q.get('session');
   if (want && !getState().viewId) { await openSession(want).catch(() => {}); }
   const dlg = q.get('dialog');
-  if (dlg && ['profile', 'settings', 'history', 'start', 'window'].includes(dlg)) setState({ dialog: dlg as AppState['dialog'], settingsTab: q.get('tab') ?? 'audio' });
+  if (dlg && ['profile', 'settings', 'history', 'start', 'window'].includes(dlg)) setState({ dialog: dlg as AppState['dialog'], settingsTab: q.get('tab') ?? 'language' });
   // A live session opens directly; otherwise start on the Home screen (recent sessions are listed there).
   const liveId = s.live?.session?.id ?? null;
   if (liveId && !getState().viewId) await openSession(liveId);
@@ -48,11 +49,12 @@ export function connectEvents(): () => void {
     'ai-delta': (d: { id: string; delta: string }) => setState((s) => ({ deltas: { ...s.deltas, [d.id]: (s.deltas[d.id] ?? '') + d.delta } })),
     provider: (p) => setState({ provider: p }),
     hotkey: (h) => setState({ hotkey: h }),
+    'asr-download': (d) => setState({ asrDownload: d }),
     settings: (st: Settings) => setState({ settings: st }),
     profile: (p: Profile) => setState({ profile: p }),
     notice: (n) => notify(n.level, n.message, n.code),
     asr: (a) => setState((s) => ({ live: s.live ? { ...s.live, asr: { ...s.live.asr, state: a.state, message: a.message } } : s.live })),
-    'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); notify('info', 'Session saved. Generating the final summary…', 'ended'); },
+    'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); notify('info', t('Session saved. Generating the final summary…'), 'ended'); },
     'session-updated': (sess) => setState((s) => (s.data && s.data.session.id === sess.id ? { data: { ...s.data, session: sess } } : {})),
   }, (ok) => { setState({ connected: ok }); if (ok) void loadState().catch(() => {}); });
 }
@@ -65,7 +67,7 @@ export async function startSession(o: { title: string; type: string; source: str
   if (o.source === 'mic' || o.source === 'both') {
     const perm = await api<Record<string, string>>('/api/audio/permissions').catch(() => ({} as Record<string, string>));
     if (perm.microphone === 'denied' || perm.microphone === 'restricted') {
-      notify('error', 'Microphone access is blocked. Open System Settings → Privacy & Security → Microphone and enable Chumi (or the terminal app you launched it from), then try again.', 'mic_permission_denied');
+      notify('error', t('Microphone access is blocked. Open System Settings → Privacy & Security → Microphone and enable Chumi (or the terminal app you launched it from), then try again.'), 'mic_permission_denied');
       return false;
     }
   }
@@ -103,7 +105,7 @@ export async function saveSettings(patch: Record<string, unknown>): Promise<bool
 }
 export async function saveProfile(p: Profile, quiet = false): Promise<boolean> {
   const r = await guard(api<Profile>('/api/profile', { method: 'PUT', body: p }));
-  if (r) { setState({ profile: r }); if (!quiet) notify('info', 'Profile saved.'); }
+  if (r) { setState({ profile: r }); if (!quiet) notify('info', t('Profile saved.')); }
   return !!r;
 }
 export async function renameSession(id: string, patch: { title?: string; type?: string }): Promise<void> { await guard(api(`/api/sessions/${id}`, { method: 'PATCH', body: patch })); }

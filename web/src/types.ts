@@ -17,6 +17,7 @@ export interface Settings {
   quickStart: { hotkey: string; source: 'default' | 'mic' | 'system' | 'both'; type: SessionType; notify: boolean };
   integrations: { mybot: { enabled: boolean; exportDir: string; shareWithTeam: boolean } };
   screen: { sendImagesToAI: boolean; intervalSec: number };
+  ui: { language: 'auto' | 'en' | 'zh' };
   devMode: boolean;
 }
 

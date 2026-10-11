@@ -1,3 +1,5 @@
+import os from 'node:os';
+import { recommendModel } from './asr/models.ts';
 export type AudioSourceMode = 'mic' | 'system' | 'both';
 export type Depth = 'quick' | 'standard' | 'deep';
 export type SessionType = 'lab_meeting' | 'advisor' | 'lecture' | 'wip' | 'other';
@@ -61,15 +63,17 @@ export interface Settings {
     /** How often the selected window is checked for changes. */
     intervalSec: number;
   };
+  /** Interface language ('auto' follows the system). Explanation language is separate (profile). */
+  ui: { language: 'auto' | 'en' | 'zh' };
   devMode: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   audio: { source: 'mic', micDeviceUid: null, aec: true, saveRawAudio: false },
   asr: {
-    model: 'ggml-large-v3-turbo-q8_0.bin',
+    model: recommendModel(), // Large v3 Turbo on Apple Silicon with 16 GB+, smaller models elsewhere
     language: 'auto',
-    threads: 8,
+    threads: Math.max(2, Math.min(8, os.cpus().length - 2)), // leave cores for audio, UI and the AI client
     glossary: ['ATAC-seq', 'ChIP-seq', 'RNA-seq', 'scRNA-seq', 'enhancer', 'promoter', 'motif', 'transcription factor', 'chromatin accessibility', 'gene regulation', 'CRISPR', 'GWAS', 'eQTL', 'transformer', 'convolutional'],
     chineseScript: 'simplified',
   },
@@ -90,6 +94,7 @@ export const DEFAULT_SETTINGS: Settings = {
   quickStart: { hotkey: 'ctrl+opt+cmd+L', source: 'default', type: 'other', notify: true },
   integrations: { mybot: { enabled: false, exportDir: '~/Library/Application Support/Chumi/exports/mybot', shareWithTeam: false } },
   screen: { sendImagesToAI: true, intervalSec: 3 },
+  ui: { language: 'auto' },
   devMode: false,
 };
 

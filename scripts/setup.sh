@@ -3,7 +3,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 MODELS="$HOME/Library/Application Support/Chumi/models"
-MODEL="ggml-large-v3-turbo-q8_0.bin"
 
 say_step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
@@ -17,14 +16,16 @@ command -v brew >/dev/null || { echo "Homebrew is required to install whisper.cp
 say_step "Installing local speech recognition (whisper.cpp)"
 command -v whisper-server >/dev/null || brew install whisper-cpp
 
-say_step "Downloading the Whisper large-v3-turbo model (~875 MB, once)"
+# The speech model that suits this Mac (Large v3 Turbo on Apple Silicon with 16 GB+; others can be added in Settings → Transcription).
+MODEL=$(node --input-type=module -e "import('./server/asr/models.ts').then((m) => console.log(m.recommendModel()))")
+say_step "Downloading the speech model $MODEL (once; other sizes are in Settings → Transcription)"
 mkdir -p "$MODELS"
-if [[ ! -s "$MODELS/$MODEL" ]]; then
+if ! node --input-type=module -e "import('./server/asr/models.ts').then((m) => process.exit(m.isInstalled('$MODEL') ? 0 : 1))"; then
   curl -L --fail --progress-bar -o "$MODELS/$MODEL.part" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$MODEL"
   mv "$MODELS/$MODEL.part" "$MODELS/$MODEL"
 fi
-SIZE=$(stat -f%z "$MODELS/$MODEL")
-(( SIZE > 800000000 )) || { echo "Model download looks incomplete ($SIZE bytes). Delete it and re-run."; exit 1; }
+node --input-type=module -e "import('./server/asr/models.ts').then((m) => process.exit(m.isInstalled('$MODEL') ? 0 : 1))" \
+  || { echo "The model download looks incomplete. Delete $MODELS/$MODEL and re-run."; exit 1; }
 
 say_step "Installing JavaScript dependencies"
 npm install --no-audit --no-fund

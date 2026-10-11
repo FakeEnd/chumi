@@ -30,12 +30,16 @@ export interface AppState {
   /** Transcript passage the user attached to the next question. */
   attached: { fromT: number; toT: number; text: string } | null;
   askDraft: string;
+  /** macOS preferred language, used when the interface language is Auto. */
+  systemLanguage: string;
+  /** Speech-model download in progress (Settings → Transcription). */
+  asrDownload: { id: string; received: number; total: number; status: string; error?: string } | null;
 }
 
 let state: AppState = {
   connected: false, loaded: false, settings: null, profile: null, provider: null, live: null, liveReceivedAt: 0, levels: {}, partials: {},
   devMode: false, helperBuilt: false, appMode: false, dataDir: '', samples: [], viewId: null, data: null, deltas: {}, notices: [],
-  dialog: null, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'audio', focus: null, attached: null, askDraft: '',
+  dialog: null, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null,
 };
 const listeners = new Set<() => void>();
 
