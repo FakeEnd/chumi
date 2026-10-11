@@ -666,4 +666,8 @@ export const ZH: Record<string, string> = {
   "Choose the project folder (a full path such as /Users/you/code/project).": "请选择项目文件夹（完整路径，例如 /Users/you/code/project）。",
   "Unknown project": "未知的项目",
   "Instructions copied at {time}.": "已于 {time} 复制指令。",
+  "General": "通用",
+  "AI": "AI",
+  "Data": "数据",
+  "Settings sections": "设置分类",
 };

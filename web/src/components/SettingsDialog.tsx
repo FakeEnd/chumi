@@ -8,8 +8,16 @@ import { Dialog } from './Dialog.tsx';
 import { TranscriptionTab } from './TranscriptionTab.tsx';
 import { AgentsTab, ProjectsTab } from './Projects.tsx';
 import type { ProviderStatus } from '../types.ts';
+import { IconBolt, IconBulb, IconFolder, IconGlobe, IconLink, IconMic, IconShield, IconSpark, IconTerminal, IconWave, IconWindow } from './icons.tsx';
 
-const TABS = [['language', msg('Language')], ['audio', msg('Audio')], ['quick', msg('Quick start')], ['screen', msg('Screen')], ['asr', msg('Transcription')], ['ai', msg('AI provider')], ['assist', msg('Assistance')], ['projects', msg('Projects')], ['agents', msg('Claude Code & Codex')], ['integrations', msg('Integrations')], ['privacy', msg('Privacy & data')]] as const;
+/** Sections in the sidebar, grouped. */
+const GROUPS = [
+  { label: msg('General'), tabs: [['language', msg('Language'), IconGlobe], ['audio', msg('Audio'), IconMic], ['quick', msg('Quick start'), IconBolt], ['screen', msg('Screen'), IconWindow], ['asr', msg('Transcription'), IconWave]] },
+  { label: msg('AI'), tabs: [['ai', msg('AI provider'), IconSpark], ['assist', msg('Assistance'), IconBulb]] },
+  { label: msg('Projects'), tabs: [['projects', msg('Projects'), IconFolder], ['agents', msg('Claude Code & Codex'), IconTerminal], ['integrations', msg('Integrations'), IconLink]] },
+  { label: msg('Data'), tabs: [['privacy', msg('Privacy & data'), IconShield]] },
+] as const;
+const TAB_LABEL: Record<string, string> = Object.fromEntries(GROUPS.flatMap((g) => g.tabs.map(([k, l]) => [k, l])));
 
 function QuotaView({ p }: { p: ProviderStatus }) {
   return (
@@ -61,8 +69,20 @@ export function SettingsDialog() {
   const PERM: Record<string, string> = { granted: msg('granted'), denied: msg('denied'), restricted: msg('restricted'), undetermined: msg('not asked yet') };
 
   return (
-    <Dialog title={t('Settings')} wide>
-      <nav className="tabs">{TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setState({ settingsTab: k })}>{t(l)}</button>)}</nav>
+    <Dialog title={t('Settings')} wide className="settings">
+      <div className="settings-layout">
+      <nav className="settings-nav" aria-label={t('Settings sections')}>
+        {GROUPS.map((g) => (
+          <div key={g.label} className="settings-group">
+            <div className="settings-group-label">{t(g.label)}</div>
+            {g.tabs.map(([k, l, Icon]) => (
+              <button key={k} className={tab === k ? 'on' : ''} aria-current={tab === k ? 'page' : undefined} onClick={() => setState({ settingsTab: k })}><Icon width={15} height={15} />{t(l)}</button>
+            ))}
+          </div>
+        ))}
+      </nav>
+      <div className="settings-content" key={tab}>
+      <h2 className="settings-title">{t(TAB_LABEL[tab] ?? 'Settings')}</h2>
 
       {tab === 'language' && (
         <section>
@@ -304,6 +324,8 @@ export function SettingsDialog() {
           <p>{t('Turn off auto-overview and auto-explain if you want nothing sent unless you click something.')}</p>
         </section>
       )}
+      </div>
+      </div>
     </Dialog>
   );
 }
