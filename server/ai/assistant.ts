@@ -38,17 +38,23 @@ export function publicOutput(o: OutputRow): Record<string, unknown> {
   return { ...o, selection: parse(o.selection_json), data: parse(o.data_json), selection_json: undefined, data_json: undefined };
 }
 
-/** Find [m:ss] / [h:mm:ss] citations and check each points at real transcript. */
+const TIME = String.raw`\d{1,2}:\d{2}(?::\d{2})?`;
+const REF_RE = new RegExp(String.raw`\[(${TIME}(?:\s*[–—-]\s*${TIME})?(?:\s*[,;，、]\s*${TIME}(?:\s*[–—-]\s*${TIME})?)*)\]`, 'g');
+
+/** Find citations ([m:ss], [m:ss–m:ss], or comma-separated groups) and check each time points at real transcript. */
 export function checkRefs(text: string, segs: SegmentRow[]): { total: number; invalid: string[] } {
-  const refs = [...text.matchAll(/\[(\d{1,2}:\d{2}(?::\d{2})?)(?:\s*[–—-]\s*(\d{1,2}:\d{2}(?::\d{2})?))?\]/g)];
   const invalid: string[] = [];
-  for (const m of refs) {
-    for (const t of [m[1], m[2]].filter(Boolean) as string[]) {
-      const ms = parseT(t);
-      if (ms === null || !segs.some((s) => ms >= s.t_start - 15_000 && ms <= s.t_end + 15_000)) invalid.push(t);
+  let total = 0;
+  for (const m of text.matchAll(REF_RE)) {
+    for (const part of m[1].split(/\s*[,;，、]\s*/)) {
+      total++;
+      for (const t of part.split(/\s*[–—-]\s*/)) {
+        const ms = parseT(t);
+        if (ms === null || !segs.some((s) => ms >= s.t_start - 15_000 && ms <= s.t_end + 15_000)) invalid.push(t);
+      }
     }
   }
-  return { total: refs.length, invalid };
+  return { total, invalid };
 }
 
 export class Assistant {

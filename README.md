@@ -1,50 +1,66 @@
 <p align="center">
-  <img src="assets/logo.svg" width="132" alt="Chumi logo: a speech bubble holding a sound wave, with a spark">
+  <img src="assets/logo.svg" width="120" alt="Chumi logo: a speech bubble holding a sound wave, with a spark">
 </p>
 
 <h1 align="center">Chumi</h1>
 
 <p align="center">
-  <b>A personal AI listening companion for lab meetings, advisor 1:1s, lectures and seminars.</b><br>
-  Local speech recognition on your Mac, plus explanations from the AI subscription you already have.
+  <b>Your AI listening companion for lab meetings, advisor 1:1s, lectures and seminars.</b><br>
+  It listens on your Mac, keeps track of where the discussion is, and explains what you need, using the ChatGPT or Claude subscription you already have.
 </p>
 
----
+<p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
-Academic talk moves fast, and it's full of methods and terms from fields next to yours. Chumi listens alongside you and helps with three questions:
+<p align="center">
+  <img src="docs/assets/screens/live.png" width="940" alt="Chumi during a lab meeting: live transcript with English and Mandarin lines, a running overview with clickable timestamps, and a catch-up card covering the last two minutes">
+</p>
+<p align="center"><sub>A real run on the bundled 20-minute sample lab meeting: live transcript (English and Mandarin), running overview, and a catch-up on the last two minutes.</sub></p>
 
-1. **Where are we?** It keeps a running overview and topic timeline. **Catch me up** covers the last 2 minutes, the last 5 minutes, or the session so far.
-2. **What do I need to know to follow this?** Select any passage and ask, or turn on automatic background cards. Answers are tuned to your per-domain knowledge profile.
-3. **What should I remember?** You get a structured summary for each session type. Every claim links back to the transcript with a clickable `[m:ss]`.
+## Highlights
 
-Audio never leaves your Mac. Only short transcript excerpts, and optionally slide captures, go to the AI provider when you ask something.
+- **Catch up in one click.** You drifted off, or the speaker skipped ahead. **Catch me up** tells you what is being discussed now, what you missed, how it connects to earlier points, and which question is on the table. Every answer states the exact stretch of transcript it covers, and it stays put while the meeting goes on.
+- **Explanations pitched to you.** Select a phrase and get the background at the right level. Chumi keeps a per-domain profile: it won't explain transformers to an ML person, and it won't assume you know a wet-lab assay. Pick **Quick, Standard or Deep**, and choose how hard the model thinks, from **Low to Max**.
+- **It keeps what was said apart from what it adds.** Answers separate *what the speakers said*, *background added by Chumi*, and *interpretation and uncertainty*. Every claim cites a clickable `[m:ss]` that jumps to the supporting lines. If a speaker points at a slide Chumi can't see, it says so instead of guessing.
+- **It sees the slides too.** Capture the Zoom share, the lecture video or the slide deck. Chumi keeps one picture per slide and can show it to the model, so *"explain this figure"* works.
+- **Bilingual by design.** Transcribes English, Mandarin, and Mandarin with English technical terms. Explains in **中文** (keeping English terms) or **English**, switchable at any time.
+- **Summaries you can trust.** Summaries are shaped for lab meetings, advisor 1:1s, lectures or WIP talks. Preliminary results stay preliminary, disagreements are kept, and owners or deadlines appear only if someone actually said them.
+- **Uses the subscription you already pay for.** ChatGPT (through Codex) or Claude (through Claude Code), with live quota and billing shown. Chumi **never** switches to a paid API on its own, and pauses instead of spending purchased credits.
+- **Private and crash-safe.** Speech recognition runs locally with whisper.cpp, so audio never leaves the Mac. Transcript lines are saved as they arrive. After a crash, the session reopens with a gap marker and can be resumed.
+- **One keystroke when a talk starts.** Press **⌃⌥⌘L** from any app to start listening. Press again to pause.
 
-## Features
+## See it in action
 
-- **Live local transcription.** whisper.cpp (large-v3-turbo) runs on the Metal GPU in about 0.3 s per utterance. It handles English, Mandarin, and mixed speech with English technical terms. Partial text is revised in place, never duplicated.
-- **Microphone, computer audio, or both.** Computer audio works with headphones on, which suits Zoom, Teams and recorded lectures. In "both" mode, echo cancellation and duplicate filtering keep speaker output from being transcribed twice.
-- **Catch me up.** Every answer states the exact transcript interval it covers. It stays put while new speech arrives and has an explicit Refresh.
-- **Ask and explain.** Questions use the selected passage, the surrounding discussion, relevant earlier passages and your profile. Answers keep **what was said**, **background added by Chumi**, and **interpretation and uncertainty** separate.
-  - Depth: Quick, Standard or Deep.
-  - Reasoning effort: Auto through Max.
-  - Language: 中文 (keeping English terms) or English.
-- **Auto-explain.** Optional background cards for unfamiliar concepts. A cooldown and an interruption cap keep them rare, and turning the switch off drops any late results.
-- **Summaries by session type.** Lab meeting, advisor 1:1, lecture, or WIP talk. Tentative results stay tentative, disagreements are kept, and owners or deadlines appear only if someone said them.
-- **Window capture.** Pick the Zoom share, the lecture video or the slides. Chumi keeps one picture per slide and can send captures with your questions, so answers can explain the figure being discussed.
-- **Quick start.** Press **⌃⌥⌘L** from any app when a conversation starts suddenly. Press again to pause or resume.
-- **Safe with your subscription.** Chumi uses one provider, the one you select, and never switches to a paid API on its own. It shows billing mode and quota, and pauses instead of spending credits.
-- **Durable.** Transcript lines are saved as they arrive. After a crash or quit, the session shows a gap marker and can be resumed. Search history in English or Chinese, and export to Markdown or plain text.
+**Ask about the slide on screen.** A captured slide goes with the question, and the answer weighs it against what was actually said. Here it notices that the slide's numbers don't match the library size the speaker described:
 
-## Requirements
+<p align="center">
+  <img src="docs/assets/screens/window-capture.png" width="900" alt="A captured slide in the Screen strip; the answer explains the slide, cites transcript times, and flags a mismatch between the slide and the discussion">
+</p>
 
-- An Apple Silicon Mac on macOS 14.4 or later. Developed on macOS 26.5.
-- [Homebrew](https://brew.sh), Node.js 24 or later, and the Xcode Command Line Tools (`xcode-select --install`). Full Xcode isn't needed.
-- For AI features, one of:
-  - a ChatGPT plan, signed in with the Codex CLI;
-  - a Claude plan, signed in with the Claude Code CLI;
-  - an Anthropic API key (optional, paid).
+**Explanations in Chinese, English terms kept.** Select *negative binomial* in the transcript and get the intuition, how it was used in this discussion, and why it matters. All of it is pitched to your statistics level:
 
-## Install
+<p align="center">
+  <img src="docs/assets/screens/chinese.png" width="900" alt="An explanation card in Simplified Chinese for 'negative binomial model', with transcript citations">
+</p>
+
+**A structured summary when the meeting ends.** It has sections for research question, methods, findings (labelled established, preliminary or contested), disagreements, open questions and action items, all cited back to the transcript. Dark mode included:
+
+<p align="center">
+  <img src="docs/assets/screens/summary.png" width="900" alt="Dark mode: the final summary card with an overview and research question, each claim linked to transcript times">
+</p>
+
+**Start in one click.** The home screen offers quick start, presets for in-person, online and hybrid conversations, your recent sessions, and your knowledge profile at a glance:
+
+<p align="center">
+  <img src="docs/assets/screens/home.png" width="900" alt="The home screen: greeting, status, four start options, recent sessions, profile summary and tips">
+</p>
+
+<sub>All screenshots come from a real run (real local transcription, real Claude answers) on the synthetic sample meeting in <code>samples/lab-meeting</code>. To regenerate them, run <code>node scripts/demo-shoot.ts</code>.</sub>
+
+## Quick start
+
+**Requirements:** an Apple Silicon Mac on macOS 14.4 or later, plus [Homebrew](https://brew.sh), Node.js 24 or later, and the Xcode Command Line Tools (`xcode-select --install`).
+
+### 1. Install
 
 ```bash
 git clone https://github.com/FakeEnd/chumi.git && cd chumi
@@ -54,87 +70,79 @@ git clone https://github.com/FakeEnd/chumi.git && cd chumi
 bash scripts/setup.sh
 ```
 
-The setup script:
+The setup script installs whisper.cpp, downloads the speech model (about 875 MB, stored once in `~/Library/Application Support/Chumi/models/`), installs the npm packages, and builds the app and its helpers.
 
-1. Installs whisper.cpp.
-2. Downloads the speech model, about 875 MB, to `~/Library/Application Support/Chumi/models/`.
-3. Installs the npm packages.
-4. Builds the web UI.
-5. Builds `build/Chumi.app` and its helper tools: audio capture, window capture and the shortcut listener.
+### 2. Connect the AI you already have
 
-## Run
+Pick one. Your account details stay with the official CLI, and Chumi never sees them.
+
+```bash
+codex login
+```
+
+That's for ChatGPT: choose *Sign in with ChatGPT*. For a Claude plan, use this instead:
+
+```bash
+claude auth login
+```
+
+### 3. Start listening
 
 ```bash
 open build/Chumi.app
 ```
 
-The app gets its own macOS permissions. To run it in a browser instead, use `npm start` and open http://127.0.0.1:4777. `CHUMI_DEV=1 npm start` adds an audio-file test source and an offline test provider.
+Click **⚡ Quick start**, or press **⌃⌥⌘L** from anywhere. macOS asks once for Microphone and/or System Audio Recording permission. You can also run Chumi in a browser with `npm start` and open http://127.0.0.1:4777.
 
-### macOS permissions
+## Features
 
-| Feature | Permission |
-|---|---|
-| Microphone | Privacy & Security → Microphone |
-| Computer audio | Privacy & Security → Screen & System Audio Recording → *System Audio Recording Only* |
-| Window capture | Privacy & Security → Screen & System Audio Recording |
+**Listening**
+- Microphone for in-person conversations, computer audio for Zoom, Teams or recorded lectures (headphones are fine), or both for hybrid meetings, with echo cancellation and duplicate filtering.
+- Local whisper.cpp large-v3-turbo on the Metal GPU, about 0.3 s per utterance. Grey partial text is revised in place, never duplicated.
+- English, Mandarin and code-switching. Traditional characters are converted to Simplified, and vocabulary hints improve spelling of jargon and names.
+- Pause, resume, a quick-start shortcut, level meters, and clear permission guidance.
 
-macOS asks the first time each feature is used, and Chumi shows a button that opens the right pane. The app is ad-hoc signed, so **rebuilding it makes macOS ask again**. Set `CHUMI_SIGN_IDENTITY` to an Apple Development certificate for a stable identity.
+**Understanding**
+- Catch me up over the last 2 minutes, the last 5 minutes, or the whole session so far.
+- Questions about the selected passage, the surrounding discussion and relevant earlier passages.
+- Explanation depth (Quick, Standard, Deep) and reasoning effort (Auto, Low, Medium, High, Extra high, Max) for each question. Neither changes your saved profile.
+- Optional auto-explain cards with a cooldown and an interruption cap. Turning it off drops late results.
+- A running overview and topic timeline, updated at pauses and topic changes.
+- Window capture (ScreenCaptureKit) with one picture kept per slide, and *Ask about this slide*.
 
-With the MacBook lid closed, macOS disables the built-in microphone. Use an external or headset mic.
+**Remembering**
+- Structured final summaries by session type, with citations, uncertainty and disagreements kept, and owners and deadlines only when stated.
+- History with full-text search (English and 中文), reopen, Markdown or plain-text export, and delete.
+- Transcript lines saved as they arrive. Recording gaps are marked, and interrupted sessions can be resumed.
 
-## AI providers and billing
+**Trust and cost control**
+- Exactly one active AI provider, with no automatic fallback.
+- Quota and billing shown live. Chumi pauses when included usage is used up.
+- Background work (overview, auto-explain) runs at low effort, and long sessions use rolling notes instead of resending the whole transcript.
+- Settings → Privacy & data explains exactly what is sent and when.
 
-Choose a provider in **Settings → AI provider**. The top bar always shows which provider is active and whether it uses a subscription or the paid API.
-
-| Provider | Sign-in | Billing | Notes |
-|---|---|---|---|
-| **ChatGPT plan via Codex** | `codex login` → *Sign in with ChatGPT* | Your plan's included usage | Uses OpenAI's documented [Codex app-server](https://learn.chatgpt.com/docs/app-server). Chumi reads your usage windows and **won't spend purchased credits** unless you allow it. |
-| **Claude plan via Claude Code** | `claude auth login` | Your plan's usage limits | Personal use of the unmodified `claude -p`. API-key variables are stripped so the plan is always used. Chumi stops if Claude Code reports paid overage. |
-| Anthropic API key | Stored in the macOS Keychain | Pay per request | Off until you enable it and confirm. |
-
-Speech recognition is separate and always local. An AI outage or quota limit never stops transcription, and captured content is never lost. The research behind these choices, with links to the official terms, is in [docs/provider-research.md](docs/provider-research.md).
-
-## Using Chumi
-
-- **Start.** Use ⚡ **Quick start** (or ⌃⌥⌘L), or **Start session…** to pick the title, type, audio source and an optional window to capture.
-- **Read.** Scrolling back keeps your place, and a "N new lines · Return to live" pill counts new text. Select text for **Explain**, **Ask about this…** or **Copy**.
-- **Ask.** Type a question or tap a suggestion. Depth and effort chosen in the Ask box apply to that one question and never change your profile.
-- **Review.** Click any `[m:ss]` to jump to the supporting lines. End the session for the structured summary. History offers search, reopen, export, delete and resume.
-
-**Settings tabs:**
-- **Audio:** device, echo cancellation, raw-audio saving (off by default).
-- **Quick start:** shortcut, source, type.
-- **Screen:** whether captures are sent to the AI.
-- **Transcription:** language, vocabulary hints.
-- **AI provider:** model, effort, quota.
-- **Assistance:** auto-explain frequency, default depth.
-- **Privacy & data.**
-
-## Privacy
-
-- **Stays on your Mac:** audio, the transcript, AI answers, your profile and screen captures. They live in `~/Library/Application Support/Chumi/`. Raw audio is saved only if you turn that on.
-- **Sent to your selected provider, only when needed:** transcript excerpts, short AI-written notes on older parts of long sessions, your profile, your question, and optionally a few screen captures. This happens when you use an AI feature, or periodically while auto-overview or auto-explain is on.
-- **Credentials:** Chumi never reads Codex or Claude sign-ins; those CLIs keep them. An optional API key goes in the Keychain.
-
-Tell participants if you record or capture a meeting, and follow your institution's rules.
-
-## Architecture
+## How it works
 
 ```
-Chumi.app (Swift: window + privacy identity)
-├── chumi-audio   Swift · AVAudioEngine mic (+ echo cancellation) · Core Audio process tap
-├── chumi-screen  Swift · ScreenCaptureKit window capture
-├── chumi-hotkey  Swift · Carbon global shortcut
-└── Node.js server (TypeScript, no framework, node:sqlite)
-    ├── VAD segmenter → transcriber → whisper-server (local, separate process)
-    ├── SQLite: sessions · raw transcript · timeline/gaps · AI outputs (kept separate) · frames
+Chumi.app (Swift window + macOS privacy identity)
+├── chumi-audio   AVAudioEngine mic (+ echo cancellation) · Core Audio process tap
+├── chumi-screen  ScreenCaptureKit window capture
+├── chumi-hotkey  global quick-start shortcut
+└── Node.js server (TypeScript, node:sqlite)
+    ├── voice-activity segmenter → transcriber → whisper-server (local, separate process)
+    ├── SQLite: sessions · raw transcript · gaps · AI outputs (kept separate) · screen captures
     ├── assistant: catch-up · Q&A · explain · overview · auto-explain · summary
-    │     long sessions → recent window + rolling AI digests + keyword retrieval
-    └── provider adapters: Codex app-server │ claude -p │ Anthropic SDK (paid, off)
-React UI (Vite) ⇄ HTTP + Server-Sent Events on 127.0.0.1
+    └── providers: Codex app-server (ChatGPT plan) │ claude -p (Claude plan) │ Anthropic API (optional, paid)
+React UI ⇄ HTTP + Server-Sent Events on 127.0.0.1
 ```
 
-More details are in [native/README.md](native/README.md), covering the audio helper protocol, permissions and build.
+| Provider | Sign-in | Billing |
+|---|---|---|
+| ChatGPT plan, via OpenAI's documented [Codex app-server](https://learn.chatgpt.com/docs/app-server) | `codex login` | Included plan usage. Purchased credits are used only if you allow it. |
+| Claude plan, via the unmodified `claude -p` (personal use) | `claude auth login` | Plan usage limits. Chumi stops on paid overage. |
+| Anthropic API key | macOS Keychain | Pay per request. Off until you enable it. |
+
+The reasoning behind these choices, with links to the official terms, is in [docs/provider-research.md](docs/provider-research.md).
 
 ## Development
 
@@ -142,58 +150,49 @@ More details are in [native/README.md](native/README.md), covering the audio hel
 npm run check
 ```
 
-This runs the type checks for server and web, plus the unit tests.
+That runs the type checks and unit tests.
 
 ```bash
 node scripts/acceptance.ts
 ```
 
-The end-to-end run streams the 20-minute sample through real Whisper, using an offline test provider.
-
-```bash
-node scripts/acceptance.ts --provider claude-cli
-```
-
-The same run against a real model. It also checks summary quality, and draws on your plan's usage limits.
+This end-to-end run streams the 20-minute sample through real Whisper, using an offline test provider. Add `--provider claude-cli` to use a real model.
 
 ```bash
 node scripts/check-audio.ts system 6 --play
 ```
 
-This confirms real computer-audio capture. Use `mic 6` instead to test the microphone.
+That confirms real computer-audio capture. Use `mic 6` instead to test the microphone.
+
+```bash
+node scripts/demo-shoot.ts
+```
+
+This regenerates the README screenshots.
 
 ```bash
 npm run build:tools
 ```
 
-This rebuilds only the window-capture and shortcut tools, which leaves Chumi.app and its permissions untouched.
+That rebuilds the window-capture and shortcut helpers without touching Chumi.app's permissions.
 
 | Path | Contents |
 |---|---|
-| `server/` | Node server: audio pipeline, ASR, assistant, providers, storage |
-| `web/` | React UI |
-| `native/` | Swift app shell and helper tools, plus `build.sh` |
-| `scripts/` | Setup, acceptance test, audio check, sample generator, config import |
-| `samples/lab-meeting/` | Script and manifest for the synthetic 20-minute bilingual lab meeting. Generate the audio with `npm run sample`. |
-| `docs/` | Provider research and the verification log |
+| `server/` | Audio pipeline, speech recognition, assistant, AI providers, storage |
+| `web/` | React interface |
+| `native/` | Swift app shell and helpers ([native/README.md](native/README.md)) |
+| `scripts/` | Setup, acceptance test, audio check, screenshots, sample generator |
+| `samples/lab-meeting/` | Synthetic bilingual lab meeting, generated with `npm run sample` |
+| `docs/` | [Provider research](docs/provider-research.md) and the [verification log](docs/verification.md) |
 
-Example settings, without secrets, are in [config/example.config.json](config/example.config.json). Apply them with `node scripts/import-config.ts config/example.config.json`.
+## Status and roadmap
 
-## Status and limitations
+Chumi is a working personal tool. What has been verified, and how, is in [docs/verification.md](docs/verification.md).
 
-What has been verified, and what hasn't, is listed in [docs/verification.md](docs/verification.md).
+**Known limits:**
+- Speakers are only told apart as mic vs computer audio.
+- Protected (DRM) video captures as black.
+- Claude reports plan usage only after each request.
+- The app is ad-hoc signed, so rebuilds ask for permissions again.
 
-- Speakers are only distinguished as mic vs computer audio. There is no diarization.
-- Rare terms depend on Whisper. Add names and jargon under Settings → Transcription → Vocabulary hints.
-- Protected (DRM) video captures as black. Small text in large windows can be hard to read.
-- Claude Code exposes plan usage only after each request, so remaining allowance can't be shown in advance.
-- The app is ad-hoc signed, so rebuilds re-prompt for permissions.
-
-**Roadmap:**
-- Paper and slide-deck files as context.
-- Speaker diarization.
-- Cross-session glossary and memory.
-- Spoken explanations.
-- A per-app "Sign in with ChatGPT" adapter.
-- A menu-bar mini mode.
-- A per-session AI usage meter.
+**Next:** paper and slide-deck files as context, speaker diarization, a cross-session glossary, spoken explanations, a menu-bar mini mode, and a per-session usage meter.

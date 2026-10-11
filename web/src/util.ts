@@ -33,18 +33,25 @@ marked.use({
   },
 });
 
-const REF = /\[(\d{1,2}:\d{2}(?::\d{2})?)(?:\s*[–—-]\s*(\d{1,2}:\d{2}(?::\d{2})?))?\]/g;
+// A citation is [m:ss], [m:ss–m:ss], or several of those separated by commas: [1:58–3:59, 10:06].
+const T = String.raw`\d{1,2}:\d{2}(?::\d{2})?`;
+const ONE = new RegExp(String.raw`^(${T})(?:\s*[–—-]\s*(${T}))?$`);
+const REF = new RegExp(String.raw`\[(${T}(?:\s*[–—-]\s*${T})?(?:\s*[,;，、]\s*${T}(?:\s*[–—-]\s*${T})?)*)\]`, 'g');
+
+function refButton(part: string): string {
+  const m = part.trim().match(ONE);
+  if (!m) return part;
+  const t = parseT(m[1]);
+  const t2 = m[2] ? parseT(m[2]) : null;
+  if (t == null) return part;
+  return `<button class="ref" data-t="${t}"${t2 != null ? ` data-t2="${t2}"` : ''} title="Show in transcript">${m[2] ? `${m[1]}–${m[2]}` : m[1]}</button>`;
+}
 
 /** Markdown → safe HTML with clickable transcript references. */
 export function renderMd(md: string): string {
   const html = marked.parse(md, { async: false }) as string;
   // Only touch text outside tags.
-  return html.replace(/(^|>)([^<]+)(?=<|$)/g, (_m, lead: string, text: string) => lead + text.replace(REF, (all, a: string, b?: string) => {
-    const t = parseT(a);
-    const t2 = b ? parseT(b) : null;
-    if (t == null) return all;
-    return `<button class="ref" data-t="${t}"${t2 != null ? ` data-t2="${t2}"` : ''} title="Show in transcript">${b ? `${a}–${b}` : a}</button>`;
-  }));
+  return html.replace(/(^|>)([^<]+)(?=<|$)/g, (_m, lead: string, text: string) => lead + text.replace(REF, (_all, inner: string) => inner.split(/\s*[,;，、]\s*/).map(refButton).join(' ')));
 }
 
 export const SESSION_TYPES: Array<{ id: string; label: string }> = [

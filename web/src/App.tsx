@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { useStore } from './store.ts';
 import { connectEvents } from './actions.ts';
-import { TopBar } from './components/TopBar.tsx';
+import { SessionToolbar, TopBar } from './components/TopBar.tsx';
+import { Home } from './components/Home.tsx';
 import { Transcript } from './components/Transcript.tsx';
 import { Overview } from './components/Overview.tsx';
 import { AssistantPanel } from './components/Assistant.tsx';
@@ -30,21 +31,27 @@ function SavedBanner() {
 export function App() {
   const loaded = useStore((s) => s.loaded);
   const dialog = useStore((s) => s.dialog);
+  const data = useStore((s) => s.data);
   useEffect(() => connectEvents(), []);
   if (!loaded) return <div className="boot">Connecting to Chumi…</div>;
   return (
     <div className="app">
       <TopBar />
       <Notices />
-      <SavedBanner />
-      <main className="main">
-        <section className="left">
-          <Overview />
-          <SlideStrip />
-          <Transcript />
-        </section>
-        <AssistantPanel />
-      </main>
+      {data ? (
+        <>
+          <SessionToolbar />
+          <SavedBanner />
+          <main className="main">
+            <section className="left">
+              <Overview />
+              <SlideStrip />
+              <Transcript />
+            </section>
+            <AssistantPanel />
+          </main>
+        </>
+      ) : <main className="home-wrap"><Home /></main>}
       {dialog === 'start' && <StartDialog />}
       {dialog === 'profile' && <ProfileDialog />}
       {dialog === 'settings' && <SettingsDialog />}

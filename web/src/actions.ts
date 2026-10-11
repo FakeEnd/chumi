@@ -1,5 +1,5 @@
 import { api, subscribe } from './api.ts';
-import { getState, notify, setState, upsertOutput } from './store.ts';
+import { getState, notify, setState, upsertOutput, type AppState } from './store.ts';
 import type { Depth, Effort, Frame, Output, Profile, Segment, SessionData, Settings, WindowInfo } from './types.ts';
 
 export async function loadState(): Promise<void> {
@@ -8,12 +8,15 @@ export async function loadState(): Promise<void> {
     loaded: true, settings: s.settings, profile: s.profile, provider: s.provider, live: s.live, liveReceivedAt: Date.now(), partials: s.live?.partials ?? {},
     devMode: s.devMode, helperBuilt: s.helperBuilt, screenToolBuilt: s.screenToolBuilt, hotkey: s.hotkey ?? null, appMode: s.appMode, dataDir: s.dataDir, samples: s.samples ?? [],
   });
+  // Deep links (?session=<id>&dialog=settings&tab=ai) open a view directly; used for scripted screenshots too.
+  const q = new URLSearchParams(location.search);
+  const want = q.get('session');
+  if (want && !getState().viewId) { await openSession(want).catch(() => {}); }
+  const dlg = q.get('dialog');
+  if (dlg && ['profile', 'settings', 'history', 'start', 'window'].includes(dlg)) setState({ dialog: dlg as AppState['dialog'], settingsTab: q.get('tab') ?? 'audio' });
+  // A live session opens directly; otherwise start on the Home screen (recent sessions are listed there).
   const liveId = s.live?.session?.id ?? null;
-  if (liveId) await openSession(liveId);
-  else if (!getState().viewId) {
-    const list = await api<{ sessions: SessionData['session'][] }>('/api/sessions');
-    if (list.sessions[0]) await openSession(list.sessions[0].id);
-  }
+  if (liveId && !getState().viewId) await openSession(liveId);
 }
 
 export async function openSession(id: string): Promise<void> {

@@ -96,6 +96,7 @@ function AskBox() {
   const defaultEffort = useStore((s) => s.settings?.ai.effort ?? 'auto');
   const [depth, setDepth] = useState<Depth>(defaultDepth);
   const [effort, setEffort] = useState<Effort>(defaultEffort);
+  const [showAll, setShowAll] = useState(false);
   useEffect(() => setDepth(defaultDepth), [defaultDepth]);
   useEffect(() => setEffort(defaultEffort), [defaultEffort]);
   const send = (q: string, mode: 'ask' | 'explain' = 'ask') => {
@@ -119,19 +120,23 @@ function AskBox() {
         value={draft} onChange={(e) => setState({ askDraft: e.target.value })}
         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(draft); } }} />
       <div className="ask-row">
-        <div className="seg-control small" role="group" aria-label="Depth for this question">
-          {(['quick', 'standard', 'deep'] as Depth[]).map((d) => <button key={d} className={depth === d ? 'on' : ''} onClick={() => setDepth(d)}>{d === 'quick' ? 'Quick' : d === 'standard' ? 'Standard' : 'Deep'}</button>)}
+        <div className="ask-options">
+          <div className="seg-control small" role="group" aria-label="Depth for this question">
+            {(['quick', 'standard', 'deep'] as Depth[]).map((d) => <button key={d} className={depth === d ? 'on' : ''} onClick={() => setDepth(d)}>{d === 'quick' ? 'Quick' : d === 'standard' ? 'Standard' : 'Deep'}</button>)}
+          </div>
+          <select className="effort-select" value={effort} onChange={(e) => setEffort(e.target.value as Effort)} title="Reasoning effort for this question: higher is more thorough but slower and uses more of your plan" aria-label="Reasoning effort">
+            {(['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as Effort[]).map((x) => <option key={x} value={x}>{x === 'auto' ? 'Effort: Auto' : `Effort: ${EFFORT_LABEL[x]}`}</option>)}
+          </select>
         </div>
-        <select className="effort-select" value={effort} onChange={(e) => setEffort(e.target.value as Effort)} title="Reasoning effort for this question: higher is more thorough but slower and uses more of your plan" aria-label="Reasoning effort">
-          {(['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as Effort[]).map((x) => <option key={x} value={x}>{x === 'auto' ? 'Effort: Auto' : `Effort: ${EFFORT_LABEL[x]}`}</option>)}
-        </select>
-        <span className="spacer" />
-        <button className="btn small" onClick={() => send(draft, 'explain')} title="Explain the typed term (or the attached passage)">Explain term</button>
-        <button className="btn small primary" onClick={() => send(draft)}>Ask</button>
+        <div className="ask-actions">
+          <button className="btn small" onClick={() => send(draft, 'explain')} title="Explain the typed term (or the attached passage)">Explain</button>
+          <button className="btn small primary" onClick={() => send(draft)}>Ask</button>
+        </div>
       </div>
       <div className="chips">
-        {QUICK.map((q) => <button key={q} className="chip" onClick={() => send(q)}>{q}</button>)}
-        <button className="chip" onClick={() => ask('Give me the short version first: what is the key point right now?', attached, 'quick')}>Give me the short version first</button>
+        {(showAll ? QUICK : QUICK.slice(0, 3)).map((q) => <button key={q} className="chip" onClick={() => send(q)}>{q}</button>)}
+        {showAll && <button className="chip" onClick={() => ask('Give me the short version first: what is the key point right now?', attached, 'quick')}>Give me the short version first</button>}
+        <button className="chip chip-more" onClick={() => setShowAll(!showAll)} aria-expanded={showAll}>{showAll ? 'Fewer' : `More suggestions (${QUICK.length - 2})`}</button>
       </div>
     </div>
   );
@@ -159,7 +164,7 @@ export function AssistantPanel() {
       <div className="catchup-box">
         <button className="btn catchup" onClick={() => catchup(scope)} disabled={!data.segments.length}>Catch me up</button>
         <div className="seg-control" role="group" aria-label="Catch-up scope">
-          {([['2m', 'Last 2 min'], ['5m', 'Last 5 min'], ['all', 'So far']] as const).map(([k, l]) => <button key={k} className={scope === k ? 'on' : ''} onClick={() => setScope(k)}>{l}</button>)}
+          {([['2m', '2 min', 'The last 2 minutes'], ['5m', '5 min', 'The last 5 minutes'], ['all', 'So far', 'The whole session so far']] as const).map(([k, l, t]) => <button key={k} className={scope === k ? 'on' : ''} title={t} onClick={() => setScope(k)}>{l}</button>)}
         </div>
       </div>
       {!isLive && ended && !hasSummary && data.segments.length > 0 && <button className="btn small summary-btn" onClick={() => summarize()}>Generate final summary</button>}

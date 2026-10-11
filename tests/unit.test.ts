@@ -99,6 +99,9 @@ test('reference checker flags citations with no supporting transcript', () => {
   const r = checkRefs('Found it [1:02], action [2:01–2:05], invented [9:59].', segs);
   assert.equal(r.total, 3);
   assert.deepEqual(r.invalid, ['9:59']);
+  const g = checkRefs('Grouped [1:00–1:05, 2:02] and [1:03; 7:30].', segs);
+  assert.equal(g.total, 4, 'each part of a grouped citation counts');
+  assert.deepEqual(g.invalid, ['7:30']);
 });
 
 test('segment rendering keeps the most recent lines within budget', () => {
