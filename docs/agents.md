@@ -91,7 +91,13 @@ Also checked by hand on a sample project:
   - The reads were logged under the client name `claude-code`.
 - **Agent read check:** **Test a real agent read** recorded a verified read from Claude Code.
 - **Registration:** `claude mcp add`, `claude mcp get` (status "✔ Connected"), `codex mcp add` and `codex mcp get` were run against throwaway configuration folders.
-- **Codex end to end: not verified yet.** The account's weekly Codex usage is exhausted until October 14, and Chumi does not spend purchased credits. The Codex path should be treated as unverified until the same sample workflow passes.
+- **Continue buttons (virtual trial).** Stand-in `claude` and `codex` commands recorded how Chumi started them, without calling a model.
+  - Pressing **Continue in Claude Code** and **Continue in Codex** opened Terminal.
+  - Claude Code started in the project folder with the whole handoff as its first message.
+  - Codex started with `-C <project folder>` and the same message.
+  - Chumi recorded each handoff as made available to that agent, and it stayed confirmed rather than done.
+- **Codex connection (virtual trial).** Codex's own app-server started Chumi's MCP server from Codex's configuration and listed all seven tools, with no model turn. It then read the project for its working folder, the confirmed handoff, transcript passages and the check tool. The reads were logged under the client name `codex-mcp-client`.
+- **Codex end to end with a model: not verified yet.** The account's weekly Codex usage is exhausted until October 14, and Chumi does not spend purchased credits. Running Codex on a local Ollama model (qwen2.5:7b, with `model_reasoning_effort="none"`) produced a plan from the instructions, but that model made no tool calls. Codex choosing to call Chumi's tools in a real session should be checked with a ChatGPT model once usage resets.
 
 ## Not in this release
 
