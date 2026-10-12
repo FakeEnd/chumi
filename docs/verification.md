@@ -2,6 +2,19 @@
 
 Results from the development Mac: Apple M5 Max, macOS 26.5, Node 26.5, whisper.cpp 1.9.5 with large-v3-turbo q8_0.
 
+## Phone access and the Android app — 2026-10-12
+
+Recording on an Android phone for Chumi on the computer ([phone.md](phone.md)).
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; new tests cover pairing, token storage and frame timing across reconnects. |
+| `node scripts/phone-trial.ts` (real Whisper, offline test provider) | 19 / 19. A stand-in phone pairs, records the sample meeting through the upload, and breaks the connection mid-frame. On reconnect it resends five seconds, and there are no duplicate lines. Access checks pass for unpaired, wrong-code, removed and post-meeting requests, and for API keys and developer routes. |
+| Android app | `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug` passes (AGP 9.4.1, Gradle 9.8.1). The frame encoder matches the server's format byte for byte. |
+| Settings → Phone | Checked in headless Chrome: turning access on, the pairing code with addresses, and the paired phone list. |
+
+Not verified: the app on a physical phone (recording with the screen off, network changes, battery optimisation).
+
 ## Branch review and optimization — 2026-10-12
 
 A review of the speaker-label, compatible-model, local-model, and session-type work before merging.

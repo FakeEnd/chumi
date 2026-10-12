@@ -24,6 +24,7 @@ export interface Settings {
   integrations: { mybot: { enabled: boolean; exportDir: string; shareWithTeam: boolean; serverUrl: string } };
   screen: { sendImagesToAI: boolean; intervalSec: number };
   ui: { language: 'auto' | 'en' | 'zh' };
+  remote: { enabled: boolean; port: number };
   devMode: boolean;
 }
 

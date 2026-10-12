@@ -4,6 +4,7 @@ import type { FrameRow, Store, SessionRow, SegmentRow } from '../db.ts';
 import { AUDIO_DIR } from '../paths.ts';
 import { fmtT, log, now, similarity, uid } from '../util.ts';
 import { FileCapture, HelperCapture, type AudioInput, type SourceName } from '../audio/capture.ts';
+import { PhoneCapture, phoneLink } from '../audio/phone.ts';
 import { Segmenter, type Utterance } from '../audio/vad.ts';
 import { Transcriber, type FinalPiece } from '../asr/transcriber.ts';
 import type { WhisperServer } from '../asr/whisper.ts';
@@ -26,7 +27,7 @@ interface Run {
   rawId: string;
 }
 
-export interface StartOptions { title: string; type: SessionType; source: AudioSourceMode | 'file'; filePath?: string; speed?: number; window?: { id: number; title?: string; app?: string } | null; projectId?: string | null }
+export interface StartOptions { title: string; type: SessionType; source: AudioSourceMode | 'file' | 'phone'; filePath?: string; speed?: number; window?: { id: number; title?: string; app?: string } | null; projectId?: string | null }
 
 /**
  * Owns the live session: audio input → per-source segmenter → transcriber → persisted segments.
@@ -39,7 +40,7 @@ export class SessionManager {
   private broadcast: Broadcast;
   status: LiveStatus = 'idle';
   session: SessionRow | null = null;
-  source: AudioSourceMode | 'file' = 'mic';
+  source: AudioSourceMode | 'file' | 'phone' = 'mic';
   private run: Run | null = null;
   private runCount = 0;
   private transcriber: Transcriber;
@@ -169,6 +170,9 @@ export class SessionManager {
     if (this.source === 'file') {
       if (!this.fileOpts) throw new Error('No audio file given.');
       input = new FileCapture(this.fileOpts.path, this.fileOpts.speed, this.fileOpts.posSec);
+    } else if (this.source === 'phone') {
+      // The phone app uploads to /api/remote/audio, which feeds this input while the session records.
+      input = phoneLink.current = new PhoneCapture();
     } else {
       input = new HelperCapture({ source: this.source, micDeviceUid: s.audio.micDeviceUid, aec: s.audio.aec });
     }
@@ -280,6 +284,7 @@ export class SessionManager {
     if (!run) return;
     if (run.input instanceof FileCapture && this.fileOpts) this.fileOpts.posSec = run.input.positionSec;
     await run.input.stop();
+    if (phoneLink.current === run.input) phoneLink.current = null;
     for (const sg of run.segmenters.values()) sg.flush();
     for (const w of run.writers.values()) w.close();
     try { run.speakers?.close(); }
@@ -334,7 +339,7 @@ export class SessionManager {
   }
 
   /** Continue recording into an interrupted (or ended) session after an app restart; the gap is recorded. */
-  async resumeSession(sessionId: string, source: AudioSourceMode | 'file', file?: { path: string; speed: number }): Promise<void> {
+  async resumeSession(sessionId: string, source: AudioSourceMode | 'file' | 'phone', file?: { path: string; speed: number }): Promise<void> {
     if (this.status !== 'idle') throw new Error('Another session is active.');
     const s = this.store.getSession(sessionId);
     if (!s) throw new Error('Session not found');

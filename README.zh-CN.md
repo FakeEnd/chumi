@@ -107,6 +107,10 @@
 
 分析使用本地临时音频，在完成、失败、取消或应用重启时删除。开启 **保存原始音频** 才会保留录音供重新分析。标注只是在单次会议、单个音源内对声音的估计，多人混合讲话会保留不确定性。详见[流程与测试说明](docs/speaker-diarization.md)和[模型安装说明](docs/speaker-models.md)。
 
+## 用手机记录会议（安卓，预览版）
+
+线下开会时，可以用 Chumi 安卓应用在手机上录音，音频实时发送到电脑上的 Chumi，由它照常转写，并用你的订阅回答问题。手机上也能打开 Chumi 的完整界面跟进会议。在 **设置 → 手机** 中打开手机访问，用显示的配对码配对手机，然后点 **用这台手机记录会议**。Wi-Fi 断开时手机会继续录音，重新连上后补发。设置、安全说明和工作原理见 [docs/phone.md](docs/phone.md)（英文）。
+
 ## 快速开始
 
 **环境要求：** Apple Silicon 芯片的 Mac，macOS 14.4 或更高版本；需要 [Homebrew](https://brew.sh)、Node.js 24 或更高版本，以及 Xcode Command Line Tools（`xcode-select --install`）。
@@ -251,6 +255,7 @@ npm run build:tools
 | `server/` | 音频处理、语音识别、助手逻辑、AI 服务接入、存储 |
 | `web/` | React 界面 |
 | `native/` | Swift App 外壳和辅助工具（[native/README.md](native/README.md)） |
+| `android/` | 安卓应用：在手机上录音，交给电脑上的 Chumi 处理（[android/README.md](android/README.md)） |
 | `scripts/` | 安装、验收测试、音频检查、截图、示例生成 |
 | `samples/lab-meeting/` | 合成的双语示例组会，用 `npm run sample` 生成 |
 | `integrations/mybot/` | mybot 数据源适配器、补丁、安装脚本和测试（[docs/mybot.md](docs/mybot.md)） |

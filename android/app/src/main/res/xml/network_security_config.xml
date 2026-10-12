@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Chumi on the user's computer serves plain HTTP on the local network (or a VPN such as Tailscale), at an address
+  the user types in, so cleartext has to be allowed. Every request carries the device token from pairing.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration" />
+</network-security-config>

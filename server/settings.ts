@@ -76,6 +76,8 @@ export interface Settings {
   };
   /** Interface language ('auto' follows the system). Explanation language is separate (profile). */
   ui: { language: 'auto' | 'en' | 'zh' };
+  /** Phone access over the local network (server/remote/access.ts). Off by default; paired phones only. */
+  remote: { enabled: boolean; port: number };
   devMode: boolean;
 }
 
@@ -109,6 +111,7 @@ export const DEFAULT_SETTINGS: Settings = {
   integrations: { mybot: { enabled: false, exportDir: '~/Library/Application Support/Chumi/exports/mybot', shareWithTeam: false, serverUrl: 'http://127.0.0.1:8788' } },
   screen: { sendImagesToAI: true, intervalSec: 3 },
   ui: { language: 'auto' },
+  remote: { enabled: false, port: 4787 },
   devMode: false,
 };
 
@@ -126,7 +129,7 @@ export interface Profile {
   style: string;
 }
 
-export const SOURCE_NAMES: Record<string, string> = { mic: 'microphone', system: 'computer audio', both: 'microphone + computer audio', file: 'audio file' };
+export const SOURCE_NAMES: Record<string, string> = { mic: 'microphone', system: 'computer audio', both: 'microphone + computer audio', file: 'audio file', phone: 'phone microphone' };
 
 export const EXPLANATION_LANGUAGES = ['Simplified Chinese', 'English'] as const;
 /** Explanations are offered in Chinese (Simplified) or English. */

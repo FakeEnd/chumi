@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { extname, isAbsolute, join, normalize, resolve } from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
@@ -31,6 +31,8 @@ import { SpeakerService } from './speakers/service.ts';
 import { speakerRuntime } from './speakers/runtime.ts';
 import { discardSpeakerAudio, speakerAudioAvailable } from './speakers/audio.ts';
 import type { SpeakerCorrection } from '../shared/speakers.ts';
+import { RemoteAccess, remoteUrls, requestToken, type RemoteDevice } from './remote/access.ts';
+import { phoneLink } from './audio/phone.ts';
 
 ensureDirs();
 const PORT = Number(process.env.PORT || 4777);
@@ -38,6 +40,7 @@ const HOST = '127.0.0.1';
 const DEV = !!process.env.CHUMI_DEV;
 
 const store = new Store();
+const remote = new RemoteAccess(join(DATA_DIR, 'remote-devices.json'));
 store.failStaleOutputs();
 const settings0 = store.getSettings();
 const whisper = new WhisperServer({ model: settings0.asr.model, threads: settings0.asr.threads });
@@ -237,6 +240,7 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
     if (next.asr.diarization && !speakerRuntime().ready) throw new HttpError(400, speakerRuntime().reason ?? 'Set up the local speaker models first.');
   }
   if (!['low', 'medium', 'high'].includes(next.ai.backgroundEffort)) throw new HttpError(400, 'Unknown background effort level');
+  if (typeof next.remote.enabled !== 'boolean' || !Number.isInteger(next.remote.port) || next.remote.port < 1024 || next.remote.port > 65535 || next.remote.port === PORT) throw new HttpError(400, 'Choose a port between 1024 and 65535 for phone access (not Chumi\'s own port).');
   if (next.ai.provider === 'anthropic-api' && !next.ai.anthropicApi.enabled) throw new HttpError(400, 'Enable paid API access first (Settings → AI provider). It is off by default.');
   if (next.ai.provider === 'mock' && !next.devMode && !DEV) throw new HttpError(400, 'The offline test provider is only available in developer mode.');
   if (!next.ai.anthropicApi.enabled && next.ai.provider === 'anthropic-api') next.ai.provider = 'codex';
@@ -247,6 +251,7 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   if (before.quickStart.hotkey !== next.quickStart.hotkey && !process.env.CHUMI_NO_HOTKEY) hotkey.configure(next.quickStart.hotkey);
   if (next.integrations.mybot.enabled && (before.integrations.mybot.shareWithTeam !== next.integrations.mybot.shareWithTeam || !before.integrations.mybot.enabled || before.integrations.mybot.exportDir !== next.integrations.mybot.exportDir)) mybot.exportAll();
   if (before.ai.provider !== next.ai.provider || JSON.stringify(before.ai) !== JSON.stringify(next.ai)) void registry.status(true).catch(() => {});
+  if (before.remote.enabled !== next.remote.enabled || before.remote.port !== next.remote.port) configureRemote();
   broadcast('settings', next);
   return next;
 }
@@ -296,6 +301,8 @@ route('POST', '/api/session/start', async (req) => {
   if (source === 'file') {
     if (!(DEV || store.getSettings().devMode)) throw new HttpError(400, 'Audio-file input is a developer/test feature.');
     if (!b.filePath || !existsSync(b.filePath)) throw new HttpError(400, 'Audio file not found');
+  } else if (source === 'phone') {
+    if (!store.getSettings().remote.enabled) throw new HttpError(400, 'Turn on phone access first (Settings → Phone).');
   } else if (!findAudioHelper()) throw new HttpError(400, 'The native audio helper is not built yet. Run "npm run build:native".');
   const win = b.window && Number.isFinite(Number(b.window.id)) ? { id: Number(b.window.id), title: String(b.window.title ?? ''), app: String(b.window.app ?? '') } : null;
   const projectId = b.project_id ? String(b.project_id) : null;
@@ -688,31 +695,95 @@ route('GET', '/api/dev/stats', () => { devOnly(); return { assistant: assistant.
 route('GET', '/api/dev/mock-calls', () => { devOnly(); return registry.mock.calls.slice(-20).map((c) => ({ task: c.task, instructions: c.instructions, input: c.input, effort: c.effort })); });
 
 // ---------------------------------------------------------------- server
+/** Static files and the API routes; writes need the X-Chumi header (cross-site requests can't send it). */
+async function dispatch(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  if (!url.pathname.startsWith('/api/')) return serveStatic(res, url.pathname);
+  if (req.method !== 'GET' && req.headers['x-chumi'] !== '1') return send(res, 403, { error: 'Missing X-Chumi header' });
+  for (const r of routes) {
+    if (r.method !== req.method) continue;
+    const m = url.pathname.match(r.re);
+    if (!m) continue;
+    const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
+    const out = await r.h(req, res, params, url);
+    if (out !== undefined && !res.headersSent) send(res, 200, out);
+    return;
+  }
+  send(res, 404, { error: 'Not found' });
+}
+function sendError(res: ServerResponse, e: unknown): void {
+  const status = e instanceof HttpError || e instanceof HandoffError ? e.status : 500;
+  if (status === 500) log('http', (e as Error).stack ?? e);
+  if (!res.headersSent) send(res, status, { error: (e as Error).message });
+}
+
 const allowedHosts = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 const server = createServer(async (req, res) => {
   try {
     // Defend against DNS-rebinding and cross-site requests: local host names only, and a custom header on writes.
     if (!allowedHosts.has(req.headers.host ?? '')) return send(res, 403, { error: 'Forbidden host' });
-    const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
-    if (!url.pathname.startsWith('/api/')) return serveStatic(res, url.pathname);
-    if (req.method !== 'GET' && req.headers['x-chumi'] !== '1') return send(res, 403, { error: 'Missing X-Chumi header' });
-    for (const r of routes) {
-      if (r.method !== req.method) continue;
-      const m = url.pathname.match(r.re);
-      if (!m) continue;
-      const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
-      const out = await r.h(req, res, params, url);
-      if (out !== undefined && !res.headersSent) send(res, 200, out);
-      return;
-    }
-    send(res, 404, { error: 'Not found' });
-  } catch (e) {
-    const status = e instanceof HttpError || e instanceof HandoffError ? e.status : 500;
-    if (status === 500) log('http', (e as Error).stack ?? e);
-    if (!res.headersSent) send(res, status, { error: (e as Error).message });
-  }
+    await dispatch(req, res, new URL(req.url ?? '/', `http://${req.headers.host}`));
+  } catch (e) { sendError(res, e); }
 });
 
+// ---------------------------------------------------------------- phone access (android/, server/remote/access.ts)
+/** Routes a paired phone may not use: credentials, pairing other devices, and developer tools. */
+const PHONE_BLOCKED = [/^\/api\/dev\//, /^\/api\/provider\/anthropic-key/, /^\/api\/provider\/compatible\/key/, /^\/api\/remote\/(pairing|devices)/];
+let remoteServer: Server | null = null;
+let remoteError: string | null = null;
+async function phoneRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const url = new URL(req.url ?? '/', 'http://phone');
+    if (req.method === 'POST' && url.pathname === '/api/remote/pair') {
+      const b = await readJson(req);
+      try { return send(res, 200, { ...remote.pair(String(b.code ?? ''), String(b.name ?? '')), server: 'chumi' }); }
+      catch (e) { return send(res, 403, { error: (e as Error).message }); }
+    }
+    const device = remote.authenticate(requestToken(req.headers));
+    if (!device) return send(res, 401, { error: 'This phone is not paired with Chumi on this computer.' });
+    if (PHONE_BLOCKED.some((re) => re.test(url.pathname))) return send(res, 403, { error: 'Not available from a phone.' });
+    if (req.method === 'POST' && url.pathname === '/api/remote/audio') return await phoneAudio(req, res, url, device);
+    if (req.method === 'GET' && url.pathname === '/api/remote/whoami') return send(res, 200, { device, ...phoneState() });
+    await dispatch(req, res, url);
+  } catch (e) { sendError(res, e); }
+}
+function phoneState() {
+  return { status: manager.status, session: manager.session ? store.getSession(manager.session.id) : null, source: manager.source, phoneConnected: !!phoneLink.current?.connected };
+}
+/** The phone's audio upload: CHA1 frames until the phone or the session stops. */
+async function phoneAudio(req: IncomingMessage, res: ServerResponse, url: URL, device: RemoteDevice): Promise<void> {
+  const input = phoneLink.current;
+  if (!input?.active || manager.status !== 'recording') return send(res, 409, { error: 'Chumi is not recording from the phone.', ...phoneState() });
+  log('phone', `audio from ${device.name}`);
+  await input.attach(req, String(url.searchParams.get('capture') ?? 'default').slice(0, 64));
+  if (!res.headersSent) send(res, 200, { ok: true, ...phoneState() });
+}
+function configureRemote(): void {
+  const { enabled, port } = store.getSettings().remote;
+  if (remoteServer) { remoteServer.close(); remoteServer.closeAllConnections(); remoteServer = null; }
+  remoteError = null;
+  if (!enabled) return;
+  const srv = remoteServer = createServer((req, res) => void phoneRequest(req, res));
+  srv.on('error', (e) => {
+    if (remoteServer !== srv) return;
+    remoteError = `Phone access could not start on port ${port}: ${e.message}`;
+    log('phone', remoteError);
+    remoteServer = null;
+    broadcast('remote', remoteStatus());
+  });
+  srv.listen(port, '0.0.0.0', () => { log('phone', `phone access on port ${port}: ${remoteUrls(port).join(' ') || 'no network address'}`); broadcast('remote', remoteStatus()); });
+}
+function remoteStatus() {
+  const { enabled, port } = store.getSettings().remote;
+  return { enabled, port, listening: !!remoteServer?.listening, error: remoteError, urls: remoteUrls(port), devices: remote.devices(), phone: phoneState() };
+}
+route('GET', '/api/remote', () => remoteStatus());
+route('POST', '/api/remote/pairing', () => {
+  if (!store.getSettings().remote.enabled) throw new HttpError(400, 'Turn on phone access first.');
+  return { ...remote.newCode(), urls: remoteUrls(store.getSettings().remote.port) };
+});
+route('DELETE', '/api/remote/devices/:id', (_req, _res, p) => { if (!remote.revoke(p.id)) throw new HttpError(404, 'Unknown device'); return remoteStatus(); });
+
+configureRemote();
 server.listen(PORT, HOST, () => {
   log('server', `Chumi listening on http://${HOST}:${PORT}  (data: ${DATA_DIR})`);
   // Where agents' "open in Chumi" links should point (read by the MCP server).
@@ -731,6 +802,7 @@ async function shutdown(sig: string): Promise<void> {
   try { await Promise.race([manager.suspendForShutdown().catch(() => {}), new Promise((r) => setTimeout(r, 6000))]); } catch { /* ignore */ }
   await speakers.shutdown();
   server.close();
+  remoteServer?.close();
   hotkey.stop();
   await Promise.race([Promise.all([whisper.stop(), registry.shutdown(), localModelDownloader.shutdown()]), new Promise((r) => setTimeout(r, 3000))]);
   store.close();

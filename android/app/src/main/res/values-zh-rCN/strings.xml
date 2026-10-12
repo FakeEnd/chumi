@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pair_title">与电脑上的 Chumi 配对</string>
+    <string name="pair_help">在电脑上打开 Chumi → 设置 → 手机，打开手机访问，点击“配对手机”，然后在这里输入它显示的其中一个地址和配对码。手机和电脑需要在同一个网络，或同一个 VPN（例如 Tailscale）里。</string>
+    <string name="address_hint">电脑地址，例如 192.168.1.20:4787</string>
+    <string name="code_hint">配对码</string>
+    <string name="name_hint">这台手机的名字</string>
+    <string name="pair_button">配对</string>
+    <string name="pairing">正在配对…</string>
+    <string name="paired_with">已与 %1$s 配对</string>
+    <string name="computer_idle">电脑上的 Chumi 已就绪。</string>
+    <string name="computer_recording_phone">正在用这台手机录音：%1$s</string>
+    <string name="computer_recording_other">Chumi 正在电脑上录音：%1$s</string>
+    <string name="computer_paused">已暂停：%1$s</string>
+    <string name="computer_unreachable">连不上电脑（%1$s）。</string>
+    <string name="recorded">已录 %1$s · %2$s · 还有 %3$d 秒待发送</string>
+    <string name="sending">正在发送到电脑</string>
+    <string name="not_sending">未连接</string>
+    <string name="start_button">用这台手机记录会议</string>
+    <string name="rejoin_button">继续用这台手机录音</string>
+    <string name="pause_button">暂停</string>
+    <string name="resume_button">继续</string>
+    <string name="end_button">结束会议</string>
+    <string name="open_button">打开 Chumi</string>
+    <string name="unpair_button">取消配对</string>
+    <string name="meeting_title">手机记录的会议 · %1$s</string>
+    <string name="status_connecting">正在连接电脑…</string>
+    <string name="status_offline">连不上电脑。录音没有停，连接恢复后会把音频补发过去。</string>
+    <string name="status_finishing">正在发送最后一段音频…</string>
+    <string name="status_ended">会议已结束，电脑上的 Chumi 会生成总结。</string>
+    <string name="error_not_paired">请先与电脑配对。</string>
+    <string name="error_unpaired">这台手机已不再与电脑配对，请重新配对。</string>
+    <string name="error_busy">Chumi 正在电脑上录音，请先结束那个会话。</string>
+    <string name="error_microphone">无法打开麦克风。</string>
+    <string name="channel_recording">录音</string>
+    <string name="notification_connecting">正在连接电脑…</string>
+    <string name="notification_listening">正在收听，并把音频发送到你的电脑</string>
+    <string name="notification_offline">等待连接电脑；录音没有停</string>
+</resources>

@@ -107,6 +107,10 @@ Run `npm run setup:speakers`, then enable **Settings → Transcription → Speak
 
 Analysis uses temporary local audio, deleted on completion, failure, cancellation, or app restart. **Save raw audio** keeps the captured takes for reruns. Labels are estimates within a meeting and audio source; mixed speech remains uncertain. See [the workflow and testing notes](docs/speaker-diarization.md) and [model setup](docs/speaker-models.md).
 
+## Record with your phone (Android, preview)
+
+For in-person meetings, the Chumi Android app records on the phone and streams the audio to Chumi on your computer, which transcribes it and answers with your plan as usual. You follow along in Chumi's full interface on the phone. Turn on **Settings → Phone**, pair the phone with the code shown, and tap **Record a meeting on this phone**. If the Wi-Fi drops, the phone keeps recording and catches up when it reconnects. Setup, security and how it works: [docs/phone.md](docs/phone.md).
+
 ## Quick start
 
 **Requirements:** an Apple Silicon Mac on macOS 14.4 or later, plus [Homebrew](https://brew.sh), Node.js 24 or later, and the Xcode Command Line Tools (`xcode-select --install`).
@@ -251,6 +255,7 @@ That rebuilds the window-capture and shortcut helpers without touching Chumi.app
 | `server/` | Audio pipeline, speech recognition, assistant, AI providers, storage |
 | `web/` | React interface |
 | `native/` | Swift app shell and helpers ([native/README.md](native/README.md)) |
+| `android/` | Android app that records on the phone for Chumi on the computer ([android/README.md](android/README.md)) |
 | `scripts/` | Setup, acceptance test, audio check, screenshots, sample generator |
 | `samples/lab-meeting/` | Synthetic bilingual lab meeting, generated with `npm run sample` |
 | `integrations/mybot/` | mybot source adapter, patch, installer and test ([docs/mybot.md](docs/mybot.md)) |

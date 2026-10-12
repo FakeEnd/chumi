@@ -15,7 +15,7 @@ export interface CaptureEvents {
 }
 
 export interface AudioInput extends EventEmitter<CaptureEvents> {
-  readonly kind: 'helper' | 'file';
+  readonly kind: 'helper' | 'file' | 'phone';
   start(): Promise<void>;
   stop(): Promise<void>;
 }

@@ -539,3 +539,4 @@ pre.cmd { background: var(--panel-2); border: 1px solid var(--border); border-ra
   .settings-nav button { width: auto; white-space: nowrap; }
   .settings-content { padding: 14px 16px 20px; }
 }
+.pairing-code { font-size: 22px; letter-spacing: 4px; font-variant-numeric: tabular-nums; }
