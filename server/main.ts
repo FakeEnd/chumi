@@ -750,3 +750,5 @@ process.on('uncaughtException', (e) => {
 process.on('unhandledRejection', (e) => { log('server', `unhandled rejection: ${(e as Error)?.stack ?? e}`); });
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 process.on('SIGINT', () => void shutdown('SIGINT'));
+// A closed terminal or console window (on Windows, closing the console that runs Chumi) arrives as SIGHUP.
+process.on('SIGHUP', () => void shutdown('SIGHUP'));
