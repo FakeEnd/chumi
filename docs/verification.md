@@ -2,6 +2,19 @@
 
 Results from the development Mac: Apple M5 Max, macOS 26.5, Node 26.5, whisper.cpp 1.9.5 with large-v3-turbo q8_0.
 
+## opencode and Qwen Code as coding agents — 2026-10-12
+
+Chumi's agent connection now covers opencode and Qwen Code next to Claude Code and Codex. Details are in [agents.md](agents.md).
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 135 / 135 tests. New tests cover the read check for all four agents, opencode's configuration file, comment-tolerant JSON reading, and how each agent is started. |
+| API keys | Tested by mutation: a stand-in agent refuses to record a read if an API key reaches Claude Code or Codex, or if opencode's or Qwen Code's key is removed. Making opencode strip keys fails the test. |
+| Real CLIs, stand-in model | `node scripts/agent-trial.ts opencode` (1.19.0) and `qwen-code` (0.25.1): Connect, client health, the read check and Disconnect all pass. Reads are logged as `opencode` and `qwen-cli-mcp-client-chumi`. |
+| Settings and handoff UI | Checked in headless Chrome with a seeded meeting: four agent cards, and the **Continue in another agent…** menu listing the installed agents. Without consent the opencode read check is refused (HTTP 400). |
+
+Not verified: a read check or a handoff with a real opencode or Qwen Code model, and opening Terminal from the new menu (the script it runs was tested directly).
+
 ## Branch review and optimization — 2026-10-12
 
 A review of the speaker-label, compatible-model, local-model, and session-type work before merging.

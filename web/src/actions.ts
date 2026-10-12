@@ -3,6 +3,7 @@ import { getState, notify, setState, upsertOutput, type AppState } from './store
 import { projectContextOn } from './projectContext.ts';
 import { t } from './i18n.ts';
 import type { SpeakerAnnotation, SpeakerCorrection, SpeakerView } from '../../shared/speakers.ts';
+import type { AgentId } from '../../shared/agents.ts';
 import type { Depth, Effort, Frame, Handoff, Output, Profile, Project, Segment, SessionData, Settings, SpeakerUpdate, WindowInfo } from './types.ts';
 
 export async function loadState(): Promise<void> {
@@ -200,7 +201,7 @@ export const addHandoffItem = (handoffId: string, kind: string, text: string) =>
 export const confirmHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/confirm`, { body: {} }));
 export const reopenHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/reopen`, { body: {} }));
 export const retargetHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/retarget`, { body: {} }));
-export async function continueHandoff(handoffId: string, agent: 'claude-code' | 'codex' | 'copy'): Promise<{ prompt: string; launched: boolean } | undefined> {
+export async function continueHandoff(handoffId: string, agent: AgentId | 'copy'): Promise<{ prompt: string; launched: boolean } | undefined> {
   const r = await withHandoff(api<{ prompt: string; launched: boolean; handoff: Handoff }>(`/api/handoffs/${handoffId}/continue`, { body: { agent } }));
   return r ? { prompt: r.prompt, launched: r.launched } : undefined;
 }

@@ -5,6 +5,7 @@ import { api } from '../api.ts';
 import { fmtClock } from '../util.ts';
 import { plural, t, tn } from '../i18n.ts';
 import type { AgentStatus } from '../types.ts';
+import { AGENT_NAMES, type AgentId } from '../../../shared/agents.ts';
 
 /** Project picker: a meeting belongs to at most one project, and only when the user says so. */
 export function ProjectSelect({ value, onChange, className, ariaLabel }: { value: string | null; onChange: (id: string | null) => void; className?: string; ariaLabel?: string }) {
@@ -31,7 +32,7 @@ export function ProjectsTab() {
   const list = projects.filter((p) => showArchived || !p.archived_at);
   return (
     <section>
-      <p className="small">{t('A project is a folder where you work with Claude Code or Codex. Assign meetings to it, confirm the work a meeting implies, and the agent working in that folder can read the handoff and its evidence through Chumi.')}</p>
+      <p className="small">{t('A project is a folder where you work with a coding agent such as Claude Code or Codex. Assign meetings to it, confirm the work a meeting implies, and the agent working in that folder can read the handoff and its evidence through Chumi.')}</p>
       <h3>{t('New project')}</h3>
       <div className="project-form">
         <input placeholder={t('Name, e.g. Enhancer model')} value={name} onChange={(e) => setName(e.target.value)} />
@@ -71,7 +72,6 @@ export function ProjectsTab() {
 }
 
 interface AgentsInfo { local: { ok: boolean; detail: string }; agents: AgentStatus[]; commands: Record<string, string>; exports: { mybot: { files: number; dir: string } | null } }
-const AGENT_NAME: Record<string, string> = { 'claude-code': 'Claude Code', codex: 'Codex' };
 
 export function AgentsTab() {
   const [info, setInfo] = useState<AgentsInfo | null>(null);
@@ -80,10 +80,14 @@ export function AgentsTab() {
   const [error, setError] = useState<string | null>(null);
   const load = () => void api<AgentsInfo>('/api/agents').then(setInfo).catch((e) => setError((e as Error).message));
   useEffect(load, []);
-  const act = async (agent: string, action: 'connect' | 'disconnect' | 'verify') => {
+  const act = async (a: AgentStatus, action: 'connect' | 'disconnect' | 'verify') => {
+    const agent = a.agent;
+    // opencode and Qwen Code use whatever model account the user set up in them, so Chumi can't keep the check free.
+    const consent = action === 'verify' && a.billing === 'unknown';
+    if (consent && !confirm(t('{name} uses the model account you configured in it, so Chumi cannot tell whether this check is free or billed. Send one small request through {name}?', { name: a.name }))) return;
     setBusy(`${agent}:${action}`); setError(null);
     try {
-      const r = await api<{ status: AgentStatus; result?: { ok: boolean; detail: string } }>(`/api/agents/${agent}/${action}`, { body: {} });
+      const r = await api<{ status: AgentStatus; result?: { ok: boolean; detail: string } }>(`/api/agents/${agent}/${action}`, { body: consent ? { consent: true } : {} });
       if (r.result) setResult({ ...result, [agent]: r.result });
       load();
     } catch (e) { setError((e as Error).message); }
@@ -91,7 +95,7 @@ export function AgentsTab() {
   };
   return (
     <section>
-      <p className="small">{t('Connect Chumi to Claude Code and Codex so an agent working in a project folder can read that project\'s meetings, confirmed handoffs, original transcript passages and screen captures. Agents read only when they call Chumi\'s tools; Chumi never sends meetings anywhere on its own.')}</p>
+      <p className="small">{t('Connect Chumi to your coding agents (Claude Code, Codex, opencode, Qwen Code) so an agent working in a project folder can read that project\'s meetings, confirmed handoffs, original transcript passages and screen captures. Agents read only when they call Chumi\'s tools; Chumi never sends meetings anywhere on its own.')}</p>
       {error && <p className="error-text small">{error}</p>}
       {!info && !error && <p className="muted small">{t('Checking…')}</p>}
       {info && (
@@ -102,7 +106,7 @@ export function AgentsTab() {
             <span className="muted small">{t(info.local.detail)}</span>
           </div>
           {info.agents.map((a) => {
-            const name = AGENT_NAME[a.agent];
+            const name = a.name;
             const verified = a.verifiedAt ? t('verified {time}', { time: fmtClock(a.verifiedAt) }) : t('not verified yet');
             return (
               <div key={a.agent} className="agent-card">
@@ -118,16 +122,16 @@ export function AgentsTab() {
                 </div>
                 {a.cli && (
                   <div className="btn-row">
-                    <button className="btn small primary" disabled={!!busy} onClick={() => void act(a.agent, 'connect')}>{busy === `${a.agent}:connect` ? t('Connecting…') : a.registered ? t('Reconnect') : t('Connect')}</button>
-                    {a.registered && <button className="btn small" disabled={!!busy} onClick={() => void act(a.agent, 'verify')} title={t('Asks the agent to call Chumi\'s check tool. Uses one small request on your plan.')}>{busy === `${a.agent}:verify` ? t('Testing…') : t('Test a real agent read')}</button>}
-                    {a.registered && <button className="btn small ghost" disabled={!!busy} onClick={() => void act(a.agent, 'disconnect')}>{t('Disconnect')}</button>}
+                    <button className="btn small primary" disabled={!!busy} onClick={() => void act(a, 'connect')}>{busy === `${a.agent}:connect` ? t('Connecting…') : a.registered ? t('Reconnect') : t('Connect')}</button>
+                    {a.registered && <button className="btn small" disabled={!!busy} onClick={() => void act(a, 'verify')} title={a.billing === 'plan' ? t('Asks the agent to call Chumi\'s check tool. Uses one small request on your plan.') : t('Asks the agent to call Chumi\'s check tool with one small request to the model you configured in it.')}>{busy === `${a.agent}:verify` ? t('Testing…') : t('Test a real agent read')}</button>}
+                    {a.registered && <button className="btn small ghost" disabled={!!busy} onClick={() => void act(a, 'disconnect')}>{t('Disconnect')}</button>}
                   </div>
                 )}
               </div>
             );
           })}
-          <p className="muted small">{tn('Connecting adds a server named {name} to the agent\'s user settings. You can also do it yourself in Terminal:', { name: <code>chumi</code> })}</p>
-          {Object.entries(info.commands).map(([k, cmd]) => <pre key={k} className="cmd small"><span className="muted">{AGENT_NAME[k]}</span>{'\n'}{cmd}</pre>)}
+          <p className="muted small">{tn('Connecting adds a server named {name} to the agent\'s user settings. You can also do it yourself: run the command in Terminal, or for opencode add the entry to the file shown.', { name: <code>chumi</code> })}</p>
+          {Object.entries(info.commands).map(([k, cmd]) => <pre key={k} className="cmd small"><span className="muted">{AGENT_NAMES[k as AgentId]}</span>{'\n'}{cmd}</pre>)}
           <h3>{t('Other routes')}</h3>
           <p className="small">{info.exports.mybot ? t('mybot export: {n} file(s) in {dir}. Whether mybot has indexed them cannot be checked from Chumi.', { n: info.exports.mybot.files, dir: info.exports.mybot.dir }) : t('mybot export is off (Integrations).')}</p>
         </>

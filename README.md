@@ -99,7 +99,7 @@ A meeting often ends with work to do in a project: rerun with a different split,
 3. **Review and confirm.** Edit, confirm or reject each item. Only confirmed actions are handed on.
 4. **Continue in Claude Code or Codex.** Chumi opens the agent in the project folder with the confirmed work. The agent reads the handoff, the original passages and the captured slides through Chumi's local MCP server, then proposes a plan under its usual permission prompts.
 
-Connect each agent once in **Settings → Claude Code & Codex**. If the meeting changes after you confirm, for example a regenerated summary or a resumed recording, Chumi and the agent both see that the handoff may need another look. Setup, the MCP tools and the privacy model are in [docs/agents.md](docs/agents.md).
+opencode and Qwen Code work the same way, from the **Continue in another agent…** menu. Connect each agent once in **Settings → Coding agents**. If the meeting changes after you confirm, for example a regenerated summary or a resumed recording, Chumi and the agent both see that the handoff may need another look. Setup, the MCP tools and the privacy model are in [docs/agents.md](docs/agents.md).
 
 ### Optional speaker labels
 

@@ -35,7 +35,7 @@ export function StartDialog() {
       <label className="field"><span>{t('Session type')}</span>
         <SessionTypeSelect value={type} onChange={setType} />
       </label>
-      <label className="field"><span>{t('Project (optional): the folder where this work continues in Claude Code or Codex')}</span>
+      <label className="field"><span>{t('Project (optional): the folder where this work continues in your coding agent')}</span>
         <ProjectSelect value={projectId} onChange={setProjectId} />
       </label>
       <fieldset className="field">

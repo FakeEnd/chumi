@@ -1,6 +1,7 @@
 import type { SessionTypeOption } from '../../shared/session-types.ts';
 import type { CompatibleSettings } from '../../shared/compatible-provider.ts';
 import type { SpeakerAnnotation, SpeakerView } from '../../shared/speakers.ts';
+import type { AgentId } from '../../shared/agents.ts';
 
 export type Depth = 'quick' | 'standard' | 'deep';
 export type Effort = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -96,7 +97,7 @@ export interface Handoff {
   last_agent_read: { at: number; client: string | null; revision: number | null } | null;
 }
 export interface AgentStatus {
-  agent: 'claude-code' | 'codex'; cli: string | null; registered: boolean | null; outdated: boolean;
+  agent: AgentId; name: string; billing: 'plan' | 'unknown'; cli: string | null; registered: boolean | null; outdated: boolean;
   clientHealth: 'connected' | 'failed' | 'unknown'; lastRead: { at: number; tool: string } | null; verifiedAt: number | null; detail: string | null;
 }
 export interface Notice { id: number; level: 'info' | 'warning' | 'error'; code: string; message: string; at: number }
