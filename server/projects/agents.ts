@@ -4,9 +4,9 @@
  * Nothing here runs an agent on its own: registration, the read check and continuation are user actions.
  */
 import { execFile } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { Store } from '../db.ts';
@@ -46,7 +46,7 @@ function childEnv(strip: string[], extra: Record<string, string> = {}): NodeJS.P
   return env;
 }
 
-/** JSON with comments and trailing commas, as opencode.jsonc and Qwen Code's settings allow. */
+/** JSON with comments and trailing commas, as opencode.jsonc and Qwen Code's settings allow (read-only use). */
 export function parseJsonc(text: string): unknown {
   let out = '';
   for (let i = 0, str = false; i < text.length; i++) {
@@ -55,9 +55,48 @@ export function parseJsonc(text: string): unknown {
     else if (c === '"') { str = true; out += c; }
     else if (c === '/' && text[i + 1] === '/') { while (i + 1 < text.length && text[i + 1] !== '\n') i++; }
     else if (c === '/' && text[i + 1] === '*') { const end = text.indexOf('*/', i + 2); i = end < 0 ? text.length : end + 1; }
+    else if (c === ',' && /^\s*[}\]]/.test(rest(text, i + 1))) { /* trailing comma, outside any string */ }
     else out += c;
   }
-  return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1'));
+  return JSON.parse(out);
+}
+/** The text after a position with comments removed, enough to see the next significant character. */
+function rest(text: string, from: number): string {
+  let s = text.slice(from, from + 4096);
+  for (;;) {
+    const t = s.trimStart();
+    if (t.startsWith('//')) { const nl = t.indexOf('\n'); s = nl < 0 ? '' : t.slice(nl + 1); }
+    else if (t.startsWith('/*')) { const end = t.indexOf('*/'); s = end < 0 ? '' : t.slice(end + 2); }
+    else return t;
+  }
+}
+
+/**
+ * Edit a JSON config file in place only when it is plain JSON (comments would be lost by rewriting it).
+ * Writes atomically next to the real file, keeps its mode, and leaves the previous version as <file>.bak.
+ */
+function editJsonFile(file: string, edit: (cfg: Record<string, any>) => boolean, fresh: Record<string, any> | null): void {
+  let cfg: Record<string, any>;
+  const target = existsSync(file) ? realpathSync(file) : file;
+  if (existsSync(target)) {
+    let parsed: unknown;
+    try { parsed = JSON.parse(readFileSync(target, 'utf8')); } catch { parsed = undefined; }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(`Chumi did not change ${file}: it has comments or is not a plain JSON object, and rewriting it would lose them. Edit the "${NAME}" entry yourself (shown below).`);
+    }
+    cfg = parsed as Record<string, any>;
+  } else if (fresh) cfg = fresh;
+  else return;
+  if (!edit(cfg)) return;
+  mkdirSync(dirname(target), { recursive: true });
+  const mode = existsSync(target) ? statSync(target).mode & 0o777 : 0o644;
+  const tmp = `${target}.chumi-${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, `${JSON.stringify(cfg, null, 2)}\n`, { mode });
+    chmodSync(tmp, mode);
+    if (existsSync(target)) { copyFileSync(target, `${target}.bak`); chmodSync(`${target}.bak`, mode); }
+    renameSync(tmp, target);
+  } finally { rmSync(tmp, { force: true }); }
 }
 function readJsonc(file: string): Record<string, any> | null {
   if (!existsSync(file)) return null;
@@ -100,7 +139,7 @@ interface Adapter {
   registration(cli: string): Promise<Registration>;
   connect(cli: string, m: McpServer): Promise<void>;
   disconnect(cli: string): Promise<void>;
-  /** The read check: one non-interactive run in Chumi's data folder that may call only Chumi's check tool. */
+  /** The read check: one non-interactive run, in an empty folder, asked to call only Chumi's check tool. */
   check(prompt: string, extraArgs: string[]): { args: string[]; env?: Record<string, string> };
   /** Shell words that start an interactive session in the project folder with promptFile as the first message. */
   start(cli: string, workspace: string, promptFile: string): string;
@@ -157,28 +196,28 @@ const ADAPTERS: Record<AgentId, Adapter> = {
     bin: 'opencode', client: 'opencode', strip: [],
     setup: (m) => `${opencodeFile('json')}\n${JSON.stringify({ mcp: { [NAME]: opencodeEntry(m) } }, null, 2)}`,
     async registration(cli) {
-      const entry = (readJsonc(opencodeFile('json'))?.mcp?.[NAME] ?? readJsonc(opencodeFile('jsonc'))?.mcp?.[NAME]) as { command?: string[]; environment?: Record<string, string>; enabled?: boolean } | undefined;
+      type Entry = { command?: string[]; environment?: Record<string, string>; enabled?: boolean };
+      const inJsonc = readJsonc(opencodeFile('jsonc'))?.mcp?.[NAME] as Entry | undefined;
+      const entry = (readJsonc(opencodeFile('json'))?.mcp?.[NAME] ?? inJsonc) as Entry | undefined;
       if (!entry) return { registered: false };
       const r = await run(cli, ['mcp', 'list'], { timeoutMs: 45_000 });
       const line = ansi(`${r.out}\n${r.err}`).split('\n').find((l) => new RegExp(`\\b${NAME}\\b`).test(l)) ?? '';
       const health = /\bconnected\b/i.test(line) ? 'connected' : /\b(failed|error)\b/i.test(line) ? 'failed' : 'unknown';
-      return { registered: true, clientHealth: health, outdated: outdated(entry.command, entry.environment), detail: entry.enabled === false ? 'Registered but disabled in opencode.' : null };
+      const detail = entry.enabled === false ? 'Registered but disabled in opencode.'
+        : inJsonc ? `An entry in ${opencodeFile('jsonc')} is yours to edit; Chumi only changes opencode.json.` : null;
+      return { registered: true, clientHealth: health, outdated: outdated(entry.command, entry.environment), detail };
     },
     async connect(_cli, m) {
-      const file = opencodeFile('json');
-      const cfg = existsSync(file) ? readJsonc(file) : { $schema: 'https://opencode.ai/config.json' };
-      if (!cfg) throw new Error(`Chumi could not read ${file}. Add the chumi entry shown below to it yourself.`);
-      cfg.mcp = { ...cfg.mcp, [NAME]: opencodeEntry(m) };
-      mkdirSync(join(file, '..'), { recursive: true });
-      writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`);
+      editJsonFile(opencodeFile('json'), (cfg) => { cfg.mcp = { ...cfg.mcp, [NAME]: opencodeEntry(m) }; return true; }, { $schema: 'https://opencode.ai/config.json' });
     },
     async disconnect() {
-      const file = opencodeFile('json');
-      const cfg = readJsonc(file);
-      if (!cfg?.mcp?.[NAME]) return;
-      delete cfg.mcp[NAME];
-      if (!Object.keys(cfg.mcp).length) delete cfg.mcp;
-      writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`);
+      editJsonFile(opencodeFile('json'), (cfg) => {
+        if (!cfg.mcp?.[NAME]) return false;
+        delete cfg.mcp[NAME];
+        if (!Object.keys(cfg.mcp).length) delete cfg.mcp;
+        return true;
+      }, null);
+      if (readJsonc(opencodeFile('jsonc'))?.mcp?.[NAME]) throw new Error(`Remove the "${NAME}" entry from ${opencodeFile('jsonc')} yourself; Chumi does not edit commented config files.`);
     },
     // For this run only: no tools except Chumi's, and no edits, shell or web access.
     check: (prompt, extra) => ({ args: ['run', ...extra, prompt], env: { OPENCODE_CONFIG_CONTENT: JSON.stringify({ tools: { '*': false, [`${NAME}_*`]: true }, permission: { edit: 'deny', bash: 'deny', webfetch: 'deny' } }) } }),
@@ -208,6 +247,14 @@ const ADAPTERS: Record<AgentId, Adapter> = {
 };
 function opencodeEntry(m: McpServer) {
   return { type: 'local', command: [m.command, ...m.args], enabled: true, ...(Object.keys(m.env).length ? { environment: m.env } : {}) };
+}
+
+/** Where read checks run: an empty folder, so an agent's own file tools see nothing of Chumi's data. */
+function emptyCheckDir(): string {
+  const dir = join(DATA_DIR, 'agent-check');
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  for (const name of readdirSync(dir)) rmSync(join(dir, name), { recursive: true, force: true });
+  return dir;
 }
 
 export class AgentIntegration {
@@ -276,9 +323,8 @@ export class AgentIntegration {
     if (!cli) return { ok: false, detail: 'Not installed.' };
     const token = uid('chk_');
     const prompt = `Call the MCP tool chumi_connection_check from the "chumi" server with token "${token}". Then reply with one line: OK if the tool returned ok true, otherwise the error.`;
-    mkdirSync(DATA_DIR, { recursive: true });
     const c = a.check(prompt, extraArgs);
-    const r = await run(cli, c.args, { timeoutMs: 180_000, cwd: DATA_DIR, env: childEnv(a.strip, c.env) });
+    const r = await run(cli, c.args, { timeoutMs: 180_000, cwd: emptyCheckDir(), env: childEnv(a.strip, c.env) });
     const read = this.store.agentReads({ token, limit: 1 })[0];
     if (read) return { ok: true, detail: `${AGENT_NAMES[agent]} read Chumi's data through MCP (client "${read.client ?? 'unknown'}").` };
     const why = ansi(r.err || r.out).replace(/WARNING:[^\n]*\n?/g, '').trim().split('\n').slice(-3).join(' ').slice(0, 400);
@@ -305,7 +351,7 @@ export class AgentIntegration {
     const promptFile = join(dir, `${handoffId}-${agent}.md`);
     const script = join(dir, `${handoffId}-${agent}.command`);
     writeFileSync(promptFile, prompt);
-    writeFileSync(script, `#!/bin/zsh\n# Opened by Chumi: continue a confirmed meeting handoff in ${AGENT_NAMES[agent]}.\ncd ${q(workspace)} || { echo "Project folder not found: ${workspace.replace(/"/g, '')}"; read; exit 1; }\n${ADAPTERS[agent].start(cli, workspace, promptFile)}\n`);
+    writeFileSync(script, `#!/bin/zsh\n# Opened by Chumi: continue a confirmed meeting handoff in ${AGENT_NAMES[agent]}.\ncd ${q(workspace)} || { echo ${q(`Project folder not found: ${workspace}`)}; read; exit 1; }\n${ADAPTERS[agent].start(cli, workspace, promptFile)}\n`);
     chmodSync(script, 0o755);
     return script;
   }
