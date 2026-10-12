@@ -26,7 +26,7 @@ On networks that need it, pass a proxy (`-Proxy http://127.0.0.1:7890`) or a mod
 
 The smaller CUDA 11.8 build does not include cuBLAS. whisper.cpp then quietly falls back to the CPU and cannot keep up with a large model, so the setup script never uses it.
 
-Then sign in to an AI provider (`codex login`, or another provider in Settings), run `npm start`, and open http://127.0.0.1:4777.
+Then sign in to an AI provider (`codex login`, or another provider in Settings), run `npm start`, and open http://127.0.0.1:4777. If an older Node comes first on `PATH`, a small `.cmd` file can put Node 24 first and run `node server\main.ts`. Closing its console window shuts Chumi down cleanly.
 
 ## What is different on Windows
 
@@ -50,8 +50,10 @@ The development machine for this check: Windows 11 Home (build 26300), i9-12900H
 | CUDA | whisper.cpp loads the CUDA backend and keeps the 874 MB model in GPU memory. |
 | `node scripts/acceptance.ts` (offline test provider, real Whisper) | 16 pass, 0 fail, 2 manual, the same as on macOS. Includes crash recovery. At 8× speed, utterances are transcribed in about 0.8 s each. |
 | Codex provider status | Chumi reads the ChatGPT plan, its weekly window and credits through Codex 0.125's app-server. |
+| `node scripts/acceptance.ts --provider codex` (ChatGPT plan, gpt-5.5) | 13 pass, 0 fail, 2 manual, the same as the Claude-plan run on macOS. The summary had 73 citations, all supported. It kept the GATA result tentative, left the rerun's deadline as "not stated" and kept the Friday deadline. Deep answers were about 2.4× longer than quick ones. |
+| `Chumi.cmd` launcher | Starts the server with Node 24 first on `PATH`; speech recognition and the ChatGPT plan report ready. |
 
-Not yet checked on Windows: answers from a real model, Claude Code, opencode and Qwen Code, and opening the agent console from the UI.
+Not yet checked on Windows: Claude Code, opencode and Qwen Code, and opening the agent console from the UI.
 
 ## Next
 

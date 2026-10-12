@@ -11,14 +11,14 @@ First run of Chumi on Windows 11 (i9-12900H, RTX 3060 Laptop 6 GB, Node 24.21.0)
 | `npm run check` | 135 / 135 on Windows and on macOS. |
 | `node scripts/acceptance.ts` (offline test provider, real Whisper) | 16 pass, 0 fail, 2 manual, the same as on macOS. The run used whisper.cpp's CUDA 12.4 build, at about 0.8 s per utterance. |
 | `scripts\setup.ps1` | A fresh install and a repeat run both work. |
-| Codex 0.125 | Chumi reads the plan status through its app-server. |
+| Codex 0.125, real model | `node scripts/acceptance.ts --provider codex`: 13 pass, 0 fail, 2 manual, with real Whisper and the ChatGPT plan (gpt-5.5). This is the first complete real-Codex run (see *ChatGPT plan answers* below). The summary had 73 citations, 0 unsupported. It kept the GATA result tentative, "not stated" for the rerun deadline, and the Friday deadline. |
 
 Found and fixed on the way:
 - A test split paths on `/`.
 - The CUDA 11.8 whisper.cpp build silently runs on the CPU because it lacks cuBLAS.
 - Codex 0.125 refuses to start when asked to disable feature names it doesn't know.
 
-Not verified on Windows: live capture (no Windows helper yet), answers from a real model, and opening an agent console from the UI.
+Not verified on Windows: live capture (no Windows helper yet) and opening an agent console from the UI.
 
 ## opencode and Qwen Code as coding agents — 2026-10-12
 
@@ -105,7 +105,7 @@ What the real-model run showed:
 | Microphone capture | Permission flow and frame delivery verified. Real signal **not verified**: the MacBook lid was closed, which silences the built-in mic. Re-check with `node scripts/check-audio.ts mic 6`. |
 | Window capture | A TextEdit window was captured at 1346 × 878, sharp and readable. Three content changes produced exactly three stored captures. Claude correctly read the bullet points of a captured slide. |
 | Quick-start shortcut | The shortcut registered system-wide. Start, pause and resume verified through the server. The physical key press is left to the user. |
-| ChatGPT plan answers | Status, quota windows and the credit-spending gate verified against a real account. A real completion **wasn't run**, because that account's weekly window was exhausted and Chumi correctly refused to spend credits. Re-check with `node scripts/acceptance.ts --provider codex`. |
+| ChatGPT plan answers | Status, quota windows and the credit-spending gate verified against a real account. A real completion **wasn't run**, because that account's weekly window was exhausted and Chumi correctly refused to spend credits. Re-check with `node scripts/acceptance.ts --provider codex`. A full real-Codex run later passed on Windows (13 pass, 0 fail, 2 manual; see *Windows preview* above). |
 | Crash recovery | A real crash during a seminar kept all 197 transcript lines and 49 captures. The session reopened as "interrupted", ready to resume. The bug that caused it is fixed and covered by a regression test. |
 
 ## mybot integration
