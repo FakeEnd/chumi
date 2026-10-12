@@ -13,6 +13,8 @@ export interface AppState {
   partials: Record<string, { uttId: number; t: number; text: string }>;
   devMode: boolean;
   helperBuilt: boolean;
+  /** The server's process.platform: 'darwin', or 'win32' where live capture is not available yet. */
+  platform: string;
   appMode: boolean;
   dataDir: string;
   samples: Array<{ name: string; path: string; sizeMb: number }>;
@@ -40,7 +42,7 @@ export interface AppState {
 
 let state: AppState = {
   connected: false, loaded: false, settings: null, profile: null, provider: null, live: null, liveReceivedAt: 0, levels: {}, partials: {},
-  devMode: false, helperBuilt: false, appMode: false, dataDir: '', samples: [], viewId: null, data: null, deltas: {}, notices: [],
+  devMode: false, helperBuilt: false, platform: '', appMode: false, dataDir: '', samples: [], viewId: null, data: null, deltas: {}, notices: [],
   dialog: null, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [],
 };
 const listeners = new Set<() => void>();

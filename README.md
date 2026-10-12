@@ -111,6 +111,8 @@ Analysis uses temporary local audio, deleted on completion, failure, cancellatio
 
 **Requirements:** an Apple Silicon Mac on macOS 14.4 or later, plus [Homebrew](https://brew.sh), Node.js 24 or later, and the Xcode Command Line Tools (`xcode-select --install`).
 
+**Windows (preview):** the server, speech recognition (CUDA on NVIDIA GPUs), AI, summaries and handoffs run on Windows 10/11; live capture does not yet. Setup and status are in [docs/windows.md](docs/windows.md).
+
 ### 1. Install
 
 ```bash

@@ -18,7 +18,10 @@ function killStale(): void {
   try {
     const pid = Number(readFileSync(PID_FILE, 'utf8').trim());
     if (!pid) return;
-    const cmd = execFileSync('/bin/ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' }).trim();
+    // Windows' tasklist shows only the program name, not its arguments.
+    const cmd = process.platform === 'win32'
+      ? execFileSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true }) + MODELS_DIR
+      : execFileSync('/bin/ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' }).trim();
     if (cmd.includes('whisper-server') && cmd.includes(MODELS_DIR)) { process.kill(pid, 'SIGTERM'); log('asr', `stopped stale whisper-server ${pid}`); }
   } catch { /* no pid file or process already gone */ }
   try { rmSync(PID_FILE); } catch { /* ignore */ }
@@ -75,14 +78,14 @@ export class WhisperServer extends EventEmitter<{ state: [AsrState, string | nul
 
   private async start(): Promise<void> {
     const bin = which('whisper-server');
-    if (!bin) { this.setState('missing_binary', 'whisper.cpp is not installed. Run: brew install whisper-cpp'); throw new Error(this.message!); }
+    if (!bin) { this.setState('missing_binary', process.platform === 'win32' ? 'whisper.cpp is not installed. Run: powershell -File scripts\\setup.ps1' : 'whisper.cpp is not installed. Run: brew install whisper-cpp'); throw new Error(this.message!); }
     if (!existsSync(this.modelPath)) { this.setState('missing_model', `Speech model not found at ${this.modelPath}. Run: npm run setup`); throw new Error(this.message!); }
     this.setState('starting', 'Loading speech model…');
     killStale();
     this.port = await freePort(8178);
     const args = ['-m', this.modelPath, '--host', '127.0.0.1', '--port', String(this.port), '-l', 'auto', '-t', String(this.opts.threads), '-nth', '0.6'];
     log('asr', 'starting whisper-server', args.join(' '));
-    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     this.proc = proc;
     if (proc.pid) writeFileSync(PID_FILE, String(proc.pid));
     let tail = '';

@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
@@ -40,14 +40,28 @@ export const MODEL_CATALOG: ModelInfo[] = [
     note: { en: 'Full Large v3: slightly more robust on hard audio, but several times slower.', zh: '完整版 Large v3：嘈杂音频下略稳一些，但慢好几倍。' } },
 ];
 
-export interface Hardware { chip: string; appleSilicon: boolean; memoryGB: number; cores: number }
+export interface Hardware { chip: string; appleSilicon: boolean; memoryGB: number; cores: number; gpu?: { name: string; memoryGB: number } | null }
 
-export function hardware(): Hardware {
-  return { chip: os.cpus()[0]?.model ?? 'unknown', appleSilicon: os.arch() === 'arm64', memoryGB: Math.round(os.totalmem() / 2 ** 30), cores: os.cpus().length };
+let gpuCache: Hardware['gpu'] | undefined;
+/** An NVIDIA GPU for whisper.cpp's CUDA build (Windows and Linux; Macs use Metal). */
+function nvidiaGpu(): Hardware['gpu'] {
+  if (process.platform === 'darwin') return null;
+  if (gpuCache !== undefined) return gpuCache;
+  try {
+    const [name, mib] = execFileSync('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'], { encoding: 'utf8', timeout: 5000, windowsHide: true }).split('\n')[0].split(',');
+    gpuCache = name?.trim() ? { name: name.trim(), memoryGB: Math.round(Number(mib) / 1024) } : null;
+  } catch { gpuCache = null; }
+  return gpuCache;
 }
 
-/** Pick the most accurate model that this Mac runs comfortably in real time. */
+export function hardware(): Hardware {
+  return { chip: os.cpus()[0]?.model ?? 'unknown', appleSilicon: process.platform === 'darwin' && os.arch() === 'arm64', memoryGB: Math.round(os.totalmem() / 2 ** 30), cores: os.cpus().length, gpu: nvidiaGpu() };
+}
+
+/** Pick the most accurate model that this computer runs comfortably in real time. */
 export function recommendModel(hw: Hardware = hardware()): string {
+  // Large v3 Turbo q8_0 needs about 1.5 GB of GPU memory with the CUDA build.
+  if (!hw.appleSilicon && hw.gpu && hw.gpu.memoryGB >= 4) return 'ggml-large-v3-turbo-q8_0.bin';
   if (!hw.appleSilicon) return hw.memoryGB >= 16 ? 'ggml-small-q5_1.bin' : 'ggml-base-q5_1.bin';
   if (hw.memoryGB >= 16) return 'ggml-large-v3-turbo-q8_0.bin';
   if (hw.memoryGB >= 8) return 'ggml-large-v3-turbo-q5_0.bin';

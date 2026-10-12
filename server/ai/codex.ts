@@ -1,5 +1,6 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { CODEX_WORKDIR, which } from '../paths.ts';
+import { runCommand, spawnCommand, stopProcess } from '../platform.ts';
 import { log } from '../util.ts';
 import {
   ProviderError, windowLabel,
@@ -40,6 +41,7 @@ interface PendingTurn {
 const DISABLED_FEATURES = [
   'shell_tool', 'unified_exec', 'apps', 'browser_use', 'browser_use_external', 'computer_use', 'image_generation',
   'multi_agent', 'plugins', 'view_image', 'goals', 'hooks', 'in_app_browser', 'skill_search', 'tool_suggest', 'sleep_tool',
+  'codex_hooks', // the name of 'hooks' before Codex 0.13x
 ];
 
 /**
@@ -104,11 +106,16 @@ export class CodexProvider implements AIProvider {
   private async start(): Promise<void> {
     const bin = which('codex');
     if (!bin) throw new ProviderError('unavailable', 'Codex CLI not found. Install it (brew install codex) and run "codex login".');
-    const args = ['app-server', ...DISABLED_FEATURES.flatMap((f) => ['--disable', f]), '-c', 'web_search="disabled"'];
     const env = { ...process.env };
     delete env.OPENAI_API_KEY; // make sure the plan sign-in is used, never an API key from the environment
     delete env.CODEX_API_KEY;
-    const proc = spawn(bin, args, { cwd: CODEX_WORKDIR, stdio: ['pipe', 'pipe', 'pipe'], env });
+    // An older Codex refuses to start when asked to disable a feature it doesn't know, and a feature it doesn't know
+    // can't be on. Disable the ones this version lists; if the list can't be read, ask for all of them as before.
+    const listed = await runCommand(bin, ['features', 'list'], { env, timeoutMs: 15_000 });
+    const known = new Set(listed.code === 0 ? listed.out.split('\n').map((l) => l.trim().split(/\s+/)[0]).filter(Boolean) : []);
+    const disable = known.size ? DISABLED_FEATURES.filter((f) => known.has(f)) : DISABLED_FEATURES;
+    const args = ['app-server', ...disable.flatMap((f) => ['--disable', f]), '-c', 'web_search="disabled"'];
+    const proc = spawnCommand(bin, args, { cwd: CODEX_WORKDIR, stdio: ['pipe', 'pipe', 'pipe'], env, windowsHide: true });
     this.proc = proc;
     let buf = '';
     proc.stdout!.on('data', (d: Buffer) => {
@@ -323,6 +330,6 @@ export class CodexProvider implements AIProvider {
     const p = this.proc;
     if (!p) return;
     p.stdin?.end();
-    p.kill('SIGTERM');
+    stopProcess(p);
   }
 }

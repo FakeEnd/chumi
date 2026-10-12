@@ -111,6 +111,8 @@ opencode 和 Qwen Code 的用法相同，从 **在其他智能体中继续…** 
 
 **环境要求：** Apple Silicon 芯片的 Mac，macOS 14.4 或更高版本；需要 [Homebrew](https://brew.sh)、Node.js 24 或更高版本，以及 Xcode Command Line Tools（`xcode-select --install`）。
 
+**Windows（预览版）：** 服务端、语音识别（有 NVIDIA 显卡时用 CUDA 加速）、AI、总结和交接已能在 Windows 10/11 上运行，实时采集还没有。安装方法和进展见 [docs/windows.md](docs/windows.md)（英文）。
+
 ### 1. 安装
 
 ```bash

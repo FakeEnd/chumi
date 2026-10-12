@@ -28,6 +28,8 @@ test('recommends a model that fits the hardware', () => {
   assert.equal(recommendModel({ chip: 'Apple M1', appleSilicon: true, memoryGB: 8, cores: 8 }), 'ggml-large-v3-turbo-q5_0.bin');
   assert.equal(recommendModel({ chip: 'Intel Core i7', appleSilicon: false, memoryGB: 16, cores: 8 }), 'ggml-small-q5_1.bin');
   assert.equal(recommendModel({ chip: 'Intel Core i5', appleSilicon: false, memoryGB: 8, cores: 4 }), 'ggml-base-q5_1.bin');
+  assert.equal(recommendModel({ chip: 'Intel Core i9-12900H', appleSilicon: false, memoryGB: 48, cores: 20, gpu: { name: 'NVIDIA GeForce RTX 3060 Laptop GPU', memoryGB: 6 } }), 'ggml-large-v3-turbo-q8_0.bin');
+  assert.equal(recommendModel({ chip: 'Intel Core i5', appleSilicon: false, memoryGB: 16, cores: 4, gpu: { name: 'NVIDIA GeForce MX150', memoryGB: 2 } }), 'ggml-small-q5_1.bin');
   for (const m of MODEL_CATALOG) assert.ok(m.note.en && m.note.zh, `${m.id} needs notes in both languages`);
 });
 

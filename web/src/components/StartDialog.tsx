@@ -15,6 +15,7 @@ export function StartDialog() {
   const devMode = useStore((s) => s.devMode);
   const samples = useStore((s) => s.samples);
   const helperBuilt = useStore((s) => s.helperBuilt);
+  const windows = useStore((s) => s.platform) === 'win32';
   const [title, setTitle] = useState('');
   const [type, setType] = useState(() => (settings?.sessionTypes ?? DEFAULT_SESSION_TYPES).find((o) => !o.archived)?.id ?? 'lab_meeting');
   const [source, setSource] = useState<string>(settings?.audio.source ?? 'mic');
@@ -61,7 +62,9 @@ export function StartDialog() {
         <label className="check-inline"><input type="checkbox" checked={capture} onChange={(e) => setCapture(e.target.checked)} /><span><b>{t('Also capture a window')}</b>: {t('Zoom/Teams screen share, a lecture video or slides, so answers can refer to what is shown')}</span></label>
         {capture && <WindowPicker value={win} onChange={setWin} />}
       </fieldset>
-      {source !== 'file' && !helperBuilt && <p className="error-text">{tn("The native audio helper isn't built. Run {cmd} in the project folder.", { cmd: <code>npm run build:native</code> })}</p>}
+      {source !== 'file' && !helperBuilt && (windows
+        ? <p className="error-text">{t('Live microphone and computer-audio capture are not available on Windows yet. Saved meetings, questions, summaries and handoffs work.')}</p>
+        : <p className="error-text">{tn("The native audio helper isn't built. Run {cmd} in the project folder.", { cmd: <code>npm run build:native</code> })}</p>)}
       <p className="muted small">{t('Audio is transcribed on this Mac and is not uploaded.')} {settings?.audio.saveRawAudio ? t('Raw audio will be saved (Settings → Audio).') : t('Raw audio is not saved.')} {t('The first time, macOS asks for Microphone and/or System Audio Recording permission.')}</p>
     </Dialog>
   );

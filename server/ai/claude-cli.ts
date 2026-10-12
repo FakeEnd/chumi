@@ -1,6 +1,6 @@
-import { spawn, execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { CODEX_WORKDIR, which } from '../paths.ts';
+import { runCommand, spawnCommand, stopProcess } from '../platform.ts';
 import { ProviderError, type AIProvider, type CompletionRequest, type CompletionResult, type ProviderStatus } from './provider.ts';
 
 /*
@@ -50,7 +50,7 @@ export class ClaudeCliProvider implements AIProvider {
       return this.lastStatus = { ...base, billing: 'none', billingLabel: 'Not installed', state: 'not_installed', ready: false,
         quota: { known: false, summary: 'Quota information unavailable.' }, message: 'Claude Code CLI not found.', setupHint: 'Install Claude Code, then run: claude auth login' };
     }
-    const out = await new Promise<string>((resolve) => execFile(bin, ['auth', 'status'], { env: this.childEnv(), timeout: 15000 }, (_e, so) => resolve(so || '')));
+    const out = (await runCommand(bin, ['auth', 'status'], { env: this.childEnv(), timeoutMs: 15000 })).out;
     let st: { loggedIn?: boolean; authMethod?: string; subscriptionType?: string; email?: string } = {};
     try { st = JSON.parse(out); } catch { /* older CLI prints text */ }
     const quota = this.quota();
@@ -105,19 +105,19 @@ export class ClaudeCliProvider implements AIProvider {
       '--system-prompt', instructions, '--tools', '', '--strict-mcp-config', '--no-session-persistence'];
     const effort = req.effort && !/haiku/i.test(model) ? req.effort : null;
     if (effort) args.push('--effort', effort);
-    const proc = spawn(bin, args, { cwd: CODEX_WORKDIR, env: this.childEnv(), stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawnCommand(bin, args, { cwd: CODEX_WORKDIR, env: this.childEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     // One user message: screen captures (if any) as image blocks, then the text.
     const content = [
       ...(req.images ?? []).map((im) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: readFileSync(im.path).toString('base64') } })),
       { type: 'text', text: req.input },
     ];
-    proc.stdin.end(JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n');
-    const onAbort = () => proc.kill('SIGTERM');
+    proc.stdin!.end(JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n');
+    const onAbort = () => stopProcess(proc);
     req.signal?.addEventListener('abort', onAbort, { once: true });
     let text = '', result: string | null = null, errMsg: string | null = null, buf = '', stderr = '';
     let billingViolation: string | null = null;
-    proc.stderr.on('data', (d: Buffer) => { stderr = (stderr + d.toString()).slice(-2000); });
-    proc.stdout.on('data', (d: Buffer) => {
+    proc.stderr!.on('data', (d: Buffer) => { stderr = (stderr + d.toString()).slice(-2000); });
+    proc.stdout!.on('data', (d: Buffer) => {
       buf += d.toString('utf8');
       let i;
       while ((i = buf.indexOf('\n')) >= 0) {
@@ -127,7 +127,7 @@ export class ClaudeCliProvider implements AIProvider {
         try { m = JSON.parse(line); } catch { continue; }
         if (m.type === 'system' && m.subtype === 'init' && m.apiKeySource && m.apiKeySource !== 'none') {
           billingViolation = `Claude Code is using an API key (${m.apiKeySource}); request aborted to avoid API billing.`;
-          proc.kill('SIGTERM');
+          stopProcess(proc);
         } else if (m.type === 'stream_event' && m.event?.type === 'content_block_delta' && m.event.delta?.type === 'text_delta') {
           text += m.event.delta.text; req.onDelta?.(m.event.delta.text);
         } else if (m.type === 'rate_limit_event' && m.rate_limit_info) {

@@ -10,7 +10,7 @@ export async function loadState(): Promise<void> {
   const s = await api('/api/state');
   setState({
     loaded: true, settings: s.settings, profile: s.profile, provider: s.provider, live: s.live, liveReceivedAt: Date.now(), partials: s.live?.partials ?? {},
-    devMode: s.devMode, helperBuilt: s.helperBuilt, screenToolBuilt: s.screenToolBuilt, hotkey: s.hotkey ?? null, appMode: s.appMode, dataDir: s.dataDir, samples: s.samples ?? [], systemLanguage: s.systemLanguage ?? '',
+    devMode: s.devMode, helperBuilt: s.helperBuilt, platform: s.platform ?? '', screenToolBuilt: s.screenToolBuilt, hotkey: s.hotkey ?? null, appMode: s.appMode, dataDir: s.dataDir, samples: s.samples ?? [], systemLanguage: s.systemLanguage ?? '',
   });
   // Deep links (?session=<id>&dialog=settings&tab=ai) open a view directly; used for scripted screenshots too.
   const q = new URLSearchParams(location.search);

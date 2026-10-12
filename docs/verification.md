@@ -2,6 +2,24 @@
 
 Results from the development Mac: Apple M5 Max, macOS 26.5, Node 26.5, whisper.cpp 1.9.5 with large-v3-turbo q8_0.
 
+## Windows preview — 2026-10-12
+
+First run of Chumi on Windows 11 (i9-12900H, RTX 3060 Laptop 6 GB, Node 24.21.0). Details, setup and what is missing are in [windows.md](windows.md).
+
+| Check | Result |
+|---|---|
+| `npm run check` | 135 / 135 on Windows and on macOS. |
+| `node scripts/acceptance.ts` (offline test provider, real Whisper) | 16 pass, 0 fail, 2 manual, the same as on macOS. The run used whisper.cpp's CUDA 12.4 build, at about 0.8 s per utterance. |
+| `scripts\setup.ps1` | A fresh install and a repeat run both work. |
+| Codex 0.125 | Chumi reads the plan status through its app-server. |
+
+Found and fixed on the way:
+- A test split paths on `/`.
+- The CUDA 11.8 whisper.cpp build silently runs on the CPU because it lacks cuBLAS.
+- Codex 0.125 refuses to start when asked to disable feature names it doesn't know.
+
+Not verified on Windows: live capture (no Windows helper yet), answers from a real model, and opening an agent console from the UI.
+
 ## opencode and Qwen Code as coding agents — 2026-10-12
 
 Chumi's agent connection now covers opencode and Qwen Code next to Claude Code and Codex. Details are in [agents.md](agents.md).

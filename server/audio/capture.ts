@@ -61,7 +61,7 @@ export class HelperCapture extends EventEmitter<CaptureEvents> implements AudioI
 
   async start(): Promise<void> {
     const helper = findAudioHelper();
-    if (!helper) throw new Error('Audio helper not built. Run "npm run build:native" (see README).');
+    if (!helper) throw new Error(process.platform === 'win32' ? 'Live audio capture is not available on Windows yet (see docs/windows.md).' : 'Audio helper not built. Run "npm run build:native" (see README).');
     const args = ['--source', this.opts.source];
     // Run from a terminal (npm start), the terminal app would own the privacy permissions, and most terminals can't
     // request System Audio Recording at all. Give the helper its own identity there; inside Chumi.app the app owns them.

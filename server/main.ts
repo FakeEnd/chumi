@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { extname, isAbsolute, join, normalize, resolve } from 'node:path';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { Store, speakerFields } from './db.ts';
 import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool } from './paths.ts';
 import { deepMerge, log, uid } from './util.ts';
@@ -17,6 +17,7 @@ import { MybotContext } from './integrations/mybot-context.ts';
 import { HandoffError, HandoffService } from './projects/handoff.ts';
 import { AGENTS, AgentIntegration, type AgentId } from './projects/agents.ts';
 import { AGENT_BILLING, AGENT_NAMES } from '../shared/agents.ts';
+import { chooseFolder, notify, openPrivacySettings, preferredLanguage } from './platform.ts';
 import { chumiLink, SERVER_INFO, workspaceExists } from './projects/evidence.ts';
 import { exportSession } from './export.ts';
 import { checkPermissions, listDevices } from './audio/capture.ts';
@@ -97,9 +98,7 @@ hotkey.on('state', () => broadcast('hotkey', hotkeyState()));
 const hotkeyState = () => ({ state: hotkey.state, shortcut: hotkey.shortcut, message: hotkey.message });
 
 function macNotify(text: string): void {
-  if (!store.getSettings().quickStart.notify) return;
-  const esc = (x: string) => x.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  execFile('/usr/bin/osascript', ['-e', `display notification "${esc(text)}" with title "Chumi"`], () => {});
+  if (store.getSettings().quickStart.notify) notify(text);
 }
 
 async function quickStart(): Promise<void> {
@@ -192,11 +191,10 @@ function speakerUpdate(id: string) {
 }
 
 let sysLang: 'en' | 'zh' | null = null;
-/** macOS preferred language (WKWebView's navigator.language reflects the app bundle, not the user's choice). */
+/** The system's preferred language (WKWebView's navigator.language reflects the app bundle, not the user's choice). */
 function systemLanguage(): 'en' | 'zh' {
   if (sysLang) return sysLang;
-  let first = '';
-  try { first = execFileSync('/usr/bin/defaults', ['read', '-g', 'AppleLanguages'], { encoding: 'utf8', timeout: 2000 }).match(/"?([A-Za-z]{2,3}[-_A-Za-z]*)"?/)?.[1] ?? ''; } catch { /* not macOS or not set */ }
+  let first = preferredLanguage();
   if (!first) first = process.env.LANG ?? '';
   sysLang = first.toLowerCase().startsWith('zh') ? 'zh' : 'en';
   return sysLang;
@@ -271,6 +269,7 @@ route('GET', '/api/state', async () => ({
   autoExplainEpoch: assistant.autoExplainEpoch,
   devMode: DEV || store.getSettings().devMode,
   helperBuilt: !!findAudioHelper(),
+  platform: process.platform,
   hotkey: hotkeyState(),
   screenToolBuilt: !!findScreenTool(),
   appMode: !!process.env.CHUMI_APP,
@@ -442,8 +441,8 @@ route('PATCH', '/api/projects/:id', async (req, _res, p) => {
   return { project: projectPublic({ ...store.getProject(p.id)!, meeting_count: 0 }) };
 });
 route('POST', '/api/projects/choose-folder', async () => {
-  const out = await new Promise<string | null>((r) => execFile('/usr/bin/osascript', ['-e', 'POSIX path of (choose folder with prompt "Choose the project folder (where you run Claude Code or Codex)")'], { timeout: 600_000 }, (e, so) => r(e ? null : String(so).trim())));
-  return out ? { path: out.replace(/\/+$/, '') || '/' } : { cancelled: true };
+  const out = await chooseFolder('Choose the project folder (where you run your coding agent)');
+  return out ? { path: out } : { cancelled: true };
 });
 route('POST', '/api/sessions/:id/project', async (req, _res, p) => {
   if (!store.getSession(p.id)) throw new HttpError(404, 'Session not found');
@@ -669,8 +668,7 @@ route('POST', '/api/audio/request-mic', async () => {
 });
 route('POST', '/api/audio/open-settings', async (req) => {
   const b = await readJson(req);
-  const anchor = b.pane === 'audio-capture' ? 'Privacy_AudioCapture' : b.pane === 'screen' ? 'Privacy_ScreenCapture' : 'Privacy_Microphone';
-  execFile('/usr/bin/open', [`x-apple.systempreferences:com.apple.preference.security?${anchor}`]);
+  openPrivacySettings(b.pane === 'audio-capture' || b.pane === 'screen' ? b.pane : 'microphone');
   return { ok: true };
 });
 

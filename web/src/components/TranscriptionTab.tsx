@@ -10,7 +10,7 @@ interface ModelRow {
   note: { en: string; zh: string }; installed: boolean; active: boolean;
 }
 interface ModelList {
-  hardware: { chip: string; appleSilicon: boolean; memoryGB: number; cores: number };
+  hardware: { chip: string; appleSilicon: boolean; memoryGB: number; cores: number; gpu?: { name: string; memoryGB: number } | null };
   recommended: string; active: string; models: ModelRow[];
   download: { id: string; received: number; total: number; status: string; error?: string } | null;
 }
@@ -55,8 +55,8 @@ export function TranscriptionTab() {
       <h3>{t('Speech model')}</h3>
       {hw && (
         <p className="small">
-          {t('This Mac: {chip} · {mem} GB memory.', { chip: hw.chip, mem: hw.memoryGB })}{' '}
-          {hw.appleSilicon ? t('Apple Silicon runs the large models in real time.') : t('Intel Macs have no GPU acceleration for whisper.cpp, so a smaller model keeps up better.')}
+          {hw.appleSilicon ? t('This Mac: {chip} · {mem} GB memory.', { chip: hw.chip, mem: hw.memoryGB }) : t('This computer: {chip} · {mem} GB memory.', { chip: hw.gpu ? `${hw.chip} · ${hw.gpu.name}` : hw.chip, mem: hw.memoryGB })}{' '}
+          {hw.appleSilicon ? t('Apple Silicon runs the large models in real time.') : hw.gpu && hw.gpu.memoryGB >= 4 ? t('With this NVIDIA GPU and the CUDA build of whisper.cpp, the large models run in real time.') : t('Without GPU acceleration for whisper.cpp, a smaller model keeps up better.')}
         </p>
       )}
       {!list && <p className="muted small">{t('Loading…')}</p>}
