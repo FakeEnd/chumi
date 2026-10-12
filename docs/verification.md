@@ -15,6 +15,19 @@ Chumi's agent connection now covers opencode and Qwen Code next to Claude Code a
 
 Not verified: a read check or a handoff with a real opencode or Qwen Code model, and opening Terminal from the new menu (the script it runs was tested directly).
 
+## Fresh install from GitHub — 2026-10-12
+
+The one-command installer was run on the development Mac with Chumi's data folder moved aside, so the app started as a new user would see it. The data folder was restored afterwards.
+
+| Step | Result |
+|---|---|
+| `curl … install.sh \| bash` | Cloned `main` into `~/Chumi`. Setup: macOS, Apple Silicon, Xcode tools, Homebrew and Node passed; the speech model (875 MB) downloaded; Chumi.app built; the Codex and Claude sign-ins were detected; the final check passed (exit 0). |
+| First launch | Speech recognition ready, ChatGPT plan connected, empty profile in English, no meetings. **Get Chumi ready** showed 2 of 4 steps left: your background and the microphone (not yet asked, because a newly built app counts as new to macOS). |
+| A meeting | The sample meeting was played through the test file input: real local transcription, a running overview, and a final summary through the ChatGPT plan, with citations. |
+| Found and fixed | The build steps printed signing and bundler noise; they now go to `build/setup.log`, shown only on failure. Starting a second session returned HTTP 500; it now returns 409. |
+
+Not covered by this run, because the tools were already installed: installing Homebrew, the Xcode tools or Node from setup, and signing in to Codex or Claude from it.
+
 ## Branch review and optimization — 2026-10-12
 
 A review of the speaker-label, compatible-model, local-model, and session-type work before merging.

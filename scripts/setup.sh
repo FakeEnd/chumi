@@ -129,12 +129,16 @@ fi
 
 # ----------------------------------------------------------------------------------------------------------------
 step "Building Chumi"
-echo "  Installing JavaScript packages…"
-npm install --no-audit --no-fund --loglevel=error
-echo "  Building the interface…"
-npm run --silent build:web >/dev/null
-echo "  Building the audio helper and Chumi.app…"
-bash native/build.sh >/dev/null
+# Build output goes to a log; it is shown only if a step fails.
+mkdir -p "$ROOT/build"; LOG="$ROOT/build/setup.log"; : > "$LOG"
+quietly() {
+  local label=$1; shift
+  echo "  $label…"
+  if ! "$@" >>"$LOG" 2>&1; then tail -25 "$LOG" | sed 's/^/    /'; fail "$label failed." "The full output is in $LOG"; fi
+}
+quietly "Installing JavaScript packages" npm install --no-audit --no-fund
+quietly "Building the interface" npm run build:web
+quietly "Building the audio helper and Chumi.app" bash native/build.sh
 ok "Chumi.app is in $ROOT/build"
 if [[ $SAMPLE == 1 && ! -f samples/lab-meeting/lab-meeting.wav ]]; then
   echo "  Generating the 20-minute sample meeting (for testing)…"

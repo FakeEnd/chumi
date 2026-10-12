@@ -304,6 +304,7 @@ route('POST', '/api/session/start', async (req) => {
   const win = b.window && Number.isFinite(Number(b.window.id)) ? { id: Number(b.window.id), title: String(b.window.title ?? ''), app: String(b.window.app ?? '') } : null;
   const projectId = b.project_id ? String(b.project_id) : null;
   if (projectId && !store.getProject(projectId)) throw new HttpError(400, 'Unknown project');
+  if (manager.status !== 'idle') throw new HttpError(409, 'A session is already active. End it first.');
   const s = await manager.start({ title: String(b.title ?? '').slice(0, 200), type, source, filePath: b.filePath, speed: Math.min(16, Math.max(0.5, Number(b.speed ?? 1))), window: win, projectId });
   return { session: s };
 });
