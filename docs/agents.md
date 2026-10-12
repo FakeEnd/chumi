@@ -1,13 +1,13 @@
-# Continue meeting work in Claude Code or Codex
+# Continue meeting work in your coding agent
 
-Chumi connects a meeting to the project you work on with Claude Code or Codex. You assign the meeting to a project, review a handoff of the work it implies, and continue in your agent. The agent reads the confirmed work and the original evidence through Chumi's local MCP server, so you don't paste the transcript or brief it again.
+Chumi connects a meeting to the project you work on with a coding agent: Claude Code, Codex, opencode or Qwen Code. You assign the meeting to a project, review a handoff of the work it implies, and continue in your agent. The agent reads the confirmed work and the original evidence through Chumi's local MCP server, so you don't paste the transcript or brief it again.
 
 This is the P0 scope of [project-integration-prd.md](project-integration-prd.md). Project briefs before a meeting, execution results and decision history (P1), and live access during a meeting (P2) are not built yet.
 
 ## Set up
 
-1. **Create a project.** Go to **Settings → Projects**, give it a name, and choose its folder: the directory where you run `claude` or `codex`. It does not need to be a Git repository; if it is, Chumi records the branch and remote.
-2. **Connect your agents.** In **Settings → Claude Code & Codex**, click **Connect** for each agent you use. This adds a server named `chumi` to the agent's user settings (`~/.claude.json` or `~/.codex/config.toml`). **Disconnect** removes it. The same tab shows the commands if you prefer to run them yourself:
+1. **Create a project.** Go to **Settings → Projects**, give it a name, and choose its folder: the directory where you run your agent (`claude`, `codex`, `opencode` or `qwen`). It does not need to be a Git repository; if it is, Chumi records the branch and remote.
+2. **Connect your agents.** In **Settings → Coding agents**, click **Connect** for each agent you use. This adds a server named `chumi` to the agent's user settings: `~/.claude.json`, `~/.codex/config.toml`, `~/.qwen/settings.json`, or the `mcp` section of `~/.config/opencode/opencode.json`. opencode has no command for adding a local server, so Chumi edits that file itself. It does so only when the file is plain JSON, writes atomically, keeps the file's permissions, and leaves the previous version as `opencode.json.bak`. If the file has comments, Chumi leaves it alone and shows the entry to add. opencode also reads `opencode.jsonc`, which Chumi never changes. **Disconnect** removes the entry. The same tab shows the commands (and opencode's entry) if you prefer to do it yourself:
 
    ```bash
    claude mcp add --scope user chumi -- /opt/homebrew/bin/node /path/to/Chumi/server/mcp/main.ts
@@ -17,11 +17,17 @@ This is the P0 scope of [project-integration-prd.md](project-integration-prd.md)
    codex mcp add chumi -- /opt/homebrew/bin/node /path/to/Chumi/server/mcp/main.ts
    ```
 
+   ```bash
+   qwen mcp add --scope user chumi /opt/homebrew/bin/node /path/to/Chumi/server/mcp/main.ts
+   ```
+
 3. **Check the connection.** The tab reports four things separately, and shows "unknown" or "not verified" rather than guessing:
    - **Local:** Chumi starts its own MCP server and reads the database.
    - **Registered:** the agent's configuration contains Chumi, pointing at this copy of Chumi.
-   - **Client health:** Claude Code's own server check. Codex does not report one.
-   - **Agent read:** **Test a real agent read** asks the agent to call Chumi's check tool, then confirms the MCP server recorded that exact read. It uses one small request, and only runs within your plan's included usage: never on purchased credits or paid overage.
+   - **Client health:** the agent's own server check (`claude mcp get`, `opencode mcp list`, `qwen mcp list`). Codex does not report one.
+   - **Agent read:** **Test a real agent read** asks the agent to call Chumi's check tool, then confirms the MCP server recorded that exact read. It uses one small request:
+     - Claude Code and Codex run it only within your plan's included usage, never on purchased credits or paid overage. API keys in the environment are removed for these two.
+     - opencode and Qwen Code use whatever model account you set up in them, which Chumi cannot check. Chumi asks before sending the request and keeps their keys. Every read check runs in an empty folder, so an agent's own file tools see nothing of Chumi's data. During the check opencode gets only Chumi's tools and cannot edit, run commands or browse. Qwen Code connects only to Chumi's server, and only the check tool is pre-approved. Its built-in tools that need no approval, such as reading files, are not switched off, but the folder they would read is empty.
 
 If Chumi lives in `~/Documents`, macOS may ask once whether Terminal or the agent may access that folder. Allow it, or Chumi's server cannot start.
 
@@ -36,7 +42,7 @@ If Chumi lives in `~/Documents`, macOS may ask once whether Terminal or the agen
 
    Owners and deadlines are filled in only when someone stated them; otherwise they read "not stated". Citations that match no transcript line are dropped, and an item without evidence says so.
 3. **Review.** Edit, confirm or reject every item, then **Confirm handoff**. Only confirmed actions are requested work. Open questions travel as unresolved context, never as tasks. **Redraft** replaces only items you have not touched.
-4. **Continue.** **Continue in Claude Code** or **Continue in Codex** opens a Terminal window in the project folder running the agent with the confirmed work as its first message. **Copy instructions** gives the same text for an IDE, the desktop apps or another terminal. The agent looks at the project, proposes a plan and works under its own permission prompts.
+4. **Continue.** **Continue in Claude Code** or **Continue in Codex** opens a Terminal window in the project folder running the agent with the confirmed work as its first message. Other installed agents (opencode, Qwen Code) are in the **Continue in another agent…** menu. **Copy instructions** gives the same text for an IDE, the desktop apps or another terminal. The agent looks at the project, proposes a plan and works under its own permission prompts.
 
 Chumi shows when a handoff was made available and when an agent read it. It never marks the work done: check that in the agent.
 
@@ -54,7 +60,7 @@ The MCP server is read-only and works whether or not the Chumi app is running. E
 | `chumi_get_frame` | One captured slide or screen as an image, with its capture time, or "not available" if the file is gone | the named frame |
 | `chumi_connection_check` | Confirms the agent can read Chumi; used by the read check | none |
 
-Passing `project_id` to the meeting, handoff, passage or frame tools makes Chumi refuse anything outside that project. Evidence links (`open_in_chumi`) open the meeting in Chumi and focus the passage or capture.
+Passing `project_id` to the meeting, handoff, passage or frame tools makes Chumi refuse anything outside that project. Evidence links (`open_in_chumi`) open the meeting in Chumi and focus the passage or capture. Agents show the tools under their own names: `mcp__chumi__chumi_get_handoff` in Claude Code and Qwen Code, `chumi_chumi_get_handoff` in opencode.
 
 ## Freshness
 
@@ -108,6 +114,14 @@ Also checked by hand on a sample project:
   - A Chumi MCP server that could not start was reported as failed.
   - The saved handoff stayed readable throughout.
 - **Codex with a real model: tool use confirmed; full handoff run still to do.** **Test a real agent read** for Codex ran within the plan's included usage. Codex, driven by its ChatGPT model, called `chumi_connection_check` through the registered connection, and the read was logged as `codex-mcp-client`. Running Codex on a local Ollama model (qwen2.5:7b, with `model_reasoning_effort="none"`) produced a plan, but that model made no tool calls. The full sample handoff in Codex with a ChatGPT model, reading the handoff and evidence and proposing a plan, is the last P0 check.
+
+- **opencode and Qwen Code (virtual trial, October 12, 2026).** `node scripts/agent-trial.ts opencode` and `node scripts/agent-trial.ts qwen-code` run Chumi's own Connect, status, read check and Disconnect against the installed CLI (opencode 1.19.0, Qwen Code 0.25.1). The model was a local stand-in, so no account was used.
+  - Both registered Chumi, and both reported the server as connected.
+  - The read check succeeded and was logged under the client names `opencode` and `qwen-cli-mcp-client-chumi`.
+  - Qwen Code loads MCP tools on demand: its model first looked the tool up with `tool_search`, then called it through `tool_call`.
+  - opencode was offered only Chumi's seven tools during the check.
+  - **Continue in…** was checked with a stand-in command for all four agents (`tests/agent-integration.test.ts`): each starts in the project folder with the handoff unchanged as its first message.
+  - Not yet run with a real opencode or Qwen Code model.
 
 ## Not in this release
 

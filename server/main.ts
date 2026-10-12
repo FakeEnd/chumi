@@ -16,6 +16,7 @@ import { MybotExporter } from './integrations/mybot.ts';
 import { MybotContext } from './integrations/mybot-context.ts';
 import { HandoffError, HandoffService } from './projects/handoff.ts';
 import { AGENTS, AgentIntegration, type AgentId } from './projects/agents.ts';
+import { AGENT_BILLING, AGENT_NAMES } from '../shared/agents.ts';
 import { chumiLink, SERVER_INFO, workspaceExists } from './projects/evidence.ts';
 import { exportSession } from './export.ts';
 import { checkPermissions, listDevices } from './audio/capture.ts';
@@ -489,7 +490,7 @@ route('POST', '/api/handoffs/:id/continue', async (req, _res, p) => {
   return { prompt, launched, handoff: handoffs.view(h.session_id) };
 });
 
-// ---------------------------------------------------------------- Claude Code / Codex connection
+// ---------------------------------------------------------------- coding agent connection (Claude Code, Codex, opencode, Qwen Code)
 const isAgent = (a: string): a is AgentId => AGENTS.includes(a as AgentId);
 route('GET', '/api/agents', async () => {
   const [local, ...statuses] = await Promise.all([agents.localCheck(), ...AGENTS.map((a) => agents.status(a))]);
@@ -497,12 +498,18 @@ route('GET', '/api/agents', async () => {
 });
 route('POST', '/api/agents/:agent/connect', async (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); try { await agents.connect(p.agent); } catch (e) { throw new HttpError(400, (e as Error).message); } return { status: await agents.status(p.agent) }; });
 route('POST', '/api/agents/:agent/disconnect', async (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); await agents.disconnect(p.agent); return { status: await agents.status(p.agent) }; });
-route('POST', '/api/agents/:agent/verify', async (_req, _res, p) => {
+route('GET', '/api/agents/available', () => ({ agents: AGENTS.map((a) => ({ agent: a, name: AGENT_NAMES[a], installed: !!agents.cli(a) })) }));
+route('POST', '/api/agents/:agent/verify', async (req, _res, p) => {
   if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent');
-  // The check runs a real (tiny) request: only within the plan's included usage, never on credits or overage.
-  const plan = await (p.agent === 'codex' ? registry.providers.codex : registry.providers['claude-cli']).status(true).catch(() => null);
-  if (!plan || !plan.ready || plan.billing !== 'subscription') {
-    return { result: { ok: false, detail: `Not run, so nothing is charged: ${plan?.message ?? plan?.quota.note ?? 'the plan status could not be checked.'}` }, status: await agents.status(p.agent) };
+  if (AGENT_BILLING[p.agent] === 'plan') {
+    // The check runs a real (tiny) request: only within the plan's included usage, never on credits or overage.
+    const plan = await (p.agent === 'codex' ? registry.providers.codex : registry.providers['claude-cli']).status(true).catch(() => null);
+    if (!plan || !plan.ready || plan.billing !== 'subscription') {
+      return { result: { ok: false, detail: `Not run, so nothing is charged: ${plan?.message ?? plan?.quota.note ?? 'the plan status could not be checked.'}` }, status: await agents.status(p.agent) };
+    }
+  } else if ((await readJson(req)).consent !== true) {
+    // These agents use the user's own model account, which Chumi cannot check: only run after the user agreed.
+    throw new HttpError(400, 'Confirm the request first: Chumi cannot tell how this agent\'s model is billed.');
   }
   const r = await agents.verify(p.agent);
   return { result: r, status: await agents.status(p.agent) };

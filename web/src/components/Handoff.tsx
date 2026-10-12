@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { notify, setState, useStore } from '../store.ts';
 import { addHandoffItem, assignProject, confirmHandoff, continueHandoff, prepareHandoff, reopenHandoff, retargetHandoff, updateHandoffItem } from '../actions.ts';
+import { api } from '../api.ts';
 import { fmtClock, fmtT } from '../util.ts';
 import { msg, plural, t } from '../i18n.ts';
 import { Dialog } from './Dialog.tsx';
 import { focusTime } from './Transcript.tsx';
 import { ProjectSelect } from './Projects.tsx';
 import type { EvidenceRef, Handoff, HandoffItem } from '../types.ts';
+import { AGENT_NAMES, type AgentId } from '../../../shared/agents.ts';
 
 const ORIGIN: Record<HandoffItem['origin'], string> = { agreed: msg('Agreed in the meeting'), suggested: msg('Suggested, not agreed'), chumi: msg('Proposed by Chumi'), user: msg('Added by you') };
 const KINDS: Array<[HandoffItem['kind'], string, string]> = [
@@ -14,7 +16,7 @@ const KINDS: Array<[HandoffItem['kind'], string, string]> = [
   ['decision', msg('Decisions'), msg('What the group decided. Passed on as context.')],
   ['question', msg('Open questions'), msg('Unresolved points. Passed on as context, never as tasks.')],
 ];
-const VIA: Record<string, string> = { 'claude-code': 'Claude Code', codex: 'Codex' };
+const VIA: Record<string, string> = AGENT_NAMES;
 
 /** Plain-language list of what changed in the meeting since the handoff was reviewed. */
 function changes(h: Handoff): string[] {
@@ -130,7 +132,7 @@ export function HandoffBox() {
         <b>{t('Handoff to your project')}</b>
         {h && <span className={`tag ${h.status === 'confirmed' ? 'tag-ok' : h.status === 'error' ? 'tag-warn' : ''}`}>{h.status === 'confirmed' ? t('Confirmed') : h.status === 'generating' ? t('Drafting…') : h.status === 'error' ? t('Failed') : t('Draft')}</span>}
       </div>
-      {!h && <p className="small muted">{recording ? t('When the meeting ends, turn its decisions and actions into a reviewed handoff for Claude Code or Codex.') : t('Turn this meeting\'s decisions and actions into a reviewed handoff for Claude Code or Codex.')}</p>}
+      {!h && <p className="small muted">{recording ? t('When the meeting ends, turn its decisions and actions into a reviewed handoff for your coding agent.') : t('Turn this meeting\'s decisions and actions into a reviewed handoff for your coding agent.')}</p>}
       {h?.project_mismatch && <p className="small warn-text">{t('The meeting moved to another project. Review the handoff again before using it.')}</p>}
       {h?.status === 'confirmed' && h.freshness.stale && <p className="small warn-text">{t('The meeting changed since you confirmed:')} {changes(h).join(' · ')}</p>}
       {h?.status === 'error' && <p className="small error-text">{h.error}</p>}
@@ -151,19 +153,25 @@ export function HandoffDialog() {
   const data = useStore((s) => s.data);
   const live = useStore((s) => s.live);
   const [busy, setBusy] = useState(false);
+  // Claude Code and Codex have their own buttons; other installed agents are offered in a menu.
+  const [others, setOthers] = useState<Array<{ agent: AgentId; name: string }>>([]);
+  useEffect(() => {
+    void api<{ agents: Array<{ agent: AgentId; name: string; installed: boolean }> }>('/api/agents/available')
+      .then((r) => setOthers(r.agents.filter((a) => a.installed && a.agent !== 'claude-code' && a.agent !== 'codex'))).catch(() => {});
+  }, []);
   const h = data?.handoff;
   if (!data || !h) return null;
   const confirmed = h.status === 'confirmed';
   const generating = h.status === 'generating';
   const pending = h.items.filter((i) => i.review === 'pending').length;
   const recording = live?.session?.id === data.session.id && live.status === 'recording';
-  const go = async (agent: 'claude-code' | 'codex' | 'copy') => {
+  const go = async (agent: AgentId | 'copy') => {
     setBusy(true);
     const r = await continueHandoff(h.id, agent);
     setBusy(false);
     if (!r) return;
-    if (agent === 'copy') { await navigator.clipboard?.writeText(r.prompt).catch(() => {}); notify('info', t('Instructions copied. Paste them into Claude Code or Codex in the project folder.')); }
-    else notify('info', t('Opened {agent} in Terminal in the project folder, starting from this handoff.', { agent: agent === 'codex' ? 'Codex' : 'Claude Code' }));
+    if (agent === 'copy') { await navigator.clipboard?.writeText(r.prompt).catch(() => {}); notify('info', t('Instructions copied. Paste them into your coding agent in the project folder.')); }
+    else notify('info', t('Opened {agent} in Terminal in the project folder, starting from this handoff.', { agent: AGENT_NAMES[agent] }));
   };
   const footer = (
     <>
@@ -175,6 +183,12 @@ export function HandoffDialog() {
       {confirmed && (
         <>
           <button className="btn small" disabled={busy} onClick={() => void go('copy')}>{t('Copy instructions')}</button>
+          {others.length > 0 && (
+            <select className="btn small" value="" disabled={busy || !h.project} aria-label={t('Continue in another agent…')} onChange={(e) => { if (e.target.value) void go(e.target.value as AgentId); }}>
+              <option value="">{t('Continue in another agent…')}</option>
+              {others.map((a) => <option key={a.agent} value={a.agent}>{a.name}</option>)}
+            </select>
+          )}
           <button className="btn small" disabled={busy || !h.project} onClick={() => void go('codex')}>{t('Continue in Codex')}</button>
           <button className="btn primary" disabled={busy || !h.project} onClick={() => void go('claude-code')}>{t('Continue in Claude Code')}</button>
         </>
@@ -189,7 +203,7 @@ export function HandoffDialog() {
         <span className={`tag ${confirmed ? 'tag-ok' : ''}`}>{confirmed ? t('Confirmed') : generating ? t('Drafting…') : t('Draft')}</span>
         {confirmed && h.confirmed_at && <span className="muted">{t('confirmed {time} at revision {rev}', { time: fmtClock(h.confirmed_at), rev: h.confirmed_revision ?? '' })}</span>}
       </div>
-      {!data.session.project_id && <p className="small warn-text">{t('Choose a project to continue this work in Claude Code or Codex. You can still review the handoff without one.')}</p>}
+      {!data.session.project_id && <p className="small warn-text">{t('Choose a project to continue this work in a coding agent. You can still review the handoff without one.')}</p>}
       {h.project_mismatch && (
         <div className="warn-box small">{t('This handoff was prepared for another project. Review it for the meeting\'s current project before handing it on.')}
           <button className="btn small" onClick={() => void retargetHandoff(h.id)}>{t('Review for this project')}</button></div>

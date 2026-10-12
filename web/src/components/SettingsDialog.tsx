@@ -17,7 +17,7 @@ import { IconBolt, IconBulb, IconFolder, IconGlobe, IconLink, IconMic, IconShiel
 const GROUPS = [
   { label: msg('General'), tabs: [['language', msg('Language'), IconGlobe], ['audio', msg('Audio'), IconMic], ['session-types', msg('Session types'), IconFolder], ['quick', msg('Quick start'), IconBolt], ['screen', msg('Screen'), IconWindow], ['asr', msg('Transcription'), IconWave]] },
   { label: msg('AI'), tabs: [['ai', msg('AI provider'), IconSpark], ['assist', msg('Assistance'), IconBulb]] },
-  { label: msg('Projects'), tabs: [['projects', msg('Projects'), IconFolder], ['agents', msg('Claude Code & Codex'), IconTerminal], ['integrations', msg('Integrations'), IconLink]] },
+  { label: msg('Projects'), tabs: [['projects', msg('Projects'), IconFolder], ['agents', msg('Coding agents'), IconTerminal], ['integrations', msg('Integrations'), IconLink]] },
   { label: msg('Data'), tabs: [['privacy', msg('Privacy & data'), IconShield]] },
 ] as const;
 const TAB_LABEL: Record<string, string> = Object.fromEntries(GROUPS.flatMap((g) => g.tabs.map(([k, l]) => [k, l])));
