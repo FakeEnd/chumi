@@ -471,7 +471,10 @@ html[data-shell="mac"] .topbar .title-input { -webkit-user-select: text; user-se
 .project-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; word-break: break-all; }
 .tag.project-tag { margin: 0 6px 0 0; text-transform: none; letter-spacing: 0; font-size: 11px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
-.recent-title .tag.project-tag { margin-left: 8px; vertical-align: 1px; }
+/* Session title line, shared by Recent sessions and Session history: the title truncates, its tags stay visible. */
+.session-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.session-title .session-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.session-title .tag { flex: none; margin: 0; }
 .project-select { max-width: 180px; }
 
 /* Claude Code & Codex (Settings) */

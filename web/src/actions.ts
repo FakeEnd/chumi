@@ -65,8 +65,9 @@ export function connectEvents(): () => void {
     profile: (p: Profile) => setState({ profile: p }),
     notice: (n) => notify(n.level, n.message, n.code),
     asr: (a) => setState((s) => ({ live: s.live ? { ...s.live, asr: { ...s.live.asr, state: a.state, message: a.message } } : s.live })),
-    'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); notify('info', t('Session saved. Preparing the final summary…'), 'ended'); },
-    'session-updated': (sess) => setState((s) => (s.data && s.data.session.id === sess.id ? { data: { ...s.data, session: sess } } : {})),
+    'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); bumpSessions(); notify('info', t('Session saved. Preparing the final summary…'), 'ended'); },
+    'session-updated': (sess) => setState((s) => ({ sessionsRev: s.sessionsRev + 1, ...(s.data && s.data.session.id === sess.id ? { data: { ...s.data, session: sess } } : {}) })),
+    'session-deleted': (e: { id: string }) => setState((s) => ({ sessionsRev: s.sessionsRev + 1, ...(s.viewId === e.id ? { viewId: null, data: null } : {}) })),
     handoff: (e: { sessionId: string; handoff: Handoff | null }) => setHandoff(e.sessionId, e.handoff),
     speakers: (e: SpeakerUpdate) => mergeSpeakerUpdate(e),
     projects: () => void loadProjects(),
@@ -126,8 +127,11 @@ export async function renameSession(id: string, patch: { title?: string; type?: 
 export async function deleteSession(id: string): Promise<boolean> {
   const r = await guard(api(`/api/sessions/${id}`, { method: 'DELETE' }));
   if (r && getState().viewId === id) setState({ viewId: null, data: null });
+  if (r) bumpSessions();
   return !!r;
 }
+/** Every session list (Home, History) reloads when this changes. */
+export const bumpSessions = () => setState((s) => ({ sessionsRev: s.sessionsRev + 1 }));
 export function exportUrl(id: string, format: 'md' | 'txt'): string { return `/api/sessions/${id}/export?format=${format}`; }
 export async function refreshProvider(): Promise<void> { const p = await guard(api('/api/provider/status?refresh=1')); if (p) setState({ provider: p }); }
 

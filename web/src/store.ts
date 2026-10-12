@@ -24,6 +24,8 @@ export interface AppState {
   dialog: null | 'profile' | 'settings' | 'history' | 'start' | 'window' | 'frame' | 'handoff';
   /** All projects, including archived ones (pickers hide archived). */
   projects: Project[];
+  /** Bumped when any saved session is added, renamed, reassigned or deleted, so every session list reloads. */
+  sessionsRev: number;
   frameView: number | null;
   screenToolBuilt: boolean;
   hotkey: { state: string; shortcut: string; message: string | null } | null;
@@ -41,7 +43,7 @@ export interface AppState {
 let state: AppState = {
   connected: false, loaded: false, settings: null, profile: null, provider: null, live: null, liveReceivedAt: 0, levels: {}, partials: {},
   devMode: false, helperBuilt: false, appMode: false, dataDir: '', samples: [], viewId: null, data: null, deltas: {}, notices: [],
-  dialog: null, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [],
+  dialog: null, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [], sessionsRev: 0,
 };
 const listeners = new Set<() => void>();
 

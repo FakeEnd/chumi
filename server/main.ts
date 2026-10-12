@@ -367,6 +367,7 @@ route('DELETE', '/api/sessions/:id', async (_req, _res, p) => {
   store.deleteSession(p.id);
   for (const dir of [join(FRAMES_DIR, p.id), join(AUDIO_DIR, p.id)]) rmSync(dir, { recursive: true, force: true });
   mybot.remove(p.id);
+  broadcast('session-deleted', { id: p.id });
   return { ok: true };
 });
 
