@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A speech bubble with a sound wave, in Chumi's accent colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#4F46E5"
+        android:pathData="M10,6h28a6,6 0,0 1,6 6v18a6,6 0,0 1,-6 6H22l-9,7v-7h-3a6,6 0,0 1,-6 -6V12a6,6 0,0 1,6 -6z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M14,19h3v4h-3zM19.5,15h3v12h-3zM25,12h3v18h-3zM30.5,16h3v10h-3z" />
+</vector>

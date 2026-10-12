@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Chumi</string>
+    <string name="pair_title">Pair with Chumi on your computer</string>
+    <string name="pair_help">On the computer, open Chumi → Settings → Phone, turn on phone access and click Pair a phone. Enter one of the addresses and the code it shows. The phone and the computer need to be on the same network, or on the same VPN such as Tailscale.</string>
+    <string name="address_hint">Computer address, e.g. 192.168.1.20:4787</string>
+    <string name="code_hint">Pairing code</string>
+    <string name="name_hint">Name for this phone</string>
+    <string name="pair_button">Pair</string>
+    <string name="pairing">Pairing…</string>
+    <string name="paired_with">Paired with %1$s</string>
+    <string name="computer_idle">Chumi on the computer is ready.</string>
+    <string name="computer_recording_phone">Recording from this phone: %1$s</string>
+    <string name="computer_recording_other">Chumi is recording on the computer: %1$s</string>
+    <string name="computer_paused">Paused: %1$s</string>
+    <string name="computer_unreachable">The computer can\'t be reached (%1$s).</string>
+    <string name="recorded">Recorded %1$s · %2$s · %3$d s waiting to be sent</string>
+    <string name="sending">sending to the computer</string>
+    <string name="not_sending">not connected</string>
+    <string name="start_button">Record a meeting on this phone</string>
+    <string name="rejoin_button">Continue recording on this phone</string>
+    <string name="pause_button">Pause</string>
+    <string name="resume_button">Resume</string>
+    <string name="end_button">End meeting</string>
+    <string name="open_button">Open Chumi</string>
+    <string name="unpair_button">Unpair</string>
+    <string name="meeting_title">Meeting on phone · %1$s</string>
+    <string name="status_connecting">Connecting to the computer…</string>
+    <string name="status_offline">The computer can\'t be reached. Still recording: the audio is sent when the connection returns.</string>
+    <string name="status_finishing">Sending the last audio…</string>
+    <string name="status_ended">The meeting ended. Chumi on the computer writes the summary.</string>
+    <string name="error_not_paired">Pair with the computer first.</string>
+    <string name="error_unpaired">This phone is no longer paired. Pair it again.</string>
+    <string name="error_busy">Chumi is already recording on the computer. End that session first.</string>
+    <string name="error_microphone">The microphone could not be opened.</string>
+    <string name="channel_recording">Recording</string>
+    <string name="notification_connecting">Connecting to the computer…</string>
+    <string name="notification_listening">Listening and sending audio to your computer</string>
+    <string name="notification_offline">Waiting for the computer; still recording</string>
+</resources>

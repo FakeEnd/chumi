@@ -8,14 +8,15 @@ import { sourceLabel } from '../util.ts';
 import { Dialog } from './Dialog.tsx';
 import { TranscriptionTab } from './TranscriptionTab.tsx';
 import { AgentsTab, ProjectsTab } from './Projects.tsx';
+import { PhoneTab } from './PhoneTab.tsx';
 import { MybotServerSettings } from './ProjectContext.tsx';
 import { CompatibleProviderSettings } from './CompatibleProviderSettings.tsx';
 import type { ProviderStatus } from '../types.ts';
-import { IconBolt, IconBulb, IconFolder, IconGlobe, IconLink, IconMic, IconShield, IconSpark, IconTerminal, IconWave, IconWindow } from './icons.tsx';
+import { IconBolt, IconBulb, IconFolder, IconGlobe, IconLink, IconPhone, IconMic, IconShield, IconSpark, IconTerminal, IconWave, IconWindow } from './icons.tsx';
 
 /** Sections in the sidebar, grouped. */
 const GROUPS = [
-  { label: msg('General'), tabs: [['language', msg('Language'), IconGlobe], ['audio', msg('Audio'), IconMic], ['session-types', msg('Session types'), IconFolder], ['quick', msg('Quick start'), IconBolt], ['screen', msg('Screen'), IconWindow], ['asr', msg('Transcription'), IconWave]] },
+  { label: msg('General'), tabs: [['language', msg('Language'), IconGlobe], ['audio', msg('Audio'), IconMic], ['session-types', msg('Session types'), IconFolder], ['quick', msg('Quick start'), IconBolt], ['screen', msg('Screen'), IconWindow], ['asr', msg('Transcription'), IconWave], ['phone', msg('Phone'), IconPhone]] },
   { label: msg('AI'), tabs: [['ai', msg('AI provider'), IconSpark], ['assist', msg('Assistance'), IconBulb]] },
   { label: msg('Projects'), tabs: [['projects', msg('Projects'), IconFolder], ['agents', msg('Claude Code & Codex'), IconTerminal], ['integrations', msg('Integrations'), IconLink]] },
   { label: msg('Data'), tabs: [['privacy', msg('Privacy & data'), IconShield]] },
@@ -204,6 +205,7 @@ export function SettingsDialog() {
       {tab === 'asr' && <TranscriptionTab />}
       {tab === 'projects' && <ProjectsTab />}
       {tab === 'agents' && <AgentsTab />}
+      {tab === 'phone' && <PhoneTab />}
 
       {tab === 'ai' && (
         <section>
