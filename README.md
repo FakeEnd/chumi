@@ -18,18 +18,57 @@
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
 <p align="center">
-  <a href="docs/assets/chumi-promo-1.5x.mp4"><img src="docs/assets/chumi-promo-poster.jpg" width="760" alt="Watch the 34-second Chumi video: live transcription, Catch me up, explanations at your level, slide capture, trustworthy summaries and speech models for your Mac"></a><br>
-  <sub>▶ <a href="docs/assets/chumi-promo-1.5x.mp4">Watch the 34-second video</a> · <a href="docs/assets/chumi-promo-2x.mp4">25-second cut</a> · <a href="docs/assets/chumi-promo.mp4">full 50 s</a> · <a href="docs/assets/chumi-promo-zh-1.5x.mp4">中文版</a></sub>
+  <a href="docs/assets/chumi-promo-1.5x.mp4"><img src="docs/assets/chumi-promo-poster.jpg" width="760" alt="Watch the 36-second Chumi video: catch-up and explanations during a lab meeting, a reviewed handoff, Claude Code picking up the work through Chumi's MCP server, and the next question answered from the agents' earlier sessions"></a><br>
+  <sub>▶ <a href="docs/assets/chumi-promo-1.5x.mp4">Watch the 36-second video</a> · <a href="docs/assets/chumi-promo-2x.mp4">27-second cut</a> · <a href="docs/assets/chumi-promo.mp4">full 54 s</a> · <a href="docs/assets/chumi-promo-zh-1.5x.mp4">中文版</a></sub>
 </p>
 
 ---
 
-**Chumi is a listening companion for academic conversations.** It transcribes lab meetings, advisor 1:1s, lectures and seminars on your Mac, in English, Mandarin, or both at once. While the talk goes on, it tells you where the discussion is, catches you up when you drift, and explains unfamiliar methods and terms at your level. Every answer is cited back to the moment it came from.
+**Chumi is a listening companion for academic conversations that carries what was decided into your coding agent.** It transcribes lab meetings, advisor 1:1s, lectures and seminars on your Mac, in English, Mandarin, or both at once. While the talk goes on, it tells you where the discussion is, catches you up when you drift, and explains unfamiliar methods and terms at your level. Every answer is cited back to the moment it came from.
 
-Research talk moves fast and borrows from neighbouring fields. A deep-learning person in a wet-lab meeting, or a biologist in a statistics seminar, constantly loses a minute here and a term there. Chumi keeps the thread for you, using your ChatGPT or Claude subscription, a local model server, or a compatible API. It never sends audio off the machine.
+When the meeting ends, Chumi doesn't stop at notes. You review a handoff of what was decided, and Claude Code, Codex, opencode or Qwen Code picks it up in your project, reading the original evidence for itself. In the next meeting, Chumi can look up what those agents already did. It runs on your ChatGPT or Claude subscription, a local model server, or a compatible API, and audio never leaves your Mac.
+
+## The agent loop
+
+```mermaid
+flowchart LR
+  M["Meeting<br/>live transcript · catch-up<br/>explanations at your level"] --> H["Reviewed handoff<br/>decisions · actions · open questions<br/>each cited to the transcript"]
+  H --> A["Your coding agent<br/>Claude Code · Codex · opencode · Qwen Code<br/>reads the evidence over MCP"]
+  A --> P["Project memory<br/>the agents' sessions,<br/>indexed by mybot"]
+  P -- "Project context" --> M
+```
+
+1. **Listen and understand.** During the meeting, Chumi transcribes on your Mac, catches you up when you drift, and explains terms at your level.
+2. **Review a handoff.** Afterwards it drafts the decisions, actions and open questions, each cited to the transcript and labelled *agreed in the meeting*, *suggested, not agreed* or *proposed by Chumi*. You edit, confirm or reject every item. Only confirmed work is handed on.
+3. **Your agent continues.** **Continue in Claude Code** (or Codex, opencode, Qwen Code) opens the agent in the project folder with the confirmed work. Through Chumi's local, read-only MCP server it reads the handoff, the original transcript lines and the captured slides, then proposes a plan and waits for your go-ahead.
+4. **The next meeting remembers.** Turn on **Project context** in the Ask box, and your questions also search the project's earlier Claude Code and Codex sessions through [mybot](https://github.com/jzhoulab/mybot). Answers cite them as `[P1]`, `[P2]`, so you hear what the agents already tried before deciding again.
+
+<p align="center">
+  <img src="docs/assets/screens/handoff.png" width="900" alt="The handoff dialog: confirmed actions labelled agreed in the meeting or proposed by Chumi, each with its reason, unresolved points, owner, possible checks and transcript citations, and the Continue in Claude Code button">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screens/project-context.png" width="900" alt="Project context turned on in the Ask box; the answer draws on earlier Claude Code and Codex sessions in the project, cited as P1 and P2, next to what was said in the meeting">
+</p>
+
+<sub>Both from a real run on the sample meeting: real local transcription and real Claude answers. The project-context answer draws on the Claude Code and Codex sessions that continued an earlier handoff of this sample project.</sub>
+
+## How Chumi differs from a transcription app
+
+| | Typical meeting transcription app | Chumi |
+|---|---|---|
+| **During the meeting** | A live transcript to scroll through | Catches you up, explains terms at your level, and reads the slides on screen |
+| **When it ends** | A summary and action items for people to read | A handoff you review, which your coding agent then continues in the project |
+| **Evidence** | The summary becomes the record | Every claim cites a moment; agents fetch the original lines and slides themselves |
+| **What the AI added** | Mixed into the notes | Kept apart: what was said, background Chumi added, and interpretation |
+| **Who decides** | The AI's action items are the output | Items are labelled agreed, suggested or proposed by Chumi; only what you confirm becomes work |
+| **Across meetings** | One set of notes per meeting | Meetings and agent sessions in one memory, which the next meeting can draw on |
+| **Audio and cost** | Often processed in the vendor's cloud, on a separate subscription | Speech recognized on your Mac; AI from the ChatGPT or Claude plan you already have, or a local model |
 
 ## Highlights
 
+- **Meetings that turn into work.** A reviewed handoff goes to Claude Code, Codex, opencode or Qwen Code in your project folder, with the original evidence one tool call away. No pasting the transcript, no briefing the agent from scratch.
+- **The next meeting knows what the agents did.** With **Project context** on, answers draw on the project's earlier agent sessions and cite them, next to what was said in the room.
 - **Catch up in one click.** You drifted off, or the speaker skipped ahead. **Catch me up** tells you what is being discussed now, what you missed, how it connects to earlier points, and which question is on the table. Every answer states the exact stretch of transcript it covers, and it stays put while the meeting goes on.
 - **Explanations pitched to you.** Select a phrase and get the background at the right level. Chumi keeps a per-domain profile: it won't explain transformers to an ML person, and it won't assume you know a wet-lab assay. Pick **Quick, Standard or Deep**, and, on supported providers, choose how hard the model thinks, from **Low to Max**. Compatible models use their server's reasoning defaults.
 - **It keeps what was said apart from what it adds.** Answers separate *what the speakers said*, *background added by Chumi*, and *interpretation and uncertainty*. Every claim cites a clickable `[m:ss]` that jumps to the supporting lines. If a speaker points at a slide Chumi can't see, it says so instead of guessing.
@@ -80,9 +119,17 @@ Research talk moves fast and borrows from neighbouring fields. A deep-learning p
 
 <sub>All screenshots come from a real run (real local transcription, real Claude answers) on a synthetic, all-English sample meeting in <code>samples/lab-meeting-en</code>: a written script with fictional people, voiced by macOS text-to-speech, and a fictional profile. Nothing comes from real meetings. To regenerate them, run <code>node scripts/demo-shoot.ts</code>.</sub>
 
+## Set up the agent loop
+
+1. **Projects.** Assign a meeting to a project: the folder you work in. Pick it when you start, or later in the top bar. Nothing is assigned automatically.
+2. **Coding agents.** Connect each agent once in **Settings → Coding agents**. Chumi registers its read-only MCP server with the agent, and **Test a real agent read** confirms the agent can reach Chumi. Claude Code and Codex have their own **Continue** buttons; opencode and Qwen Code are in the **Continue in another agent…** menu.
+3. **Project context (optional).** Run [mybot](https://github.com/jzhoulab/mybot) locally and check its address in **Settings → Integrations** (default `http://127.0.0.1:8788`). Nothing is searched until you turn **Project context** on for a meeting.
+
+If the meeting changes after you confirm, for example a regenerated summary or a resumed recording, Chumi and the agent both see that the handoff may need another look. The agent works under its own permission prompts, and Chumi never marks the work done. Setup, the MCP tools and the privacy model are in [docs/agents.md](docs/agents.md); project context is in [docs/mybot.md](docs/mybot.md#project-context-in-questions).
+
 ## Works with mybot
 
-[**mybot**](https://github.com/jzhoulab/mybot) unifies your Claude Code and Codex conversations into one local, searchable memory. With Chumi's export turned on, **your meetings join that memory too**. Ask mybot *"what did my advisor ask me to rerun last week?"* or *"when did we decide on 200 barcodes per variant, and who was unsure?"*, and it answers with the date and a link to the exact moment in the meeting.
+[**mybot**](https://github.com/jzhoulab/mybot) unifies your Claude Code and Codex conversations into one local, searchable memory. It works in both directions with Chumi: during a meeting, **Project context** asks mybot what your agents already did, and with Chumi's export turned on, **your meetings join that memory too**. Ask mybot *"what did my advisor ask me to rerun last week?"* or *"when did we decide on 200 barcodes per variant, and who was unsure?"*, and it answers with the date and a link to the exact moment in the meeting.
 
 - In Chumi, go to **Settings → Integrations** and turn on *Export finished sessions for mybot*.
 - In mybot, run `bash integrations/mybot/install.sh ~/Code/mybot` once, then add `chumi` to `TRAJECTORY_SOURCES`.
@@ -90,18 +137,7 @@ Research talk moves fast and borrows from neighbouring fields. A deep-learning p
 
 Setup, the export format and the privacy model are in [docs/mybot.md](docs/mybot.md).
 
-## Continue the work in Claude Code or Codex
-
-A meeting often ends with work to do in a project: rerun with a different split, add a noise ceiling, fix a figure. Chumi carries that work into the project **you already use Claude Code or Codex in**, with the original evidence, so you don't brief the agent all over again.
-
-1. **Assign the meeting to a project**: a folder you work in. Pick it when you start, or later in the top bar. Nothing is assigned automatically.
-2. **Prepare a handoff.** Chumi drafts the decisions, actions and open questions, each cited to the transcript. Things that were only suggested stay "suggested", and owners and deadlines appear only if someone said them.
-3. **Review and confirm.** Edit, confirm or reject each item. Only confirmed actions are handed on.
-4. **Continue in Claude Code or Codex.** Chumi opens the agent in the project folder with the confirmed work. The agent reads the handoff, the original passages and the captured slides through Chumi's local MCP server, then proposes a plan under its usual permission prompts.
-
-opencode and Qwen Code work the same way, from the **Continue in another agent…** menu. Connect each agent once in **Settings → Coding agents**. If the meeting changes after you confirm, for example a regenerated summary or a resumed recording, Chumi and the agent both see that the handoff may need another look. Setup, the MCP tools and the privacy model are in [docs/agents.md](docs/agents.md).
-
-### Optional speaker labels
+## Optional speaker labels
 
 Run `npm run setup:speakers`, then enable **Settings → Transcription → Speaker labels** before recording. After the meeting ends, a local model groups voices as A/B/C. Open **Speakers** above the transcript to name them; click a line's label to correct it. Current labels accompany AI context, exports, and Claude Code/Codex evidence. Earlier summaries and reviewed handoffs are marked stale after corrections.
 
@@ -179,6 +215,12 @@ Configure enough context capacity for meeting excerpts, notes and answers; Chumi
 - A running overview and topic timeline, updated at pauses and topic changes.
 - Window capture (ScreenCaptureKit) with one picture kept per slide, and *Ask about this slide*.
 
+**Continuing the work**
+- A handoff drafted from the transcript: decisions, actions and open questions, each cited and labelled agreed, suggested or proposed by Chumi. You review every item before anything is handed on.
+- **Continue in** Claude Code, Codex, opencode or Qwen Code: the agent opens in the project folder with the confirmed work, and reads the handoff, original passages and slides through Chumi's read-only MCP server.
+- Freshness: if the meeting changes after you confirm, both you and the agent see what changed.
+- **Project context** in questions: earlier agent sessions in the project folder, found through mybot and cited as `[P1]`.
+
 **Remembering**
 - Structured final summaries by session type, with citations, uncertainty and disagreements kept, and owners and deadlines only when stated.
 - History with full-text search (English and 中文), reopen, Markdown or plain-text export, and delete.
@@ -238,7 +280,7 @@ That confirms real computer-audio capture. Use `mic 6` instead to test the micro
 node scripts/demo-shoot.ts
 ```
 
-This regenerates the English README screenshots; add `--lang zh` for the Chinese set in `docs/assets/screens/zh/`. `bash scripts/make-banner.sh` re-renders the banner, and `node scripts/make-video.ts` (add `--lang zh` for Chinese, `--speed 1.5` or `--speed 2` for the faster cuts) re-renders the promo video from `docs/video/promo.html`.
+This regenerates the English README screenshots; add `--lang zh` for the Chinese set in `docs/assets/screens/zh/`. The agent-loop screenshots also need `--project-folder DIR`: a project folder where Claude Code or Codex already continued a handoff of the sample meeting, with mybot running (`--only agent` shoots just those two). `bash scripts/make-banner.sh` re-renders the banner, and `node scripts/make-video.ts` (add `--lang zh` for Chinese, `--speed 1.5` or `--speed 2` for the faster cuts) re-renders the promo video from `docs/video/promo.html`.
 
 ```bash
 npm run build:tools
@@ -260,7 +302,7 @@ That rebuilds the window-capture and shortcut helpers without touching Chumi.app
 
 | Project | What it is |
 |---|---|
-| [mybot](https://github.com/jzhoulab/mybot) | The connectivity layer for coding agents: every Claude Code and Codex conversation in one searchable memory, shared across your team. Chumi meetings plug in as a source. |
+| [mybot](https://github.com/jzhoulab/mybot) | The connectivity layer for coding agents: every Claude Code and Codex conversation in one searchable memory, shared across your team. Chumi meetings plug in as a source, and Chumi's project context reads from it. |
 | [nebula-notebook](https://github.com/jzhoulab/nebula-notebook) | An agent-native notebook: you and your AI work in the same cells |
 
 ## Status and roadmap

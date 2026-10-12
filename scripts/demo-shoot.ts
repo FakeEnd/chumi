@@ -4,6 +4,9 @@
  *   node scripts/demo-shoot.ts                       # English: all-English sample, English UI and answers
  *   node scripts/demo-shoot.ts --lang zh             # 中文: bilingual sample, Chinese UI and answers
  *   node scripts/demo-shoot.ts --provider codex      # default provider: the Claude plan (claude-cli)
+ *   node scripts/demo-shoot.ts --project-folder DIR  # also shoot the agent loop: a reviewed handoff, and an answer
+ *                                                    # that uses the earlier agent sessions in DIR (through mybot)
+ *   node scripts/demo-shoot.ts --only agent --project-folder DIR   # just those two screenshots (about 3 AI requests)
  *
  * Plays a synthetic sample lab meeting (fictional people, macOS text-to-speech; see samples/) through a
  * throwaway server with an empty data folder (3× speed, real local Whisper), with a fictional demo profile.
@@ -26,11 +29,18 @@ const OUT = join(ROOT, 'docs/assets/screens', LANG === 'zh' ? 'zh' : '');
 // English uses the all-English sample; 中文 uses the original, where one speaker mixes Mandarin and English.
 const SAMPLE_DIR = join(ROOT, LANG === 'zh' ? 'samples/lab-meeting' : 'samples/lab-meeting-en');
 const SAMPLE = join(SAMPLE_DIR, LANG === 'zh' ? 'lab-meeting.wav' : 'lab-meeting-en.wav');
+// The agent loop scenes: a project folder where Claude Code / Codex already worked on this meeting's handoff
+// (mybot must be running and have indexed those sessions for the project-context answer).
+const ONLY_AGENT = args.includes('--only') && args[args.indexOf('--only') + 1] === 'agent';
+const PROJECT_FOLDER = args.includes('--project-folder') ? resolve(args[args.indexOf('--project-folder') + 1]) : null;
+if (ONLY_AGENT && !PROJECT_FOLDER) throw new Error('--only agent needs --project-folder');
 
 /** Everything the run types or asks, per language. */
 const L = {
   en: {
     title: 'Lab meeting: enhancer model',
+    project: 'Enhancer model',
+    pcQ: 'What did the agent plan for split_peaks and the noise ceiling?',
     q1: 'Why does the PI think the GATA result might be a batch artifact?',
     slideQ: 'Explain what is shown on this slide and how it relates to what the speakers are saying.',
     explanation: 'English',
@@ -48,6 +58,8 @@ const L = {
   },
   zh: {
     title: '组会：增强子模型',
+    project: '增强子模型',
+    pcQ: '之前的 agent 对 split_peaks 和 noise ceiling 有什么计划？',
     q1: '为什么 PI 觉得 GATA 的结果可能是批次效应？',
     slideQ: '解释这张幻灯片上的内容，以及它和发言内容的关系。',
     explanation: 'Simplified Chinese',
@@ -99,7 +111,8 @@ const B = `http://127.0.0.1:${PORT}`;
 const DATA = mkdtempSync(join(tmpdir(), 'chumi-demo-'));
 const W = 1360, H = 860;
 // Faster playback makes the live transcriber fall behind (the Speech badge would say so), which normal use never does.
-const SPEED = 3;
+// The agent-only run screenshots nothing live, so it can play faster and let transcription catch up at the end.
+const SPEED = ONLY_AGENT ? 6 : 3;
 // Vocabulary hints for this meeting's jargon (Settings → Transcription), as a user would add them.
 const GLOSSARY = ['GATA', 'GATA1', 'GATA motif', 'MPRA', 'lentiMPRA', 'E-box', 'CUT&Tag', 'gapped k-mer', 'barcode', 'Poisson', 'negative binomial', 'erythroid'];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -201,7 +214,8 @@ async function main(): Promise<void> {
     writeFileSync(slidePng, Buffer.from((await page.send('Page.captureScreenshot', { format: 'png' })).result.data, 'base64'));
     execFileSync('/usr/bin/sips', ['-s', 'format', 'jpeg', slidePng, '--out', slideJpg], { stdio: 'ignore' });
 
-    const { session } = await api('/api/session/start', { title: L.title, type: 'lab_meeting', source: 'file', filePath: SAMPLE, speed: SPEED });
+    const project = PROJECT_FOLDER ? (await api('/api/projects', { name: L.project, workspace: PROJECT_FOLDER })).project : null;
+    const { session } = await api('/api/session/start', { title: L.title, type: 'lab_meeting', source: 'file', filePath: SAMPLE, speed: SPEED, project_id: project?.id });
     const sid = session.id;
     const lastT = async () => (await api(`/api/sessions/${sid}`)).segments.at(-1)?.t_end ?? 0;
     const segWith = async (re: RegExp) => (await api(`/api/sessions/${sid}`)).segments.find((s: any) => re.test(s.text));
@@ -212,6 +226,7 @@ async function main(): Promise<void> {
       await page.goto(`${B}/?session=${sid}${query}`, dark); await page.waitFor('.card'); await page.shot(name);
     };
 
+    if (!ONLY_AGENT) {
     // Scene 1 — live: catch-up on the GATA disagreement, an explanation, a question.
     await until(async () => (await lastT()) > lines[51].endMs, 400000, 'transcript past the GATA debate');
     await api('/api/session/pause', {});
@@ -261,15 +276,56 @@ async function main(): Promise<void> {
     await shotSession('explain');
     regions.explain = { card: await page.measure('.card-explain') };
     await api('/api/session/resume', {});
+    }
 
     // Scene 4 — end of meeting: structured summary with citations (dark mode).
     await until(async () => (await api('/api/state')).live.warnings.some((w: any) => w.code === 'file_finished') || (await lastT()) > lines.at(-1)!.endMs - 4000, 400000, 'end of sample');
     log('scene 4: summary');
     const ended = await api('/api/session/end', {});
     await done(ended.summaryId);
-    await shotSession('summary', true);
-    regions.sum = { card: await page.measure('.card-final_summary'), ref: await page.measure('.card-final_summary .ref') };
+    if (!ONLY_AGENT) {
+      await shotSession('summary', true);
+      regions.sum = { card: await page.measure('.card-final_summary'), ref: await page.measure('.card-final_summary .ref') };
+    }
 
+    if (project) {
+      // The project-context question is asked first, so the handoff is confirmed after it and doesn't show as changed.
+      log('scene 8: project context (asking)');
+      const pc = (await api('/api/ai/ask', { sessionId: sid, question: L.pcQ, depth: 'standard', projectContext: true })).id;
+      const answer = await done(pc);
+      const used = answer.data?.projectContext;
+      if (used?.status !== 'used') throw new Error(`project context was not used (${used?.status ?? 'missing'}); is mybot running with sessions in ${PROJECT_FOLDER}?`);
+      log(`answer (${used.sources.length} sessions): ${String(answer.content).slice(0, 700)}`);
+
+      // Scene 7 — the reviewed handoff: drafted from the transcript, every item confirmed, ready to continue.
+      log('scene 7: handoff');
+      await api(`/api/sessions/${sid}/handoff`, {});
+      const h = await until(async () => { const r = (await api(`/api/sessions/${sid}/handoff`)).handoff; return r && r.status !== 'generating' ? r : null; }, 300000, 'handoff draft');
+      if (h.status === 'error') throw new Error(`handoff draft failed: ${h.error}`);
+      for (const item of h.items) await api(`/api/handoff-items/${item.id}`, { review: 'confirmed' }, 'PATCH');
+      await api(`/api/handoffs/${h.id}/confirm`, {});
+      await page.goto(`${B}/?session=${sid}`); await page.waitFor('.handoff-box');
+      await page.eval(`[...document.querySelectorAll('.handoff-box .btn-row .btn')].at(-1).click(), true`);
+      await page.waitFor('.dialog .hitem');
+      await page.shot('handoff');
+      regions.handoff = { dialog: await page.measure('.dialog'), item: await page.measure('.dialog .hitem'), origin: await page.measure('.dialog .hitem .tag'),
+        evidence: await page.measure('.dialog .hitem .evidence'), cont: await page.measure('.dialog .btn.primary') };
+
+      // Scene 8 — the next question knows what the agents did: Project context on, answered from earlier agent sessions.
+      log('scene 8: project context');
+      await page.eval(`localStorage.setItem('chumi.projectContext.${sid}', '1'), true`);
+      // The pinned final summary would push the answer out of view: fold it, and scroll the Ask box (with the
+      // Project context toggle) to the top of the column. The sources list stays folded: session titles can contain local paths.
+      await page.goto(`${B}/?session=${sid}`); await page.waitFor('.card-answer');
+      await page.eval(`(() => { document.querySelector('.card-final_summary .card-head')?.click(); return true; })()`);
+      await sleep(300);
+      await page.eval(`(() => { document.querySelector('.askbox').scrollIntoView({ block: 'start' }); return true; })()`);
+      await sleep(500);
+      await page.shot('project-context');
+      regions.pc = { toggle: await page.measure('.chip-toggle'), card: await page.measure('.card-answer'), sources: await page.measure('.card-answer .pc-sources') };
+    }
+
+    if (!ONLY_AGENT) {
     // Scene 5 — Settings → Transcription: speech models for this Mac, with the speed and accuracy test.
     log('scene 5: speech models');
     await page.goto(`${B}/?session=${sid}&dialog=settings&tab=asr`);
@@ -285,8 +341,12 @@ async function main(): Promise<void> {
     await page.goto(`${B}/`);
     await page.waitFor('.recent-list li');
     await page.shot('home');
+    }
 
-    writeFileSync(join(OUT, 'regions.js'), `// Written by scripts/demo-shoot.ts: element boxes in the ${LANG} screenshots (CSS px of a ${W}×${H} page).\nwindow.REGIONS = ${JSON.stringify(regions, null, 1)};\n`);
+    // An agent-only run keeps the boxes measured by the last full run.
+    const file = join(OUT, 'regions.js');
+    const previous = ONLY_AGENT && existsSync(file) ? JSON.parse(readFileSync(file, 'utf8').replace(/^[\s\S]*?window\.REGIONS = /, '').replace(/;\s*$/, '')) : {};
+    writeFileSync(file, `// Written by scripts/demo-shoot.ts: element boxes in the ${LANG} screenshots (CSS px of a ${W}×${H} page).\nwindow.REGIONS = ${JSON.stringify({ ...previous, ...regions }, null, 1)};\n`);
     log('saved', join(OUT, 'regions.js'));
   } finally {
     chrome.kill('SIGTERM');
