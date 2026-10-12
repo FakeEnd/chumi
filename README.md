@@ -145,41 +145,25 @@ Analysis uses temporary local audio, deleted on completion, failure, cancellatio
 
 ## Quick start
 
-**Requirements:** an Apple Silicon Mac on macOS 14.4 or later, plus [Homebrew](https://brew.sh), Node.js 24 or later, and the Xcode Command Line Tools (`xcode-select --install`).
+**You need** a Mac with Apple Silicon on macOS 14.4 or later, and a ChatGPT or Claude subscription. Without a subscription, a Mac with 16 GB of memory or more can run a free local model. Nothing else has to be installed first.
 
-### 1. Install
-
-```bash
-git clone https://github.com/FakeEnd/chumi.git && cd chumi
-```
+Open Terminal and paste:
 
 ```bash
-bash scripts/setup.sh
+curl -fsSL https://raw.githubusercontent.com/FakeEnd/chumi/main/scripts/install.sh | bash
 ```
 
-The setup script installs whisper.cpp, downloads the speech model that suits your Mac (Large v3 Turbo, about 875 MB, on Apple Silicon with 16 GB or more), installs the npm packages, and builds the app and its helpers. Models are stored once in `~/Library/Application Support/Chumi/models/`.
+It downloads Chumi into `~/Chumi`, and the guided setup takes about 5 to 15 minutes:
 
-### 2. Connect the AI you already have
+1. **Checks your Mac** and offers to install anything missing: the Xcode Command Line Tools, Homebrew, Node.js 24. It asks first.
+2. **Installs local speech recognition:** whisper.cpp, plus the speech model that suits your Mac (Large v3 Turbo, about 875 MB, on Apple Silicon with 16 GB or more).
+3. **Builds Chumi.app** on your Mac.
+4. **Helps you connect an AI:** ChatGPT through Codex, Claude through Claude Code, or a local model. Your sign-in stays with the official tool; Chumi never sees it.
+5. **Checks everything** and opens Chumi.
 
-For a subscription, pick one. Your account details stay with the official CLI, and Chumi never sees them. For a local model server or compatible API, use the alternative setup below.
+On first launch, the **Get Chumi ready** checklist on Home walks you through what is left: the AI sign-in, your background (explanations are pitched to it) and microphone access. Then click **⚡ Quick start**, or press **⌃⌥⌘L** from any app. You can also run Chumi in a browser: `npm start`, then open http://127.0.0.1:4777.
 
-```bash
-codex login
-```
-
-That's for ChatGPT: choose *Sign in with ChatGPT*. For a Claude plan, use this instead:
-
-```bash
-claude auth login
-```
-
-### 3. Start listening
-
-```bash
-open build/Chumi.app
-```
-
-Click **⚡ Quick start**, or press **⌃⌥⌘L** from anywhere. macOS asks once for Microphone and/or System Audio Recording permission. You can also run Chumi in a browser with `npm start` and open http://127.0.0.1:4777.
+Prefer to install by hand? Run `git clone https://github.com/FakeEnd/chumi.git && cd chumi && bash scripts/setup.sh`. **[The install guide](docs/install.md)** has the options (including `--mirror` for faster downloads in mainland China), permissions, troubleshooting and uninstalling. `npm run doctor` checks an existing install and prints the fix for anything missing.
 
 ### Other models: local or API
 

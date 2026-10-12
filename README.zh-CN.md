@@ -145,41 +145,25 @@ flowchart LR
 
 ## 快速开始
 
-**环境要求：** Apple Silicon 芯片的 Mac，macOS 14.4 或更高版本；需要 [Homebrew](https://brew.sh)、Node.js 24 或更高版本，以及 Xcode Command Line Tools（`xcode-select --install`）。
+**你需要**一台 Apple Silicon 芯片的 Mac（macOS 14.4 或更高版本），以及 ChatGPT 或 Claude 订阅。没有订阅的话，16 GB 及以上内存的 Mac 也可以运行免费的本地模型。不需要事先安装其他东西。
 
-### 1. 安装
-
-```bash
-git clone https://github.com/FakeEnd/chumi.git && cd chumi
-```
+打开终端，粘贴：
 
 ```bash
-bash scripts/setup.sh
+curl -fsSL https://raw.githubusercontent.com/FakeEnd/chumi/main/scripts/install.sh | bash
 ```
 
-安装脚本会安装 whisper.cpp，按你的 Mac 下载合适的语音模型（16 GB 及以上内存的 Apple 芯片为 Large v3 Turbo，约 875 MB），安装 npm 依赖，并编译 App 和辅助工具。模型只下载一次，保存在 `~/Library/Application Support/Chumi/models/`。
+它会把 Chumi 下载到 `~/Chumi`，引导式安装约需 5–15 分钟：
 
-### 2. 连接你已有的 AI 订阅
+1. **检查你的 Mac**，缺少 Xcode Command Line Tools、Homebrew 或 Node.js 24 时，先问你再帮你安装。
+2. **安装本地语音识别：** whisper.cpp，以及适合你的 Mac 的语音模型（16 GB 及以上内存的 Apple 芯片为 Large v3 Turbo，约 875 MB）。
+3. **在你的 Mac 上构建 Chumi.app。**
+4. **帮你连接 AI：** 通过 Codex 使用 ChatGPT、通过 Claude Code 使用 Claude，或者使用本地模型。登录信息只留在官方工具里，Chumi 看不到。
+5. **全部检查一遍**，然后打开 Chumi。
 
-使用订阅时二选一即可。账号信息由官方命令行工具保管，Chumi 不会接触。如果使用本地模型服务或兼容 API，请按下方的替代流程配置。
+第一次打开时，首页的 **准备好 Chumi** 清单会带你完成剩下的步骤：AI 登录、你的背景（解释会按它调整深浅）和麦克风权限。然后点 **⚡ 快速开始**，或在任何应用里按 **⌃⌥⌘L**。你也可以在浏览器中使用：运行 `npm start`，然后打开 http://127.0.0.1:4777。
 
-```bash
-codex login
-```
-
-上面是 ChatGPT 的方式，登录时选 *Sign in with ChatGPT*。如果用 Claude 订阅，改用：
-
-```bash
-claude auth login
-```
-
-### 3. 开始收听
-
-```bash
-open build/Chumi.app
-```
-
-点击 **⚡ Quick start**，或在任何地方按 **⌃⌥⌘L**。第一次使用时，macOS 会询问麦克风和/或系统录音权限。你也可以运行 `npm start`，然后在浏览器打开 http://127.0.0.1:4777。
+想手动安装？运行 `git clone https://github.com/FakeEnd/chumi.git && cd chumi && bash scripts/setup.sh`。**[安装指南](docs/install.zh-CN.md)** 里有全部选项（包括在中国大陆加速下载的 `--mirror`）、权限说明、常见问题和卸载方法。`npm run doctor` 可以检查现有安装，并给出缺失部分的修复命令。
 
 ### 其他模型：本地或 API
 

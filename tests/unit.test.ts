@@ -9,7 +9,7 @@ import { evaluateCodexQuota } from '../server/ai/codex.ts';
 import { parseJsonLoose } from '../server/ai/provider.ts';
 import { keywords, renderSegments } from '../server/ai/context.ts';
 import { DEPTH_GUIDE, renderProfile, summaryInstructions } from '../server/ai/prompts.ts';
-import { DEFAULT_PROFILE } from '../server/settings.ts';
+import { DEFAULT_PROFILE, LEGACY_DEFAULT_PROFILE } from '../server/settings.ts';
 import { fmtT, parseT, similarity, termKey } from '../server/util.ts';
 import type { SegmentRow } from '../server/db.ts';
 
@@ -135,9 +135,12 @@ test('Codex quota gate blocks when included usage is exhausted unless credits ar
 test('prompts: depth guides differ and profile is rendered per domain', () => {
   assert.notEqual(DEPTH_GUIDE.quick, DEPTH_GUIDE.deep);
   assert.match(DEPTH_GUIDE.deep, /equations|statistical/);
-  const p = renderProfile(DEFAULT_PROFILE);
+  const p = renderProfile(LEGACY_DEFAULT_PROFILE);
   assert.match(p, /Immunology: new to this/);
   assert.match(p, /Machine learning \/ deep learning: strong/);
+  const empty = renderProfile(DEFAULT_PROFILE);
+  assert.match(empty, /has not described their background yet/);
+  assert.doesNotMatch(empty, /Background:|Research interests:|Familiarity by domain/, 'no empty fields are sent');
   assert.match(summaryInstructions('lab_meeting'), /not stated/);
   assert.match(summaryInstructions('advisor'), /My tasks/);
   assert.match(summaryInstructions('lecture'), /Topics to review/);
@@ -196,4 +199,21 @@ test('effort maps to the closest supported level without going higher', () => {
   assert.equal(clampEffort(['low', 'medium', 'high'], 'max'), 'high');
   assert.equal(clampEffort(['medium', 'high'], 'low'), 'medium');
   assert.equal(clampEffort([], 'max'), 'max');
+});
+
+test('first run: a fresh install starts with an empty profile in the system language; an older install keeps its profile', async () => {
+  const { Store } = await import('../server/db.ts');
+  const fresh = new Store(':memory:');
+  fresh.ensureProfile('zh');
+  assert.equal(fresh.getProfile().background, '');
+  assert.equal(fresh.getProfile().explanationLanguage, 'Simplified Chinese');
+  fresh.saveProfile({ ...fresh.getProfile(), background: 'Ecologist' });
+  fresh.ensureProfile('en');
+  assert.equal(fresh.getProfile().background, 'Ecologist', 'a saved profile is never replaced');
+  fresh.close();
+  const older = new Store(':memory:');
+  older.createSession({ id: 's_old', title: 'Earlier meeting', type: 'other', audio_source: 'mic' });
+  older.ensureProfile('en');
+  assert.equal(older.getProfile().background, LEGACY_DEFAULT_PROFILE.background, 'an install with meetings keeps the profile it was using');
+  older.close();
 });

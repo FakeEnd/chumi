@@ -11,6 +11,7 @@
   "scripts": {
     "setup:speakers": "bash scripts/setup-speakers.sh",
     "setup": "bash scripts/setup.sh",
+    "doctor": "node scripts/doctor.ts",
     "start": "node server/main.ts",
     "dev:server": "CHUMI_DEV=1 node --watch server/main.ts",
     "dev:web": "vite --config web/vite.config.ts",

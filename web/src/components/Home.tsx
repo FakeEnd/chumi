@@ -7,6 +7,7 @@ import { getLang, msg, t, tn } from '../i18n.ts';
 import type { Session } from '../types.ts';
 import { billingWord, DEPTH_LABEL, providerShort } from './TopBar.tsx';
 import { SessionMeta, SessionTitle } from './SessionLabel.tsx';
+import { SetupChecklist } from './SetupChecklist.tsx';
 import { IconArrow, IconBolt, IconBoth, IconMic, IconMonitor, IconShield, IconSpark, IconText, IconWindow } from './icons.tsx';
 
 const LEVELS = [msg('new'), msg('intro'), msg('working'), msg('strong'), msg('expert')];
@@ -62,6 +63,7 @@ export function Home() {
 
       <div className="home-grid">
         <div className="home-main">
+          <SetupChecklist />
           <section className="start-row">
             <button className="start-card quick" onClick={() => void quickStart()} disabled={!!liveSession}>
               <span className="start-icon"><IconBolt /></span>

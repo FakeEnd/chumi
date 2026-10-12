@@ -201,6 +201,8 @@ function systemLanguage(): 'en' | 'zh' {
   sysLang = first.toLowerCase().startsWith('zh') ? 'zh' : 'en';
   return sysLang;
 }
+// First run: a fresh install starts with an empty profile in the system language (the checklist on Home asks for it).
+store.ensureProfile(systemLanguage());
 
 function samples(): Array<{ name: string; path: string; sizeMb: number }> {
   const dir = join(REPO_ROOT, 'samples');
@@ -230,6 +232,7 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
     if (manager.status === 'recording' || manager.status === 'paused') throw new HttpError(409, 'End the current session before switching the speech model.');
   }
   if (!['auto', 'en', 'zh'].includes(next.ui.language)) throw new HttpError(400, 'Unknown interface language');
+  if (typeof next.ui.setupDismissed !== 'boolean') throw new HttpError(400, 'Invalid setup checklist setting');
   if (!/^https?:\/\/[^\s/]+(\/\S*)?$/.test(String(next.integrations.mybot.serverUrl))) throw new HttpError(400, 'The mybot address must start with http:// (for example http://127.0.0.1:8788).');
   if (!['simplified', 'original'].includes(next.asr.chineseScript)) throw new HttpError(400, 'Unknown Chinese script option');
   if (typeof next.asr.diarization !== 'boolean') throw new HttpError(400, 'Speaker labeling must be enabled or disabled.');

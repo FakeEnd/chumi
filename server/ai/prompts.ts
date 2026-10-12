@@ -10,11 +10,13 @@ export const SESSION_TYPE_LABEL: Record<string, string> = {
 
 export function renderProfile(p: Profile): string {
   const domains = p.domains.map((d) => `  - ${d.name}: ${LEVEL_LABELS[d.level] ?? d.level}${d.notes ? ` (${d.notes})` : ''}`).join('\n');
+  const described = !!(p.background.trim() || p.researchInterests.trim() || p.domains.length);
   return [
     'USER PROFILE (use it to calibrate explanations; do not recite it):',
-    `- Background: ${p.background}`,
-    `- Research interests: ${p.researchInterests}`,
-    `- Familiarity by domain:\n${domains}`,
+    described ? '' : '- The user has not described their background yet. Assume a graduate student who may come from a neighbouring field: define field-specific terms briefly, and do not over-explain general scientific ideas.',
+    p.background.trim() ? `- Background: ${p.background}` : '',
+    p.researchInterests.trim() ? `- Research interests: ${p.researchInterests}` : '',
+    domains ? `- Familiarity by domain:\n${domains}` : '',
     p.knownConcepts.length ? `- Already understands: ${p.knownConcepts.join(', ')}` : '',
     p.needsBackground.length ? `- Wants more background on: ${p.needsBackground.join(', ')}` : '',
     p.style ? `- Preferred style: ${p.style}` : '',

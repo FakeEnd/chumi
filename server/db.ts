@@ -2,8 +2,10 @@ import { validateSessionTypes } from '../shared/session-types.ts';
 import { randomUUID } from 'node:crypto';
 import type { Speaker, SpeakerAnalysis, SpeakerAnnotation, SpeakerCorrection, SpeakerTurn } from '../shared/speakers.ts';
 import { DatabaseSync } from 'node:sqlite';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { DB_PATH } from './paths.ts';
-import { DEFAULT_PROFILE, DEFAULT_SETTINGS, normalizeLanguage, type Profile, type Settings } from './settings.ts';
+import { DEFAULT_PROFILE, DEFAULT_SETTINGS, LEGACY_DEFAULT_PROFILE, normalizeLanguage, type Profile, type Settings } from './settings.ts';
 import { deepMerge, now } from './util.ts';
 
 export interface SessionRow {
@@ -244,6 +246,8 @@ function speakerLabel(n: number): string {
 export class Store {
   db: DatabaseSync;
   constructor(path = DB_PATH) {
+    // A fresh install (setup, doctor, the MCP server) may open the database before the app ever created its folder.
+    if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.db.exec(SCHEMA);
     this.migrate();
@@ -288,6 +292,15 @@ export class Store {
     const next = { ...s, sessionTypes, quickStart: { ...s.quickStart, type } };
     this.setKV('settings', next);
     return next;
+  }
+  /**
+   * Once, before the first profile is saved: an install that already has meetings keeps the built-in profile it has
+   * been using; a fresh install starts empty, explaining in the system language until the user describes themselves.
+   */
+  ensureProfile(systemLanguage: 'en' | 'zh'): void {
+    if (this.getKV<Partial<Profile> | null>('profile', null)) return;
+    const used = (this.db.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }).n > 0;
+    this.saveProfile(used ? LEGACY_DEFAULT_PROFILE : { ...DEFAULT_PROFILE, explanationLanguage: systemLanguage === 'zh' ? 'Simplified Chinese' : 'English' });
   }
   getProfile(): Profile {
     const p = { ...DEFAULT_PROFILE, ...this.getKV<Partial<Profile>>('profile', {}) };
