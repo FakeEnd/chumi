@@ -33,7 +33,10 @@ export function Transcript() {
   const defaultDepth = useStore((s) => s.settings?.assist.defaultDepth ?? 'standard');
   const isLive = !!data && live?.session?.id === data.session.id;
   const scroller = useRef<HTMLDivElement>(null);
-  const [follow, setFollow] = useState(true);
+  // Opened from an evidence link: start at the passage, not at the newest line.
+  const [follow, setFollow] = useState(() => !getState().focus);
+  /** While a jump to a cited passage is scrolling, scroll events must not switch back to following the end. */
+  const jumpingUntil = useRef(0);
   const [newCount, setNewCount] = useState(0);
   const [hl, setHl] = useState<Set<number>>(new Set());
   const [toolbar, setToolbar] = useState<null | { x: number; y: number; fromT: number; toT: number; text: string }>(null);
@@ -68,10 +71,16 @@ export function Transcript() {
     else if (added > 0 && added < 50) setNewCount((c) => c + added);
   }, [data?.segments.length, partials, follow, scrollToBottom]);
 
-  useEffect(() => { setFollow(true); setNewCount(0); lastCount.current = data?.segments.length ?? 0; requestAnimationFrame(scrollToBottom); }, [data?.session.id]);
+  useEffect(() => {
+    setNewCount(0); lastCount.current = data?.segments.length ?? 0;
+    // Opened from an evidence link: the focus effect scrolls to the passage, so don't jump to the end.
+    if (getState().focus) { setFollow(false); return; }
+    setFollow(true); requestAnimationFrame(scrollToBottom);
+  }, [data?.session.id]);
 
   const onScroll = () => {
     const el = scroller.current!;
+    if (Date.now() < jumpingUntil.current) { lastTop.current = el.scrollTop; return; }
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     if (atBottom) { if (!follow) { setFollow(true); setNewCount(0); } }
     else if (el.scrollTop < lastTop.current - 4 && follow) setFollow(false);
@@ -87,6 +96,7 @@ export function Transcript() {
     const target = data.segments.find((s) => s.t_end >= focus.t - 1500) ?? data.segments[data.segments.length - 1];
     if (!target) return;
     setFollow(false);
+    jumpingUntil.current = Date.now() + 1200;
     setHl(new Set(ids.length ? ids : [target.id]));
     const el = scroller.current?.querySelector(`[data-t="${target.t_start}"]`);
     el?.scrollIntoView({ block: 'center', behavior: 'smooth' });

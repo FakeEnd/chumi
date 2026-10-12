@@ -97,7 +97,17 @@ Also checked by hand on a sample project:
   - Codex started with `-C <project folder>` and the same message.
   - Chumi recorded each handoff as made available to that agent, and it stayed confirmed rather than done.
 - **Codex connection (virtual trial).** Codex's own app-server started Chumi's MCP server from Codex's configuration and listed all seven tools, with no model turn. It then read the project for its working folder, the confirmed handoff, transcript passages and the check tool. The reads were logged under the client name `codex-mcp-client`.
-- **Codex end to end with a model: not verified yet.** The account's weekly Codex usage is exhausted until October 14, and Chumi does not spend purchased credits. Running Codex on a local Ollama model (qwen2.5:7b, with `model_reasoning_effort="none"`) produced a plan from the instructions, but that model made no tool calls. Codex choosing to call Chumi's tools in a real session should be checked with a ChatGPT model once usage resets.
+- **Evidence links (trial).** Links returned by Chumi's MCP tools were opened in a browser:
+  - A passage link opened the meeting, highlighted the cited lines and scrolled them into view.
+  - A capture link opened the slide.
+  - Clicking an evidence time in the handoff review jumped to the passage from the end of the meeting.
+
+  The trial found and fixed a bug: a late scroll event used to pull the transcript back to its newest line, cancelling the jump.
+- **Failed connection (trial).** A recording kept transcribing throughout:
+  - With the project folder moved away, Projects flagged it, and **Continue** was refused with "Choose its new location in Projects". After the new location was saved, the meetings stayed attached and the retry worked.
+  - A Chumi MCP server that could not start was reported as failed.
+  - The saved handoff stayed readable throughout.
+- **Codex with a real model: tool use confirmed; full handoff run still to do.** **Test a real agent read** for Codex ran within the plan's included usage. Codex, driven by its ChatGPT model, called `chumi_connection_check` through the registered connection, and the read was logged as `codex-mcp-client`. Running Codex on a local Ollama model (qwen2.5:7b, with `model_reasoning_effort="none"`) produced a plan, but that model made no tool calls. The full sample handoff in Codex with a ChatGPT model, reading the handoff and evidence and proposing a plan, is the last P0 check.
 
 ## Not in this release
 

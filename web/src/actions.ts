@@ -14,11 +14,11 @@ export async function loadState(): Promise<void> {
   void loadProjects();
   const want = q.get('session');
   if (want && !getState().viewId) {
-    await openSession(want).catch(() => {});
     // Evidence links from agents: ?session=…&t=…&t2=… focuses a passage, &frame=… opens a capture.
     const t = Number(q.get('t')), t2 = Number(q.get('t2')), frame = Number(q.get('frame'));
+    const focus = q.get('t') && Number.isFinite(t) ? { t, t2: q.get('t2') && Number.isFinite(t2) ? t2 : undefined } : undefined;
+    await openSession(want, focus).catch(() => {});
     if (q.get('frame') && Number.isFinite(frame)) setState({ dialog: 'frame', frameView: frame });
-    else if (q.get('t') && Number.isFinite(t)) setState({ focus: { t, t2: q.get('t2') && Number.isFinite(t2) ? t2 : undefined, nonce: Date.now() } });
   }
   const dlg = q.get('dialog');
   if (dlg && ['profile', 'settings', 'history', 'start', 'window'].includes(dlg)) setState({ dialog: dlg as AppState['dialog'], settingsTab: q.get('tab') ?? 'language' });
@@ -27,9 +27,10 @@ export async function loadState(): Promise<void> {
   if (liveId && !getState().viewId) await openSession(liveId);
 }
 
-export async function openSession(id: string): Promise<void> {
+/** focus: a passage to scroll to and highlight (evidence links), set together with the data so nothing scrolls past it. */
+export async function openSession(id: string, focus?: { t: number; t2?: number }): Promise<void> {
   const d = await api<SessionData>(`/api/sessions/${id}`);
-  setState({ viewId: id, data: d, deltas: {}, focus: null, attached: null });
+  setState({ viewId: id, data: d, deltas: {}, focus: focus ? { ...focus, nonce: Date.now() } : null, attached: null });
 }
 
 export function connectEvents(): () => void {
