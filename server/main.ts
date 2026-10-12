@@ -13,6 +13,7 @@ import { SessionManager, publicFrame } from './session/manager.ts';
 import { listWindows, requestScreenPermission, screenPermission } from './screen/watcher.ts';
 import { HotkeyAgent } from './hotkey.ts';
 import { MybotExporter } from './integrations/mybot.ts';
+import { MybotContext } from './integrations/mybot-context.ts';
 import { HandoffError, HandoffService } from './projects/handoff.ts';
 import { AGENTS, AgentIntegration, type AgentId } from './projects/agents.ts';
 import { chumiLink, SERVER_INFO, workspaceExists } from './projects/evidence.ts';
@@ -48,6 +49,9 @@ manager.recoverOnBoot();
 // mybot export: refresh a session's JSONL when it ends, gets its summary or Q&A, is renamed; remove it on delete.
 const mybot = new MybotExporter(store);
 const syncMybot = (id: string) => { try { mybot.sync(id); } catch (e) { log('mybot', `export failed: ${(e as Error).message}`); } };
+// Project context for questions: searches a running mybot for the project's earlier agent sessions (only when turned on).
+const projectContext = new MybotContext(store);
+assistant.projectContext = (id, query, signal) => projectContext.forSession(id, query, signal);
 assistant.onOutputDone = (row) => { if (row.kind !== 'digest' && row.kind !== 'overview' && row.kind !== 'handoff') syncMybot(row.session_id); };
 
 // Projects and reviewed handoffs to Claude Code / Codex (docs/project-integration-prd.md).
@@ -179,6 +183,7 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
     if (manager.status === 'recording' || manager.status === 'paused') throw new HttpError(409, 'End the current session before switching the speech model.');
   }
   if (!['auto', 'en', 'zh'].includes(next.ui.language)) throw new HttpError(400, 'Unknown interface language');
+  if (!/^https?:\/\/[^\s/]+(\/\S*)?$/.test(String(next.integrations.mybot.serverUrl))) throw new HttpError(400, 'The mybot address must start with http:// (for example http://127.0.0.1:8788).');
   if (!['simplified', 'original'].includes(next.asr.chineseScript)) throw new HttpError(400, 'Unknown Chinese script option');
   if (!['low', 'medium', 'high'].includes(next.ai.backgroundEffort)) throw new HttpError(400, 'Unknown background effort level');
   if (next.ai.provider === 'anthropic-api' && !next.ai.anthropicApi.enabled) throw new HttpError(400, 'Enable paid API access first (Settings → AI provider). It is off by default.');
@@ -426,7 +431,7 @@ route('POST', '/api/ai/ask', async (req) => {
   const b = await readJson(req);
   if (!b.question || typeof b.question !== 'string') throw new HttpError(400, 'Question required');
   const frameIds = Array.isArray(b.frameIds) ? b.frameIds.map(Number).filter(Number.isFinite).slice(0, 3) : [];
-  return { id: assistant.ask(needSession(b.sessionId), b.question.slice(0, 2000), selOf(b.selection), depthOf(b.depth), frameIds, effortOf(b.effort)) };
+  return { id: assistant.ask(needSession(b.sessionId), b.question.slice(0, 2000), selOf(b.selection), depthOf(b.depth), frameIds, effortOf(b.effort), { projectContext: b.projectContext === true }) };
 });
 route('POST', '/api/ai/explain', async (req) => {
   const b = await readJson(req);
@@ -440,6 +445,7 @@ route('POST', '/api/ai/outputs/:id/cancel', (_req, _res, p) => ({ ok: assistant.
 
 route('GET', '/api/integrations/mybot', () => mybot.status());
 route('POST', '/api/integrations/mybot/export-all', () => mybot.exportAll());
+route('GET', '/api/integrations/mybot/server', () => projectContext.health());
 route('GET', '/api/asr/models', () => {
   const active = store.getSettings().asr.model;
   return {

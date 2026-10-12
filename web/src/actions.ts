@@ -1,5 +1,6 @@
 import { api, subscribe } from './api.ts';
 import { getState, notify, setState, upsertOutput, type AppState } from './store.ts';
+import { projectContextOn } from './projectContext.ts';
 import { t } from './i18n.ts';
 import type { Depth, Effort, Frame, Handoff, Output, Profile, Project, Segment, SessionData, Settings, WindowInfo } from './types.ts';
 
@@ -99,7 +100,7 @@ export const resumeSaved = (id: string, source: string) => guard(api(`/api/sessi
 
 function current(): string | null { return getState().data?.session.id ?? null; }
 export const catchup = (scope: '2m' | '5m' | 'all') => { const id = current(); if (id) void guard(api('/api/ai/catchup', { body: { sessionId: id, scope } })); };
-export const ask = (question: string, selection: { fromT: number; toT: number; text: string } | null, depth: Depth, frameIds: number[] = [], effort?: Effort) => { const id = current(); if (id) void guard(api('/api/ai/ask', { body: { sessionId: id, question, selection, depth, frameIds, effort } })); };
+export const ask = (question: string, selection: { fromT: number; toT: number; text: string } | null, depth: Depth, frameIds: number[] = [], effort?: Effort) => { const id = current(); if (id) void guard(api('/api/ai/ask', { body: { sessionId: id, question, selection, depth, frameIds, effort, projectContext: projectContextOn(id) && !!getState().data?.session.project_id } })); };
 export const setWindow = (w: WindowInfo | null) => guard(api('/api/session/window', { body: { window: w ? { id: w.id, title: w.title, app: w.app } : null } }));
 export const frameUrl = (id: number) => `/api/frames/${id}`;
 export const explain = (term: string, selection: { fromT: number; toT: number; text: string } | null, depth: Depth, parentId?: string, effort?: Effort) => { const id = current(); if (id) void guard(api('/api/ai/explain', { body: { sessionId: id, term, selection, depth, parentId, effort } })); };

@@ -76,6 +76,8 @@ export class Assistant {
   onOutputDone: (row: OutputRow) => void = () => {};
   /** Window captures (slides / shared screen); set by the server once the session manager exists. */
   visual: VisualSource | null = null;
+  /** Earlier agent sessions in the meeting's project (through mybot), for questions asked with project context on. */
+  projectContext: ((sessionId: string, query: string, signal: AbortSignal) => Promise<{ text: string; meta: unknown }>) | null = null;
 
   constructor(store: Store, registry: ProviderRegistry, broadcast: Broadcast) {
     this.store = store; this.registry = registry; this.broadcast = broadcast;
@@ -309,14 +311,20 @@ export class Assistant {
     return { text: parts.join('\n\n'), from, to, retrieved: older.map((s) => s.t_start) };
   }
 
-  ask(sessionId: string, question: string, selection: Selection | null, depth: Depth, frameIds: number[] = [], effortOverride?: Effort | 'auto' | null): string {
+  /** `opts.projectContext`: also search the project's earlier agent sessions (scope 'project' keeps it on retry). */
+  ask(sessionId: string, question: string, selection: Selection | null, depth: Depth, frameIds: number[] = [], effortOverride?: Effort | 'auto' | null, opts: { projectContext?: boolean } = {}): string {
+    const withProject = !!opts.projectContext && !!this.projectContext;
     return this.start({
-      sessionId, kind: 'answer', prio: PRIO.manual, question, selection, depth,
-      build: async () => {
+      sessionId, kind: 'answer', prio: PRIO.manual, question, selection, depth, scope: withProject ? 'project' : null,
+      build: async (signal) => {
         const c = this.contextFor(sessionId, question, selection);
-        if (c.to <= 0 && !selection && !frameIds.length) return { instructions: '', input: '', coveredFrom: null, coveredTo: null, effort: 'low', direct: 'Nothing has been transcribed yet, so there is no context to answer from.' };
-        const vis = await this.pickImages(sessionId, frameIds.length ? { kind: 'ids', ids: frameIds } : selection ? { kind: 'around', fromT: selection.fromT, toT: selection.toT } : { kind: 'now' });
-        return { instructions: this.system(sessionId, askInstructions(depth)), input: `${this.header(sessionId)}\n\n${c.text}${vis.text ? `\n\n${vis.text}` : ''}\n\nUSER QUESTION: ${question}`, coveredFrom: c.from, coveredTo: c.to, effort: this.effort('answer', depth, effortOverride), images: vis.images, extra: { retrieved: c.retrieved, images: vis.used } };
+        if (c.to <= 0 && !selection && !frameIds.length && !withProject) return { instructions: '', input: '', coveredFrom: null, coveredTo: null, effort: 'low', direct: 'Nothing has been transcribed yet, so there is no context to answer from.' };
+        const [vis, project] = await Promise.all([
+          this.pickImages(sessionId, frameIds.length ? { kind: 'ids', ids: frameIds } : selection ? { kind: 'around', fromT: selection.fromT, toT: selection.toT } : { kind: 'now' }),
+          withProject ? this.projectContext!(sessionId, `${question} ${selection?.text.slice(0, 200) ?? ''}`, signal) : null,
+        ]);
+        if (c.to <= 0 && !selection && !frameIds.length && !project?.text) return { instructions: '', input: '', coveredFrom: null, coveredTo: null, effort: 'low', direct: 'Nothing has been transcribed yet, and no related earlier sessions were found in this project, so there is no context to answer from.', extra: { projectContext: project?.meta } };
+        return { instructions: this.system(sessionId, askInstructions(depth)), input: `${this.header(sessionId)}\n\n${c.text}${vis.text ? `\n\n${vis.text}` : ''}${project?.text ? `\n\n${project.text}` : ''}\n\nUSER QUESTION: ${question}`, coveredFrom: c.from, coveredTo: c.to, effort: this.effort('answer', depth, effortOverride), images: vis.images, extra: { retrieved: c.retrieved, images: vis.used, ...(project ? { projectContext: project.meta } : {}) } };
       },
     });
   }
@@ -340,7 +348,7 @@ export class Assistant {
     if (o.kind === 'catchup') return this.catchup(o.session_id, (o.scope as CatchupScope) ?? '2m', o.id);
     if (o.kind === 'overview') return this.overview(o.session_id, true);
     if (o.kind === 'final_summary') return this.summary(o.session_id);
-    if (o.kind === 'answer') return this.ask(o.session_id, o.question ?? '', o.selection_json ? JSON.parse(o.selection_json) : null, (o.depth as Depth) ?? 'standard');
+    if (o.kind === 'answer') return this.ask(o.session_id, o.question ?? '', o.selection_json ? JSON.parse(o.selection_json) : null, (o.depth as Depth) ?? 'standard', [], null, { projectContext: o.scope === 'project' });
     if (o.kind === 'explain' || o.kind === 'auto_explain') return this.explain(o.session_id, o.question ?? '', o.selection_json ? JSON.parse(o.selection_json) : null, (o.depth as Depth) ?? 'standard', o.id);
     return null;
   }

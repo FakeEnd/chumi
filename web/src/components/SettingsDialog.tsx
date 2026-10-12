@@ -7,6 +7,7 @@ import { sourceLabel, SESSION_TYPES, typeLabel } from '../util.ts';
 import { Dialog } from './Dialog.tsx';
 import { TranscriptionTab } from './TranscriptionTab.tsx';
 import { AgentsTab, ProjectsTab } from './Projects.tsx';
+import { MybotServerSettings } from './ProjectContext.tsx';
 import type { ProviderStatus } from '../types.ts';
 import { IconBolt, IconBulb, IconFolder, IconGlobe, IconLink, IconMic, IconShield, IconSpark, IconTerminal, IconWave, IconWindow } from './icons.tsx';
 
@@ -299,6 +300,7 @@ export function SettingsDialog() {
             {mybot && <span className="muted small">{tn('{count} in {dir}', { count: plural(mybot.files, '{n} session file', '{n} session files'), dir: <code>{mybot.dir}</code> })}</span>}
           </div>
           <p className="muted small">{tn("One-time mybot setup: run {cmd} from the Chumi folder, add {src} to {var} in mybot's {env}, then restart mybot. Details: docs/mybot.md.", { cmd: <code>bash integrations/mybot/install.sh ~/Code/mybot</code>, src: <code>chumi</code>, var: <code>TRAJECTORY_SOURCES</code>, env: <code>.env</code> })}</p>
+          <MybotServerSettings />
         </section>
       )}
 

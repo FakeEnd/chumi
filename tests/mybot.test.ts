@@ -25,7 +25,7 @@ test('mybot export: chumi-transcript/1 JSONL, private by default, removed on del
   assert.deepEqual(lines.map((l) => l.type), ['session', 'segment', 'segment', 'qa', 'summary']);
   assert.equal(JSON.parse(sessionToJsonl(store, s.id, true)!.split('\n')[0]).visibility, 'shared');
 
-  store.saveSettings({ ...store.getSettings(), integrations: { mybot: { enabled: true, exportDir: join(dir, 'exports'), shareWithTeam: false } } });
+  store.saveSettings({ ...store.getSettings(), integrations: { mybot: { ...store.getSettings().integrations.mybot, enabled: true, exportDir: join(dir, 'exports'), shareWithTeam: false } } });
   const ex = new MybotExporter(store);
   assert.equal(ex.exportAll().exported, 1);
   const file = join(dir, 'exports', 's_test.jsonl');

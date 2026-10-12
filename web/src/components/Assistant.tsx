@@ -8,6 +8,7 @@ import { Markdown } from './Markdown.tsx';
 import { focusTime } from './Transcript.tsx';
 import type { Depth, Effort, Output } from '../types.ts';
 import { HandoffBox } from './Handoff.tsx';
+import { ProjectContextNote, ProjectContextSources, ProjectContextToggle } from './ProjectContext.tsx';
 
 const EFFORT_LABEL: Record<string, string> = { auto: msg('Auto'), low: msg('Low'), medium: msg('Medium'), high: msg('High'), xhigh: msg('Extra high'), max: msg('Max') };
 
@@ -67,6 +68,7 @@ function OutputCard({ o, depth }: { o: Output; depth: Depth }) {
             )}
             {o.provider && <span className="muted" title={`${o.model ?? ''} · ${o.billing ?? ''}`}>{PROVIDER_SHORT[o.provider] ? t(PROVIDER_SHORT[o.provider]) : o.provider}{o.billing === 'subscription' ? ` · ${t('subscription')}` : o.billing === 'api' ? ` · ${t('billed')}` : ''}</span>}
           </div>
+          <ProjectContextSources o={o} />
           {auto && o.data?.why && <p className="why muted">{o.data.why}</p>}
           {o.status === 'pending' && <div className="pending"><span className="spinner" /> {t('Waiting for the AI provider…')}</div>}
           {(o.status === 'streaming' || o.status === 'done') && body && <Markdown text={body} />}
@@ -131,12 +133,14 @@ function AskBox() {
           <select className="effort-select" value={effort} onChange={(e) => setEffort(e.target.value as Effort)} title={t('Reasoning effort for this question: higher is more thorough but slower and uses more of your plan')} aria-label={t('Reasoning effort')}>
             {(['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as Effort[]).map((x) => <option key={x} value={x}>{t('Effort: {level}', { level: t(EFFORT_LABEL[x]) })}</option>)}
           </select>
+          <ProjectContextToggle />
         </div>
         <div className="ask-actions">
           <button className="btn small" onClick={() => send(draft, 'explain')} title={t('Explain the typed term (or the attached passage)')}>{t('Explain')}</button>
           <button className="btn small primary" onClick={() => send(draft)}>{t('Ask')}</button>
         </div>
       </div>
+      <ProjectContextNote />
       <div className="chips">
         {(showAll ? QUICK : QUICK.slice(0, 3)).map((q) => <button key={q} className="chip" onClick={() => send(t(q))}>{t(q)}</button>)}
         {showAll && <button className="chip" onClick={() => ask(t('Give me the short version first: what is the key point right now?'), attached, 'quick')}>{t('Give me the short version first')}</button>}

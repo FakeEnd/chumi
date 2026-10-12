@@ -55,7 +55,8 @@ export interface Settings {
   };
   integrations: {
     /** Export finished sessions as JSONL for mybot (github.com/jzhoulab/mybot) to index. Off by default. */
-    mybot: { enabled: boolean; exportDir: string; shareWithTeam: boolean };
+    /** `serverUrl`: a running mybot server, searched for project context when you turn it on for a meeting. */
+    mybot: { enabled: boolean; exportDir: string; shareWithTeam: boolean; serverUrl: string };
   };
   screen: {
     /** Attach captured slides/screens to AI questions, catch-ups and summaries (images go to the AI provider). */
@@ -92,7 +93,7 @@ export const DEFAULT_SETTINGS: Settings = {
     autoOverview: true,
   },
   quickStart: { hotkey: 'ctrl+opt+cmd+L', source: 'default', type: 'other', notify: true },
-  integrations: { mybot: { enabled: false, exportDir: '~/Library/Application Support/Chumi/exports/mybot', shareWithTeam: false } },
+  integrations: { mybot: { enabled: false, exportDir: '~/Library/Application Support/Chumi/exports/mybot', shareWithTeam: false, serverUrl: 'http://127.0.0.1:8788' } },
   screen: { sendImagesToAI: true, intervalSec: 3 },
   ui: { language: 'auto' },
   devMode: false,

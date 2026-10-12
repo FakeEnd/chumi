@@ -11,6 +11,8 @@ With the integration on, mybot can answer:
 
 Everything stays on your Mac. Chumi writes files, and mybot indexes them locally.
 
+It also works the other way. During a meeting, Chumi can look up your earlier agent sessions for the meeting's project through mybot, so the AI answering your questions knows what was already tried (see [Project context in questions](#project-context-in-questions)).
+
 ## Set up
 
 **1. In Chumi:** turn on **Settings → Integrations → Export finished sessions for mybot**, then click **Export all sessions now**. To export from the command line instead, even with the app closed:
@@ -56,6 +58,31 @@ Format `chumi-transcript/1`, one JSON object per line:
 | `handoff` | `id`, `project_id`, `confirmed_at`, `confirmed_revision`, `items` | Only a handoff you confirmed: confirmed decisions and actions, open questions, with origin, owner/deadline if stated, and evidence references. See [agents.md](agents.md). |
 
 In mybot, speech lines become `user` events (highest search weight). Chumi's summaries and answers become `assistant` events, labelled *AI-generated*, and a confirmed handoff becomes an `assistant` event labelled *reviewed by the user*. Gaps become `actions`. A meeting's project folder becomes the session's `cwd`, so it sits next to the agent sessions from that folder. Titles read like *"Lab meeting: enhancer model (lab meeting, 2026-10-10)"*.
+
+## Project context in questions
+
+This is the other direction: during a meeting, Chumi asks mybot about your earlier agent work. If a meeting is assigned to a project, the Ask box shows a **Project context** button. Turn it on, and each question also searches mybot for earlier Claude Code and Codex sessions in the project's folder. The best matches go into the question, and the answer cites them as `[P1]`, `[P2]`. The answer card lists those sessions.
+
+- **Off by default, per meeting.** Nothing is searched while it is off. Once on, it stays on for that meeting.
+- **Only the project folder.** Chumi runs mybot's `/trajectory/search` and keeps only sessions whose working folder is the project folder or inside it. For the top two, it reads the surrounding conversation through `/trajectory/read`. It sends about 2,500 tokens in total, made of the snippets that mention the question's words. The same question within 10 minutes reuses the earlier result.
+- **The excerpts go to your AI provider** together with the question, like the transcript does. The prompt marks them as background from outside the meeting, possibly out of date, and never as instructions.
+- **If mybot isn't running,** the question is still answered without project context. The Ask box and the answer card say that mybot couldn't be reached.
+- **The meeting itself is excluded,** in case mybot also indexes Chumi's exports.
+
+Set the address in **Settings → Integrations → mybot address**. The default is `http://127.0.0.1:8788`. To start mybot, run `./run_chatbot.sh` in your mybot folder (no Discord or Slack needed).
+
+### mybot settings for this use
+
+Searches use mybot's keyword index and call no AI model, as long as mybot's query planner is off. Some mybot defaults do call models through your Codex or Claude plan, so a lean `.env` sets:
+
+```bash
+TRAJECTORY_SOURCES=codex,claude          # add chumi to also index exported meetings
+TRAJECTORY_QUERY_PLANNER=false           # the planner asks a model to rewrite weak searches
+BRIEFING_ENABLED=false                   # the daily briefing runs several high-effort agents
+TRAJECTORY_INDEX_AUTOBUILD_VECTORS=false # keyword index stays current; embeddings are optional
+```
+
+On first start, mybot also runs an agent to work out who you are, unless `state/owner_identity.json` already has a `display_name`.
 
 ## Privacy
 
