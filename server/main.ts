@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { extname, isAbsolute, join, normalize, resolve } from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
-import { Store } from './db.ts';
+import { Store, speakerFields } from './db.ts';
 import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool } from './paths.ts';
 import { deepMerge, log, uid } from './util.ts';
 import { WhisperServer } from './asr/whisper.ts';
@@ -20,8 +20,17 @@ import { chumiLink, SERVER_INFO, workspaceExists } from './projects/evidence.ts'
 import { exportSession } from './export.ts';
 import { checkPermissions, listDevices } from './audio/capture.ts';
 import { storeKey, deleteKey } from './ai/anthropic-api.ts';
+import { readCompatibleKey, storeCompatibleKey, deleteCompatibleKey } from './ai/compatible-credentials.ts';
+import { discoverLocalModels } from './ai/local-models.ts';
+import { localHardware } from './ai/local-hardware.ts';
+import { LocalModelDownloader } from './ai/local-model-download.ts';
+import { isCompatiblePreset, normalizeCompatibleUrl, validateCompatibleSettings, COMPATIBLE_PRESETS } from '../shared/compatible-provider.ts';
 import type { ClaudeCliProvider } from './ai/claude-cli.ts';
-import { EFFORTS, SOURCE_NAMES, normalizeLanguage, type Depth, type Effort, type Profile, type Settings } from './settings.ts';
+import { EFFORTS, SOURCE_NAMES, isProviderId, normalizeLanguage, type Depth, type Effort, type Profile, type Settings } from './settings.ts';
+import { SpeakerService } from './speakers/service.ts';
+import { speakerRuntime } from './speakers/runtime.ts';
+import { discardSpeakerAudio, speakerAudioAvailable } from './speakers/audio.ts';
+import type { SpeakerCorrection } from '../shared/speakers.ts';
 
 ensureDirs();
 const PORT = Number(process.env.PORT || 4777);
@@ -34,6 +43,10 @@ const settings0 = store.getSettings();
 const whisper = new WhisperServer({ model: settings0.asr.model, threads: settings0.asr.threads });
 const registry = new ProviderRegistry(store);
 const downloader = new ModelDownloader();
+const localModelDownloader = new LocalModelDownloader({
+  hardware: () => localHardware(store.getSettings().asr.model), stateFile: join(DATA_DIR, 'local-model-download.json'),
+});
+localModelDownloader.restore();
 
 // ---------------------------------------------------------------- server-sent events
 const clients = new Set<ServerResponse>();
@@ -57,6 +70,25 @@ assistant.onOutputDone = (row) => { if (row.kind !== 'digest' && row.kind !== 'o
 // Projects and reviewed handoffs to Claude Code / Codex (docs/project-integration-prd.md).
 const handoffs = new HandoffService(store, assistant, (sessionId) => { broadcast('handoff', { sessionId, handoff: handoffs.view(sessionId) }); syncMybot(sessionId); });
 const agents = new AgentIntegration(store);
+const speakers = new SpeakerService(store, (id) => {
+  broadcast('speakers', speakerUpdate(id));
+  syncMybot(id);
+});
+speakers.recover();
+manager.beforeResume = (id) => speakers.cancel(id);
+manager.beforeSummary = (id) => {
+  if (!store.getSettings().asr.diarization || !speakerAudioAvailable(id)) {
+    discardSpeakerAudio(id); // Includes unfinished/corrupt temporary takes that cannot be retried.
+    return null;
+  }
+  try { return speakers.analyze(id); }
+  catch (error) {
+    store.setSpeakerAnalysis(id, { status: 'failed', generation: null, error: (error as Error).message, updated_at: Date.now() });
+    discardSpeakerAudio(id);
+    broadcast('speakers', speakerUpdate(id));
+    return null;
+  }
+};
 
 // ---------------------------------------------------------------- quick start (button + global shortcut)
 const hotkey = new HotkeyAgent();
@@ -147,7 +179,15 @@ function sessionDetail(id: string) {
     frames: store.frames(id).map(publicFrame),
     live: manager.session?.id === id,
     handoff: handoffs.view(id),
+    speakerView: speakers.view(id),
   };
+}
+
+/** Speaker changes, compactly: annotations of analysed lines and each output's staleness, not the whole meeting. */
+function speakerUpdate(id: string) {
+  return { sessionId: id, speakerView: speakers.view(id), session: store.getSession(id), handoff: handoffs.view(id),
+    annotations: store.segments(id).filter((s) => s.speaker_state).map((s) => ({ id: s.id, ...speakerFields(s) })),
+    stale: Object.fromEntries(store.outputs(id).filter((o) => o.kind !== 'digest' && o.status !== 'suppressed').map((o) => [o.id, o.stale_reason ?? null])) };
 }
 
 let sysLang: 'en' | 'zh' | null = null;
@@ -176,7 +216,13 @@ function samples(): Array<{ name: string; path: string; sizeMb: number }> {
 function applySettingsPatch(patch: Record<string, any>): Settings {
   const before = store.getSettings();
   const next = deepMerge(before, patch) as Settings;
-  if (!['codex', 'claude-cli', 'anthropic-api', 'mock'].includes(next.ai.provider)) throw new HttpError(400, 'Unknown provider');
+  if (!isProviderId(next.ai.provider)) throw new HttpError(400, 'Unknown provider');
+  // Only a patch that edits the profiles can be rejected for them; a stale saved profile must not block other settings.
+  try { next.ai.compatible = validateCompatibleSettings(next.ai.compatible); }
+  catch (error) {
+    if (patch.ai?.compatible !== undefined) throw new HttpError(400, (error as Error).message);
+    next.ai.compatible = before.ai.compatible;
+  }
   if (next.ai.effort !== 'auto' && !EFFORTS.includes(next.ai.effort)) throw new HttpError(400, 'Unknown effort level');
   if (before.asr.model !== next.asr.model) {
     if (!isInstalled(next.asr.model)) throw new HttpError(400, 'Download this speech model first.');
@@ -185,11 +231,17 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   if (!['auto', 'en', 'zh'].includes(next.ui.language)) throw new HttpError(400, 'Unknown interface language');
   if (!/^https?:\/\/[^\s/]+(\/\S*)?$/.test(String(next.integrations.mybot.serverUrl))) throw new HttpError(400, 'The mybot address must start with http:// (for example http://127.0.0.1:8788).');
   if (!['simplified', 'original'].includes(next.asr.chineseScript)) throw new HttpError(400, 'Unknown Chinese script option');
+  if (typeof next.asr.diarization !== 'boolean') throw new HttpError(400, 'Speaker labeling must be enabled or disabled.');
+  if (before.asr.diarization !== next.asr.diarization) {
+    if (manager.status !== 'idle') throw new HttpError(409, 'End the current session before changing speaker labeling.');
+    if (next.asr.diarization && !speakerRuntime().ready) throw new HttpError(400, speakerRuntime().reason ?? 'Set up the local speaker models first.');
+  }
   if (!['low', 'medium', 'high'].includes(next.ai.backgroundEffort)) throw new HttpError(400, 'Unknown background effort level');
   if (next.ai.provider === 'anthropic-api' && !next.ai.anthropicApi.enabled) throw new HttpError(400, 'Enable paid API access first (Settings → AI provider). It is off by default.');
   if (next.ai.provider === 'mock' && !next.devMode && !DEV) throw new HttpError(400, 'The offline test provider is only available in developer mode.');
   if (!next.ai.anthropicApi.enabled && next.ai.provider === 'anthropic-api') next.ai.provider = 'codex';
-  store.saveSettings(next);
+  try { Object.assign(next, store.saveSettings(next)); }
+  catch (error) { throw new HttpError(400, (error as Error).message); }
   if (before.assist.autoExplain !== next.assist.autoExplain) assistant.setAutoExplain(next.assist.autoExplain);
   if (before.asr.model !== next.asr.model || before.asr.threads !== next.asr.threads) whisper.configure({ model: next.asr.model, threads: next.asr.threads });
   if (before.quickStart.hotkey !== next.quickStart.hotkey && !process.env.CHUMI_NO_HOTKEY) hotkey.configure(next.quickStart.hotkey);
@@ -237,6 +289,9 @@ route('GET', '/api/events', (req, res) => {
 
 route('POST', '/api/session/start', async (req) => {
   const b = await readJson(req);
+  const options = store.getSettings().sessionTypes;
+  const type = b.type ?? options.find((o) => !o.archived)?.id;
+  if (!options.some((o) => o.id === type && !o.archived)) throw new HttpError(400, 'Choose an available session type.');
   const source = b.source ?? store.getSettings().audio.source;
   if (source === 'file') {
     if (!(DEV || store.getSettings().devMode)) throw new HttpError(400, 'Audio-file input is a developer/test feature.');
@@ -245,7 +300,7 @@ route('POST', '/api/session/start', async (req) => {
   const win = b.window && Number.isFinite(Number(b.window.id)) ? { id: Number(b.window.id), title: String(b.window.title ?? ''), app: String(b.window.app ?? '') } : null;
   const projectId = b.project_id ? String(b.project_id) : null;
   if (projectId && !store.getProject(projectId)) throw new HttpError(400, 'Unknown project');
-  const s = await manager.start({ title: String(b.title ?? '').slice(0, 200), type: b.type ?? 'lab_meeting', source, filePath: b.filePath, speed: Math.min(16, Math.max(0.5, Number(b.speed ?? 1))), window: win, projectId });
+  const s = await manager.start({ title: String(b.title ?? '').slice(0, 200), type, source, filePath: b.filePath, speed: Math.min(16, Math.max(0.5, Number(b.speed ?? 1))), window: win, projectId });
   return { session: s };
 });
 route('POST', '/api/session/quick-start', async () => {
@@ -293,18 +348,62 @@ route('PATCH', '/api/sessions/:id', async (req, _res, p) => {
   const b = await readJson(req);
   const patch: Record<string, string> = {};
   if (typeof b.title === 'string') patch.title = b.title.slice(0, 200);
-  if (typeof b.type === 'string') patch.type = b.type;
+  if (typeof b.type === 'string') {
+    if (b.type !== store.getSession(p.id)?.type && !store.getSettings().sessionTypes.some((o) => o.id === b.type && !o.archived)) throw new HttpError(400, 'Choose an available session type.');
+    patch.type = b.type;
+  }
   store.updateSession(p.id, patch);
   syncMybot(p.id);
   broadcast('session-updated', store.getSession(p.id));
   return { session: store.getSession(p.id) };
 });
-route('DELETE', '/api/sessions/:id', (_req, _res, p) => {
+route('DELETE', '/api/sessions/:id', async (_req, _res, p) => {
+  if (manager.session?.id === p.id) throw new HttpError(409, 'End the session before deleting it.');
+  if (!store.getSession(p.id)) throw new HttpError(404, 'Session not found');
+  manager.invalidateDeferredSummary(p.id);
+  await speakers.cancel(p.id);
   if (manager.session?.id === p.id) throw new HttpError(409, 'End the session before deleting it.');
   store.deleteSession(p.id);
   for (const dir of [join(FRAMES_DIR, p.id), join(AUDIO_DIR, p.id)]) rmSync(dir, { recursive: true, force: true });
   mybot.remove(p.id);
   return { ok: true };
+});
+
+route('GET', '/api/speakers/runtime', () => speakerRuntime());
+route('GET', '/api/sessions/:id/speakers', (_req, _res, p) => {
+  if (!store.getSession(p.id)) throw new HttpError(404, 'Session not found');
+  return speakers.view(p.id);
+});
+route('POST', '/api/sessions/:id/speakers/analyze', (_req, _res, p) => {
+  if (!store.getSession(p.id)) throw new HttpError(404, 'Session not found');
+  if (manager.session?.id === p.id) throw new HttpError(409, 'End the session before analyzing speakers.');
+  try { void speakers.analyze(p.id); }
+  catch (error) { throw new HttpError(409, (error as Error).message); }
+  return speakerUpdate(p.id);
+});
+route('POST', '/api/sessions/:id/speakers/cancel', async (_req, _res, p) => {
+  if (!store.getSession(p.id)) throw new HttpError(404, 'Session not found');
+  if (manager.session?.id === p.id) throw new HttpError(409, 'End the session before cancelling speaker analysis.');
+  await speakers.cancel(p.id);
+  return speakerUpdate(p.id);
+});
+route('PATCH', '/api/sessions/:id/speakers/:speakerId', async (req, _res, p) => {
+  if (!store.getSession(p.id)) throw new HttpError(404, 'Session not found');
+  const body = await readJson(req);
+  if (body.name !== null && (typeof body.name !== 'string' || body.name.trim().length > 80)) throw new HttpError(400, 'Speaker names must be at most 80 characters.');
+  try { store.renameSpeaker(p.id, p.speakerId, typeof body.name === 'string' ? body.name.trim() || null : null); }
+  catch (error) { throw new HttpError(400, (error as Error).message); }
+  const update = speakerUpdate(p.id); broadcast('speakers', update); syncMybot(p.id); return update;
+});
+route('PATCH', '/api/sessions/:id/segments/:segmentId/speaker', async (req, _res, p) => {
+  if (!store.getSession(p.id)) throw new HttpError(404, 'Session not found');
+  const body = await readJson(req);
+  if (!['automatic', 'unknown', 'speaker'].includes(body.mode) || !Number.isSafeInteger(Number(p.segmentId))
+    || (body.mode === 'speaker' && typeof body.speakerId !== 'string')) throw new HttpError(400, 'Invalid speaker correction.');
+  const correction: SpeakerCorrection = body.mode === 'speaker' ? { mode: 'speaker', speakerId: body.speakerId } : { mode: body.mode };
+  try { store.correctSegmentSpeaker(p.id, Number(p.segmentId), correction); }
+  catch (error) { throw new HttpError(400, (error as Error).message); }
+  const update = speakerUpdate(p.id); broadcast('speakers', update); syncMybot(p.id); return update;
 });
 // ---------------------------------------------------------------- projects
 function gitInfo(dir: string): Promise<{ root: string; remote: string | null; branch: string | null } | null> {
@@ -494,6 +593,66 @@ route('POST', '/api/provider/anthropic-key', async (req) => { const b = await re
 route('DELETE', '/api/provider/anthropic-key', async () => { await deleteKey(); return registry.status(true); });
 route('POST', '/api/provider/claude/clear-overage', async () => { (registry.providers['claude-cli'] as ClaudeCliProvider).clearOverageBlock(); return registry.status(true); });
 
+/** Refuse stale UI actions rather than save a credential or run a test against a different endpoint. */
+function compatibleTarget(target: { preset?: unknown; baseUrl?: unknown; model?: unknown }, testModel = false) {
+  if (!isCompatiblePreset(target.preset) || typeof target.baseUrl !== 'string') throw new HttpError(400, 'Unknown model preset or endpoint.');
+  const preset = target.preset;
+  const settings = store.getSettings().ai.compatible;
+  const profile = settings.profiles[preset];
+  let baseUrl: string;
+  try { baseUrl = normalizeCompatibleUrl(target.baseUrl, COMPATIBLE_PRESETS[preset].local); }
+  catch (error) { throw new HttpError(400, (error as Error).message); }
+  if (baseUrl !== profile.baseUrl || (testModel && (preset !== settings.preset || target.model !== profile.model))) {
+    throw new HttpError(409, 'Model settings changed. Save and refresh the configuration before continuing.');
+  }
+  return { preset, baseUrl };
+}
+
+route('POST', '/api/provider/compatible/models', async (req) => {
+  const body = await readJson(req);
+  try { return await discoverLocalModels(body); }
+  catch (error) { throw new HttpError(400, (error as Error).message); }
+});
+route('GET', '/api/provider/local-hardware', () => localHardware(store.getSettings().asr.model));
+route('GET', '/api/provider/local-download', () => localModelDownloader.snapshot());
+route('POST', '/api/provider/local-download', async (req) => {
+  try { return localModelDownloader.start(await readJson(req)); }
+  catch (error) { throw new HttpError(400, (error as Error).message); }
+});
+route('POST', '/api/provider/local-download/cancel', async (req) => {
+  const body = await readJson(req);
+  try { return localModelDownloader.cancel(String(body.id ?? '')); }
+  catch (error) { throw new HttpError(400, (error as Error).message); }
+});
+route('POST', '/api/provider/local-download/check', async (req) => {
+  const body = await readJson(req);
+  try { return localModelDownloader.resume(String(body.id ?? '')); }
+  catch (error) { throw new HttpError(400, (error as Error).message); }
+});
+route('GET', '/api/provider/compatible/key', async (_req, _res, _p, url) => {
+  const { preset, baseUrl } = compatibleTarget({ preset: url.searchParams.get('preset'), baseUrl: url.searchParams.get('baseUrl') });
+  return { stored: !!(await readCompatibleKey(preset, baseUrl)) };
+});
+route('POST', '/api/provider/compatible/key', async (req) => {
+  const body = await readJson(req);
+  const { preset, baseUrl } = compatibleTarget(body);
+  if (typeof body.key !== 'string') throw new HttpError(400, 'An API key is required.');
+  try { await storeCompatibleKey(preset, baseUrl, body.key.trim()); }
+  catch (error) { throw new HttpError(400, (error as Error).message); }
+  registry.compatible.invalidateStatus();
+  return { stored: true };
+});
+route('DELETE', '/api/provider/compatible/key', async (req) => {
+  const { preset, baseUrl } = compatibleTarget(await readJson(req));
+  await deleteCompatibleKey(preset, baseUrl);
+  registry.compatible.invalidateStatus();
+  return { stored: false };
+});
+route('POST', '/api/provider/compatible/test', async (req) => {
+  compatibleTarget(await readJson(req), true);
+  return registry.compatible.testConnection();
+});
+
 route('GET', '/api/audio/devices', async () => ({ devices: await listDevices() }));
 route('GET', '/api/audio/permissions', async () => checkPermissions());
 route('POST', '/api/audio/request-mic', async () => {
@@ -570,9 +729,10 @@ async function shutdown(sig: string): Promise<void> {
   log('server', `${sig}: shutting down`);
   // Keep everything captured so far; the session is marked "interrupted" and can be resumed (with a gap marker).
   try { await Promise.race([manager.suspendForShutdown().catch(() => {}), new Promise((r) => setTimeout(r, 6000))]); } catch { /* ignore */ }
+  await speakers.shutdown();
   server.close();
   hotkey.stop();
-  await Promise.race([Promise.all([whisper.stop(), registry.shutdown()]), new Promise((r) => setTimeout(r, 3000))]);
+  await Promise.race([Promise.all([whisper.stop(), registry.shutdown(), localModelDownloader.shutdown()]), new Promise((r) => setTimeout(r, 3000))]);
   store.close();
   process.exit(0);
 }

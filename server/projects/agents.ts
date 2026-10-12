@@ -32,9 +32,12 @@ const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 function run(bin: string, args: string[], o: { timeoutMs?: number; cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve) => {
-    execFile(bin, args, { timeout: o.timeoutMs ?? 30_000, cwd: o.cwd, env: o.env ?? childEnv(), maxBuffer: 4 * 1024 * 1024 }, (e, out, err) => {
+    const child = execFile(bin, args, { timeout: o.timeoutMs ?? 30_000, cwd: o.cwd, env: o.env ?? childEnv(), maxBuffer: 4 * 1024 * 1024 }, (e, out, err) => {
       resolve({ code: e ? (typeof (e as { code?: unknown }).code === 'number' ? (e as { code: number }).code : 1) : 0, out: String(out ?? ''), err: String(err ?? '') });
     });
+    // These commands receive all input as arguments. Codex exec also reads piped stdin and waits
+    // for EOF even with a prompt argument, so leaving execFile's default pipe open hangs the check.
+    child.stdin?.end();
   });
 }
 function childEnv(): NodeJS.ProcessEnv {

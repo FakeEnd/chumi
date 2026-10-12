@@ -3,7 +3,9 @@ import { getState, setState, useStore } from '../store.ts';
 import { explain, frameUrl } from '../actions.ts';
 import { fmtT } from '../util.ts';
 import { msg, t } from '../i18n.ts';
+import type { SpeakerView } from '../../../shared/speakers.ts';
 import type { Frame, Segment, TimelineEvent } from '../types.ts';
+import { SpeakerControl, SpeakersPanel } from './Speakers.tsx';
 
 type Item = { kind: 'seg'; seg: Segment } | { kind: 'mark'; ev: TimelineEvent } | { kind: 'frame'; f: Frame };
 
@@ -16,11 +18,16 @@ const MARK_TEXT: Record<string, (e: TimelineEvent) => string> = {
   window: (e) => t('{detail} (from {t})', { detail: e.detail ?? t('Window capture'), t: fmtT(e.t) }),
 };
 
-const Row = memo(function Row({ seg, hl, showSource }: { seg: Segment; hl: boolean; showSource: boolean }) {
+const Row = memo(function Row({ seg, hl, showSource, speakerView }: { seg: Segment; hl: boolean; showSource: boolean; speakerView?: SpeakerView }) {
   return (
     <div className={`seg${hl ? ' hl' : ''}`} data-seg="" data-t={seg.t_start} data-tend={seg.t_end} lang={seg.lang === 'zh' ? 'zh-CN' : seg.lang ?? undefined}>
       <button className="ts" title={t('Attach this line to a question')} onClick={() => setState({ attached: { fromT: seg.t_start, toT: seg.t_end, text: seg.text } })}>{fmtT(seg.t_start)}</button>
-      <span className="txt">{showSource && seg.source === 'system' && <span className="src-tag">{t('computer')}</span>}{seg.text}</span>
+      <span className="txt">
+        {showSource && seg.source === 'system' && <span className="src-tag">{t('computer')}</span>}
+        {showSource && seg.speaker_state && seg.source === 'mic' && <span className="src-tag">{t('Microphone')}</span>}
+        {speakerView && seg.speaker_state && <SpeakerControl segment={seg} view={speakerView} />}
+        {seg.text}
+      </span>
     </div>
   );
 });
@@ -122,13 +129,15 @@ export function Transcript() {
   if (!data) return <div className="transcript empty-state"><p>{t('Start a session or open one from History.')}</p></div>;
 
   return (
+    <>
+    <SpeakersPanel key={data.session.id} />
     <div className="transcript-wrap">
       <div className="transcript" ref={scroller} onScroll={onScroll} onMouseUp={onMouseUp} role="log" aria-live="off" aria-label={t('Transcript')}>
         {items.length === 0 && partialList.length === 0 && (
           <p className="empty-state">{isLive ? (live?.status === 'paused' ? t('Paused.') : t('Listening… the transcript appears here a second or two after speech.')) : t('No transcript in this session.')}</p>
         )}
         {items.map((it) => it.kind === 'seg'
-          ? <Row key={`s${it.seg.id}`} seg={it.seg} hl={hl.has(it.seg.id)} showSource={showSource} />
+          ? <Row key={`s${it.seg.id}`} seg={it.seg} hl={hl.has(it.seg.id)} showSource={showSource} speakerView={data.speakerView} />
           : it.kind === 'frame'
             ? <button key={`f${it.f.id}`} className="frame-marker" onClick={() => setState({ dialog: 'frame', frameView: it.f.id })} title={t('Screen changed here. Click to view.')}>
                 <span className="ts">{fmtT(it.f.t)}</span><img src={frameUrl(it.f.id)} alt="" loading="lazy" /><span className="muted small">{t('Screen changed')}</span>
@@ -154,6 +163,7 @@ export function Transcript() {
         </button>
       )}
     </div>
+    </>
   );
 }
 

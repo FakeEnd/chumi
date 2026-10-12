@@ -49,7 +49,7 @@ Format `chumi-transcript/1`, one JSON object per line:
 
 | `type` | Fields | Meaning |
 |---|---|---|
-| `session` (first line) | `format`, `id`, `title`, `session_type`, `status`, `started_at`, `ended_at`, `duration_ms`, `audio_source`, `visibility`, `project` (`id`, `name`, `workspace`, or `null`), `cwd`, `revision` | Header. `visibility` is `private` unless sharing is enabled. `project` is set only when you assigned the meeting to a project; `cwd` is its folder. |
+| `session` (first line) | `format`, `id`, `title`, `session_type` (id), `session_type_name`, `status`, `started_at`, `ended_at`, `duration_ms`, `audio_source`, `visibility`, `project` (`id`, `name`, `workspace`, or `null`), `cwd`, `revision` | Header. `visibility` is `private` unless sharing is enabled. `project` is set only when you assigned the meeting to a project; `cwd` is its folder. |
 | `segment` | `id`, `t_ms`, `t_end_ms`, `timestamp` (ISO), `source` (`mic` / `system`), `lang`, `text` | One transcript line: what was actually said. `id` is stable. |
 | `gap` | `kind` (`pause` / `resume` / `gap` / `interrupted`), `t_ms`, `timestamp`, `detail` | Recording pauses and gaps |
 | `qa` | `id`, `kind` (`answer` / `explain` / `catchup`), `question`, `answer`, `created_at`, `covered_from_ms`, `covered_to_ms` | Your questions and Chumi's AI-written answers |

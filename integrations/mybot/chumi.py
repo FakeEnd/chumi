@@ -117,7 +117,7 @@ class ChumiSourceAdapter(TrajectorySourceAdapter):
             speech = [turn.text for turn in turns if turn.role == "user"]
             if not speech:
                 continue
-            kind = SESSION_TYPES.get(str(header.get("session_type")), "conversation")
+            kind = normalize_text(str(header.get("session_type_name") or ""), 60) or SESSION_TYPES.get(str(header.get("session_type")), "conversation")
             started = str(header.get("started_at") or "")
             title = normalize_text(f"{header.get('title') or 'Chumi session'} ({kind}, {started[:10]})", 140)
             updated_at = str(header.get("ended_at") or last_ts or started)

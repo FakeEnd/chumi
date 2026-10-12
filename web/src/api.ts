@@ -1,10 +1,11 @@
 export class ApiError extends Error { status: number; constructor(status: number, msg: string) { super(msg); this.status = status; } }
 
-export async function api<T = any>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; signal?: AbortSignal } = {}): Promise<T> {
   const r = await fetch(path, {
     method: opts.method ?? (opts.body !== undefined ? 'POST' : 'GET'),
     headers: { 'content-type': 'application/json', 'x-chumi': '1' },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    signal: opts.signal,
   });
   const text = await r.text();
   const data = text ? JSON.parse(text) : null;

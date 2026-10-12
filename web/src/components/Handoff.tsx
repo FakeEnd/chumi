@@ -22,6 +22,7 @@ function changes(h: Handoff): string[] {
   if (d.meeting_deleted) return [t('The meeting was deleted.')];
   if (d.reassigned) out.push(t('The meeting was assigned to a different project.'));
   if (d.resumed) out.push(t('Recording was resumed.'));
+  if (d.speaker_labels_changed) out.push(t('Speaker labels or names were changed.'));
   if (d.new_transcript_lines) out.push(plural(d.new_transcript_lines, '{n} new transcript line', '{n} new transcript lines'));
   if (d.summary_regenerated) out.push(t('The summary was regenerated.'));
   else if (d.new_outputs) out.push(plural(d.new_outputs, '{n} new AI answer or note', '{n} new AI answers or notes'));

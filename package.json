@@ -9,6 +9,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "setup:speakers": "bash scripts/setup-speakers.sh",
     "setup": "bash scripts/setup.sh",
     "start": "node server/main.ts",
     "dev:server": "CHUMI_DEV=1 node --watch server/main.ts",

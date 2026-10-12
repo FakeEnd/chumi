@@ -5,10 +5,11 @@
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import type { ProjectRow, SessionRow, Store } from '../db.ts';
+import { speakerFields, type ProjectRow, type SessionRow, type Store } from '../db.ts';
 import { DATA_DIR, FRAMES_DIR } from '../paths.ts';
 import { fmtT, parseT } from '../util.ts';
 import { handoffForAgent, SOURCE_NOTICE, type LinkFn } from './handoff-model.ts';
+import { sessionTypeName } from '../../shared/session-types.ts';
 
 export class EvidenceError extends Error {
   code: 'not_found' | 'out_of_scope' | 'bad_request' | 'unavailable';
@@ -57,7 +58,7 @@ export class Evidence {
   }
   private meetingRef(s: SessionRow) {
     return {
-      meeting_id: s.id, title: s.title, type: s.type, date: new Date(s.started_at ?? s.created_at).toISOString(),
+      meeting_id: s.id, title: s.title, type: s.type, type_name: sessionTypeName(this.store.getSettings().sessionTypes, s.type), date: new Date(s.started_at ?? s.created_at).toISOString(),
       state: s.status, revision: s.revision, duration: fmtT(s.duration_ms), project: this.projectRef(s.project_id), open_in_chumi: this.link(s.id),
     };
   }
@@ -100,7 +101,7 @@ export class Evidence {
       total: all.length,
       meetings: page.map((s) => {
         const h = this.store.handoffForSession(s.id);
-        const matches = q ? this.store.searchSegments(s.id, [q, ...q.split(/\s+/)], 3).map((g) => ({ source: 'transcript', segment_id: g.id, time: `${fmtT(g.t_start)}–${fmtT(g.t_end)}`, from_ms: g.t_start, to_ms: g.t_end, text: g.text })) : [];
+        const matches = q ? this.store.searchSegments(s.id, [q, ...q.split(/\s+/)], 3).map((g) => ({ source: 'transcript', segment_id: g.id, time: `${fmtT(g.t_start)}–${fmtT(g.t_end)}`, from_ms: g.t_start, to_ms: g.t_end, text: g.text, ...speakerFields(g) })) : [];
         return { ...this.meetingRef(s), transcript_lines: s.segment_count, handoff: h ? { handoff_id: h.id, status: h.status } : null, matches };
       }),
       next_cursor: offset + limit < all.length ? String(offset + limit) : null,
@@ -119,8 +120,9 @@ export class Evidence {
     return {
       meeting: this.meetingRef(s),
       transcript: { lines: this.store.maxSegmentId(s.id) ? (this.store.db.prepare('SELECT COUNT(*) AS n FROM segments WHERE session_id = ?').get(s.id) as { n: number }).n : 0, from: first ? fmtT(first.t_start) : null, to: last ? fmtT(last.t_end) : null },
-      summary: summary ? { source: 'generated', generated_by: 'Chumi (AI)', output_id: summary.id, created_at: new Date(summary.completed_at ?? summary.created_at).toISOString(), content: (summary.content ?? '').slice(0, 12000) } : null,
-      topics: ov?.topics?.length ? { source: 'generated', items: ov.topics.slice(0, 30) } : null,
+      summary: summary ? { source: 'generated', generated_by: 'Chumi (AI)', output_id: summary.id, stale_reason: summary.stale_reason ?? null, created_at: new Date(summary.completed_at ?? summary.created_at).toISOString(), content: (summary.content ?? '').slice(0, 12000) } : null,
+      topics: ov?.topics?.length ? { source: 'generated', stale_reason: overview?.stale_reason ?? null, items: ov.topics.slice(0, 30) } : null,
+      speakers: this.store.speakers(s.id), speaker_analysis: this.store.speakerAnalysis(s.id),
       frames: frames.slice(0, 40).map((f) => ({ source: 'frame', frame_id: f.id, time: fmtT(f.t), t: f.t, window: f.window_title })),
       frames_total: frames.length,
       handoff: h ? handoffForAgent(this.store, h, this.link) : null,
@@ -134,7 +136,7 @@ export class Evidence {
     let rows;
     if (o.segment_ids?.length) {
       const ids = o.segment_ids.slice(0, 200).map(Number).filter(Number.isFinite);
-      rows = ids.length ? this.store.db.prepare(`SELECT * FROM segments WHERE session_id = ? AND id IN (${ids.map(() => '?').join(',')}) ORDER BY t_start, id`).all(s.id, ...ids) as unknown as Array<{ id: number; t_start: number; t_end: number; text: string; source: string | null; lang: string | null }> : [];
+      rows = this.store.segmentsByIds(s.id, ids);
     } else {
       const from = toMs(o.from), to = toMs(o.to);
       if (o.from != null && from == null) throw new EvidenceError('bad_request', `Could not read the time "${o.from}". Use m:ss or milliseconds.`);
@@ -144,10 +146,10 @@ export class Evidence {
     const page = rows.slice(offset, offset + limit);
     return {
       meeting: this.meetingRef(s),
-      passages: page.map((g) => ({ source: 'transcript', segment_id: g.id, from_ms: g.t_start, to_ms: g.t_end, time: `${fmtT(g.t_start)}–${fmtT(g.t_end)}`, text: g.text, audio: g.source === 'system' ? 'computer audio' : g.source === 'mic' ? 'microphone' : g.source, open_in_chumi: this.link(s.id, { t: g.t_start, t2: g.t_end }) })),
+      passages: page.map((g) => ({ source: 'transcript', segment_id: g.id, from_ms: g.t_start, to_ms: g.t_end, time: `${fmtT(g.t_start)}–${fmtT(g.t_end)}`, text: g.text, ...speakerFields(g), audio: g.source === 'system' ? 'computer audio' : g.source === 'mic' ? 'microphone' : g.source, open_in_chumi: this.link(s.id, { t: g.t_start, t2: g.t_end }) })),
       total: rows.length,
       next_cursor: offset + limit < rows.length ? String(offset + limit) : null,
-      note: 'Original speech-recognition text: may contain misheard words and has no speaker names.',
+      note: 'Original speech-recognition text may contain misheard words. Speaker labels are meeting-local estimates; names are user-supplied, not verified identities. Preserve mixed/unknown attribution; audio sources are not people.',
       notice: SOURCE_NOTICE,
     };
   }

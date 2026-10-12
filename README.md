@@ -26,17 +26,17 @@
 
 **Chumi is a listening companion for academic conversations.** It transcribes lab meetings, advisor 1:1s, lectures and seminars on your Mac, in English, Mandarin, or both at once. While the talk goes on, it tells you where the discussion is, catches you up when you drift, and explains unfamiliar methods and terms at your level. Every answer is cited back to the moment it came from.
 
-Research talk moves fast and borrows from neighbouring fields. A deep-learning person in a wet-lab meeting, or a biologist in a statistics seminar, constantly loses a minute here and a term there. Chumi keeps the thread for you, using the ChatGPT or Claude subscription you already have. It never sends audio off the machine.
+Research talk moves fast and borrows from neighbouring fields. A deep-learning person in a wet-lab meeting, or a biologist in a statistics seminar, constantly loses a minute here and a term there. Chumi keeps the thread for you, using your ChatGPT or Claude subscription, a local model server, or a compatible API. It never sends audio off the machine.
 
 ## Highlights
 
 - **Catch up in one click.** You drifted off, or the speaker skipped ahead. **Catch me up** tells you what is being discussed now, what you missed, how it connects to earlier points, and which question is on the table. Every answer states the exact stretch of transcript it covers, and it stays put while the meeting goes on.
-- **Explanations pitched to you.** Select a phrase and get the background at the right level. Chumi keeps a per-domain profile: it won't explain transformers to an ML person, and it won't assume you know a wet-lab assay. Pick **Quick, Standard or Deep**, and choose how hard the model thinks, from **Low to Max**.
+- **Explanations pitched to you.** Select a phrase and get the background at the right level. Chumi keeps a per-domain profile: it won't explain transformers to an ML person, and it won't assume you know a wet-lab assay. Pick **Quick, Standard or Deep**, and, on supported providers, choose how hard the model thinks, from **Low to Max**. Compatible models use their server's reasoning defaults.
 - **It keeps what was said apart from what it adds.** Answers separate *what the speakers said*, *background added by Chumi*, and *interpretation and uncertainty*. Every claim cites a clickable `[m:ss]` that jumps to the supporting lines. If a speaker points at a slide Chumi can't see, it says so instead of guessing.
 - **It sees the slides too.** Capture the Zoom share, the lecture video or the slide deck. Chumi keeps one picture per slide and can show it to the model, so *"explain this figure"* works.
 - **Bilingual by design.** Transcribes English, Mandarin, and Mandarin with English technical terms. Explains in **中文** (keeping English terms) or **English**, switchable at any time. The interface itself comes in English and 中文 too.
-- **Summaries you can trust.** Summaries are shaped for lab meetings, advisor 1:1s, lectures or WIP talks. Preliminary results stay preliminary, disagreements are kept, and owners or deadlines appear only if someone actually said them.
-- **Uses the subscription you already pay for.** ChatGPT (through Codex) or Claude (through Claude Code), with live quota and billing shown. Chumi **never** switches to a paid API on its own, and pauses instead of spending purchased credits.
+- **Summaries you can trust.** Summaries are shaped for lab meetings, advisor 1:1s, lectures or WIP talks. Rename or add your own types in **Settings → Session types**, each with the summary style it should use. Preliminary results stay preliminary, disagreements are kept, and owners or deadlines appear only if someone actually said them.
+- **Uses the subscription you already pay for.** ChatGPT (through Codex) or Claude (through Claude Code), with quota shown when the provider reports it. Chumi **never** switches to a paid API on its own, and blocks purchased ChatGPT credits unless you allow them. You can also explicitly select a local model server or compatible API; remaining API quota is unknown.
 - **Private and crash-safe.** Speech recognition runs locally with whisper.cpp, so audio never leaves the Mac. Transcript lines are saved as they arrive. After a crash, the session reopens with a gap marker and can be resumed.
 - **One keystroke when a talk starts.** Press **⌃⌥⌘L** from any app to start listening. Press again to pause.
 
@@ -101,6 +101,12 @@ A meeting often ends with work to do in a project: rerun with a different split,
 
 Connect each agent once in **Settings → Claude Code & Codex**. If the meeting changes after you confirm, for example a regenerated summary or a resumed recording, Chumi and the agent both see that the handoff may need another look. Setup, the MCP tools and the privacy model are in [docs/agents.md](docs/agents.md).
 
+### Optional speaker labels
+
+Run `npm run setup:speakers`, then enable **Settings → Transcription → Speaker labels** before recording. After the meeting ends, a local model groups voices as A/B/C. Open **Speakers** above the transcript to name them; click a line's label to correct it. Current labels accompany AI context, exports, and Claude Code/Codex evidence. Earlier summaries and reviewed handoffs are marked stale after corrections.
+
+Analysis uses temporary local audio, deleted on completion, failure, cancellation, or app restart. **Save raw audio** keeps the captured takes for reruns. Labels are estimates within a meeting and audio source; mixed speech remains uncertain. See [the workflow and testing notes](docs/speaker-diarization.md) and [model setup](docs/speaker-models.md).
+
 ## Quick start
 
 **Requirements:** an Apple Silicon Mac on macOS 14.4 or later, plus [Homebrew](https://brew.sh), Node.js 24 or later, and the Xcode Command Line Tools (`xcode-select --install`).
@@ -119,7 +125,7 @@ The setup script installs whisper.cpp, downloads the speech model that suits you
 
 ### 2. Connect the AI you already have
 
-Pick one. Your account details stay with the official CLI, and Chumi never sees them.
+For a subscription, pick one. Your account details stay with the official CLI, and Chumi never sees them. For a local model server or compatible API, use the alternative setup below.
 
 ```bash
 codex login
@@ -139,6 +145,23 @@ open build/Chumi.app
 
 Click **⚡ Quick start**, or press **⌃⌥⌘L** from anywhere. macOS asks once for Microphone and/or System Audio Recording permission. You can also run Chumi in a browser with `npm start` and open http://127.0.0.1:4777.
 
+### Other models: local or API
+
+Presets cover **Qwen, Doubao, MiniMax, GLM, Ollama, LM Studio**, and a **custom compatible API**. These use a compatible Chat Completions endpoint; a preset supplies a starting URL, not a model or subscription entitlement.
+
+1. Open **Settings → AI provider** and select **Other models: local or API**. Choose **Ollama** or **LM Studio** to automatically read the local service's model list, then select a model. No model ID is needed to discover models. If the service cannot be reached or lists no models, follow the installation, startup, or download guidance and click **Refresh models**. Remote API presets still use the exact model or deployment ID from the provider console.
+2. Explicitly enable the profile, including permission to charge your provider account for a remote API, then **Save model settings**. Each preset keeps its own profile. Save or discard edits before managing a key or testing.
+3. Save an API key if needed. Keys live in **macOS Keychain**, separately for each preset and endpoint. Optionally click **Test with a short generation**: it sends synthetic text, no meeting content, and can incur a charge.
+4. Once saved, the selected model is used for new requests. Discovery only reads model metadata; it does not generate answers, download models, or send meeting content. Connection URLs, optional local API keys, and advanced model options are available in expandable sections.
+
+Before downloading, the local presets show **models for this computer** using the detected chip, total memory, home-volume disk space, and selected transcription model. Compare approximate download sizes and estimated runtime memory for specific Qwen3 quantizations. Recommendations reserve room for macOS, other apps, and Chumi transcription; longer context lengths increase the estimate. The context selector only changes the estimate, so configure the same context length in your model manager. This is capacity guidance, not a speed benchmark or a guarantee. Recommendations work before the model service is installed or started. See [estimation assumptions and sources](docs/local-model-advice.md).
+
+Images are off by default; enable them only when the model and endpoint support them, and also enable **Send screen captures** in Screen settings. Structured output defaults to prompt-only; select JSON object/schema mode only if supported. Chumi does not send its reasoning-effort controls to compatible endpoints.
+
+Install and start Ollama or LM Studio first, then click **Download recommended model** in Chumi. Downloads show progress, continue while Settings is closed, and refresh the model list on completion. Ollama supports cancellation and retry in Chumi; LM Studio 0.4+ uses its native download API, with pause/cancel managed in LM Studio. If its model is not listed after downloading, enable Just-In-Time loading or load it in Developer. Downloading does not automatically select or load the model. Choose it from the list and save your settings.
+
+Configure enough context capacity for meeting excerpts, notes and answers; Chumi does not set the server's context window. A local server can route externally, so check its configuration. Compatible inference requests have no automatic retry or provider fallback. API quota remains unknown; check your provider's billing console and terms rather than assuming a chat subscription includes API access.
+
 ## Features
 
 **Listening**
@@ -151,7 +174,7 @@ Click **⚡ Quick start**, or press **⌃⌥⌘L** from anywhere. macOS asks onc
 **Understanding**
 - Catch me up over the last 2 minutes, the last 5 minutes, or the whole session so far.
 - Questions about the selected passage, the surrounding discussion and relevant earlier passages.
-- Explanation depth (Quick, Standard, Deep) and reasoning effort (Auto, Low, Medium, High, Extra high, Max) for each question. Neither changes your saved profile.
+- Explanation depth (Quick, Standard, Deep) for each question; reasoning effort (Auto, Low, Medium, High, Extra high, Max) on supported providers. Compatible models use server defaults. Neither changes your saved profile.
 - Optional auto-explain cards with a cooldown and an interruption cap. Turning it off drops late results.
 - A running overview and topic timeline, updated at pauses and topic changes.
 - Window capture (ScreenCaptureKit) with one picture kept per slide, and *Ask about this slide*.
@@ -163,8 +186,8 @@ Click **⚡ Quick start**, or press **⌃⌥⌘L** from anywhere. macOS asks onc
 
 **Trust and cost control**
 - Exactly one active AI provider, with no automatic fallback.
-- Quota and billing shown live. Chumi pauses when included usage is used up.
-- Background work (overview, auto-explain) runs at low effort, and long sessions use rolling notes instead of resending the whole transcript.
+- Billing is shown, with quota when the provider reports it. Subscription adapters pause when they detect exhausted included usage; compatible API quota is unknown.
+- Background work (overview, auto-explain) uses low effort where supported, or server defaults for compatible models. Long sessions use rolling notes instead of resending the whole transcript.
 - Settings → Privacy & data explains exactly what is sent and when.
 
 ## How it works
@@ -178,7 +201,7 @@ Chumi.app (Swift window + macOS privacy identity)
     ├── voice-activity segmenter → transcriber → whisper-server (local, separate process)
     ├── SQLite: sessions · raw transcript · gaps · AI outputs (kept separate) · screen captures
     ├── assistant: catch-up · Q&A · explain · overview · auto-explain · summary
-    └── providers: Codex app-server (ChatGPT plan) │ claude -p (Claude plan) │ Anthropic API (optional, paid)
+    └── providers: Codex app-server │ claude -p │ Anthropic API │ compatible local server / API
 React UI ⇄ HTTP + Server-Sent Events on 127.0.0.1
 ```
 
@@ -187,6 +210,7 @@ React UI ⇄ HTTP + Server-Sent Events on 127.0.0.1
 | ChatGPT plan, via OpenAI's documented [Codex app-server](https://learn.chatgpt.com/docs/app-server) | `codex login` | Included plan usage. Purchased credits are used only if you allow it. |
 | Claude plan, via the unmodified `claude -p` (personal use) | `claude auth login` | Plan usage limits. Chumi stops on paid overage. |
 | Anthropic API key | macOS Keychain | Pay per request. Off until you enable it. |
+| Compatible API or local model server | Per-preset and endpoint key in macOS Keychain, if needed | Remote API access requires opt-in; provider billing applies and remaining quota is unknown. Local runtime is managed separately. |
 
 The reasoning behind these choices, with links to the official terms, is in [docs/provider-research.md](docs/provider-research.md).
 
@@ -196,7 +220,7 @@ The reasoning behind these choices, with links to the official terms, is in [doc
 npm run check
 ```
 
-That runs the type checks and unit tests.
+That runs the type checks and unit tests. Compatible-provider tests use fake endpoints; they do not validate real vendors' model quality.
 
 ```bash
 node scripts/acceptance.ts
@@ -244,12 +268,12 @@ That rebuilds the window-capture and shortcut helpers without touching Chumi.app
 Chumi is a working personal tool. What has been verified, and how, is in [docs/verification.md](docs/verification.md).
 
 **Known limits:**
-- Speakers are only told apart as mic vs computer audio.
+- Optional speaker labeling runs after the meeting, with manual naming and corrections. It does not identify real people or match voices across sources; live transcription still shows audio sources.
 - Protected (DRM) video captures as black.
 - Claude reports plan usage only after each request.
 - The app is ad-hoc signed, so rebuilds ask for permissions again.
 
-**Next:** paper and slide-deck files as context, speaker diarization, a cross-session glossary, spoken explanations, a menu-bar mini mode, and a per-session usage meter.
+**Next:** paper and slide-deck files as context, live speaker labels, a cross-session glossary, spoken explanations, a menu-bar mini mode, and a per-session usage meter.
 
 ## License
 

@@ -1,6 +1,7 @@
 import type { Store } from './db.ts';
 import { fmtT } from './util.ts';
-import { SESSION_TYPE_LABEL } from './ai/prompts.ts';
+import { sessionTypeName } from '../shared/session-types.ts';
+import { formatSeg } from './ai/context.ts';
 
 const KIND_LABEL: Record<string, string> = { catchup: 'Catch-up', answer: 'Question', explain: 'Explanation', auto_explain: 'Background card (automatic)' };
 
@@ -16,8 +17,10 @@ export function exportSession(store: Store, id: string, format: 'md' | 'txt'): {
   const date = new Date(s.started_at ?? s.created_at);
   const L: string[] = [];
   L.push(`# ${s.title}`, '');
-  L.push(`- Type: ${SESSION_TYPE_LABEL[s.type] ?? s.type}`, `- Date: ${date.toLocaleString()}`, `- Duration: ${fmtT(s.duration_ms)}`, `- Audio source: ${s.audio_source ?? 'unknown'}`, `- Status: ${s.status}`, '');
+  L.push(`- Type: ${sessionTypeName(store.getSettings().sessionTypes, s.type)}`, `- Date: ${date.toLocaleString()}`, `- Duration: ${fmtT(s.duration_ms)}`, `- Audio source: ${s.audio_source ?? 'unknown'}`, `- Status: ${s.status}`, '');
   L.push('> The transcript below is raw automatic speech recognition (local Whisper). Sections marked "AI-generated" were written by the AI provider and may contain errors; check them against the transcript timestamps.', '');
+  L.push('> Speaker labels are meeting-local estimates; names are supplied by the user. Automatic attribution can be wrong. Mixed and unknown lines are not assigned to a person. Audio source does not identify a speaker.', '');
+  if (outs.some((o) => o.stale_reason)) L.push('> Some AI-generated sections below predate a speaker annotation change. Regenerate them before relying on their attribution.', '');
   if (summary?.content) L.push('## Summary (AI-generated)', '', summary.content.trim(), '');
   else L.push('## Summary (AI-generated)', '', '_No summary was generated for this session._', '');
   if (overview?.content) L.push('## Running overview (AI-generated)', '', overview.content.trim(), '');
@@ -42,7 +45,7 @@ export function exportSession(store: Store, id: string, format: 'md' | 'txt'): {
       const e = events[ei++];
       L.push(`*— ${e.kind}${e.detail ? `: ${e.detail}` : ''} [${fmtT(e.t)}] —*`, '');
     }
-    L.push(`[${fmtT(seg.t_start)}]${seg.source === 'system' ? ' (computer audio)' : ''} ${seg.text}`, '');
+    L.push(formatSeg(seg), '');
   }
   while (ei < events.length) { const e = events[ei++]; L.push(`*— ${e.kind}${e.detail ? `: ${e.detail}` : ''} [${fmtT(e.t)}] —*`, ''); }
   let body = L.join('\n');

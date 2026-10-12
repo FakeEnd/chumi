@@ -11,6 +11,7 @@ import type { Assistant, Broadcast } from '../ai/assistant.ts';
 import type { AudioSourceMode, SessionType } from '../settings.ts';
 import { WavWriter } from './wavwriter.ts';
 import { ScreenWatcher } from '../screen/watcher.ts';
+import { SpeakerRecorder } from '../speakers/audio.ts';
 
 export type LiveStatus = 'idle' | 'starting' | 'recording' | 'paused' | 'ending';
 
@@ -21,6 +22,8 @@ interface Run {
   segmenters: Map<SourceName, Segmenter>;
   writers: Map<SourceName, WavWriter>;
   restarts: number;
+  speakers: SpeakerRecorder | null;
+  rawId: string;
 }
 
 export interface StartOptions { title: string; type: SessionType; source: AudioSourceMode | 'file'; filePath?: string; speed?: number; window?: { id: number; title?: string; app?: string } | null; projectId?: string | null }
@@ -50,6 +53,13 @@ export class SessionManager {
   lastLevels: Record<string, { rms: number; peak: number; at: number }> = {};
   droppedDuplicates = 0;
   screen: ScreenWatcher | null = null;
+  /** Optional local processing barrier. It runs after recording ends, before its automatic summary. */
+  beforeSummary: ((sessionId: string) => Promise<void> | null) | null = null;
+  beforeResume: ((sessionId: string) => Promise<void>) | null = null;
+  private stopping = false;
+  private pendingSpeakerSummaries = new Set<string>();
+
+  invalidateDeferredSummary(sessionId: string): void { this.pendingSpeakerSummaries.delete(sessionId); }
 
   constructor(store: Store, whisper: WhisperServer, assistant: Assistant, broadcast: Broadcast) {
     this.store = store; this.whisper = whisper; this.assistant = assistant; this.broadcast = broadcast;
@@ -162,7 +172,8 @@ export class SessionManager {
     } else {
       input = new HelperCapture({ source: this.source, micDeviceUid: s.audio.micDeviceUid, aec: s.audio.aec });
     }
-    const run: Run = { index: ++this.runCount, input, offsetMs, segmenters: new Map(), writers: new Map(), restarts: 0 };
+    const run: Run = { index: ++this.runCount, input, offsetMs, segmenters: new Map(), writers: new Map(), restarts: 0,
+      rawId: uid(), speakers: s.asr.diarization && this.session ? new SpeakerRecorder(this.session.id, s.audio.saveRawAudio) : null };
     const seg = (src: SourceName): Segmenter => {
       let sg = run.segmenters.get(src);
       if (!sg) {
@@ -186,11 +197,19 @@ export class SessionManager {
         run.segmenters.delete(src);
         this.notice('warning', 'segmenter_reset', 'A transcription hiccup occurred; a fraction of a second of audio may be missing. Recording continues.');
       }
-      if (s.audio.saveRawAudio && this.session) {
+      if (run.speakers) {
+        try { run.speakers.write(src, run.offsetMs + ts * 1000, samples); }
+        catch (error) {
+          try { run.speakers.close(); } catch { /* Preserve transcription even if storage is full. */ }
+          run.speakers = null;
+          this.notice('warning', 'speaker_capture_failed', `Speaker audio could not be saved: ${(error as Error).message}`);
+        }
+      }
+      if (s.audio.saveRawAudio && !s.asr.diarization && this.session) {
         let w = run.writers.get(src);
         if (!w) {
           const dir = join(AUDIO_DIR, this.session.id); mkdirSync(dir, { recursive: true });
-          w = new WavWriter(join(dir, `run${run.index}-${src}.wav`));
+          w = new WavWriter(join(dir, `run${run.index}-${run.rawId}-${src}.wav`));
           run.writers.set(src, w);
         }
         w.write(samples);
@@ -219,11 +238,18 @@ export class SessionManager {
         const t = this.nowT();
         this.notice('error', 'capture_stopped', `Audio capture stopped unexpectedly (${reason}). Trying to restart…`);
         if (this.session) this.store.addTimeline(this.session.id, t, 'gap', `Audio capture stopped: ${reason}`);
-        if (run.restarts++ < 3) setTimeout(() => { if (this.run === run && this.status === 'recording') void run.input.start().catch((e) => this.notice('error', 'capture_restart_failed', (e as Error).message)); }, 1500);
+        if (run.restarts++ < 3) setTimeout(() => {
+          if (this.run !== run || this.status !== 'recording') return;
+          for (const sg of run.segmenters.values()) sg.flush();
+          run.segmenters.clear();
+          run.offsetMs = this.nowT(); // A restarted helper starts its input clock at zero again.
+          void run.input.start().catch((e) => this.notice('error', 'capture_restart_failed', (e as Error).message));
+        }, 1500);
       }
     });
     this.run = run;
-    await input.start();
+    try { await input.start(); }
+    catch (error) { await this.endRun(); throw error; }
   }
 
   /** Start, switch or stop window capture (slides / shared screen) for the active session. */
@@ -256,11 +282,15 @@ export class SessionManager {
     await run.input.stop();
     for (const sg of run.segmenters.values()) sg.flush();
     for (const w of run.writers.values()) w.close();
+    try { run.speakers?.close(); }
+    catch (error) { this.notice('warning', 'speaker_capture_failed', `Speaker audio could not be saved: ${(error as Error).message}`); }
     this.partials.clear();
   }
 
   /** App is quitting: keep everything captured so far and mark the session interrupted (resumable later). */
   async suspendForShutdown(): Promise<void> {
+    this.stopping = true;
+    this.pendingSpeakerSummaries.clear();
     if (!this.session || (this.status !== 'recording' && this.status !== 'paused')) return;
     const id = this.session.id;
     const t = this.nowT();
@@ -277,6 +307,7 @@ export class SessionManager {
   async pause(): Promise<void> {
     if (this.status !== 'recording' || !this.session) throw new Error('Not recording.');
     const t = this.nowT();
+    this.status = 'ending';
     await this.endRun();
     this.store.touchSession(this.session.id, t);
     this.store.updateSession(this.session.id, { status: 'paused', duration_ms: Math.round(t) });
@@ -292,7 +323,9 @@ export class SessionManager {
     const lastT = Math.max(s.duration_ms, this.store.lastSegment(s.id)?.t_end ?? 0);
     const wallOffset = now() - (s.started_at ?? s.created_at);
     const offset = this.source === 'file' ? lastT + 500 - (this.fileOpts?.posSec ?? 0) * 1000 : Math.max(wallOffset, lastT + 500);
-    await this.beginRun(offset);
+    this.status = 'starting'; this.emitState();
+    try { await this.beginRun(offset); }
+    catch (error) { this.status = 'paused'; this.emitState(); throw error; }
     this.store.updateSession(s.id, { status: 'recording' });
     this.store.addTimeline(s.id, this.source === 'file' ? lastT + 500 : offset, 'resume');
     this.status = 'recording';
@@ -305,17 +338,29 @@ export class SessionManager {
     if (this.status !== 'idle') throw new Error('Another session is active.');
     const s = this.store.getSession(sessionId);
     if (!s) throw new Error('Session not found');
-    await this.whisper.ensure();
-    this.session = s; this.source = source; this.fileOpts = file ? { path: file.path, speed: file.speed, posSec: 0 } : null; this.warnings = []; this.transcriber.reset();
-    const lastT = Math.max(s.duration_ms, this.store.lastSegment(s.id)?.t_end ?? 0);
-    const offset = Math.max(now() - (s.started_at ?? s.created_at), lastT + 1000);
-    this.store.addTimeline(s.id, lastT, 'gap', `Not recorded from ${fmtT(lastT)} to ${fmtT(offset)} (${s.status === 'interrupted' ? 'app restarted' : 'session resumed'}).`);
-    this.store.addTimeline(s.id, offset, 'resume', source);
-    this.store.updateSession(s.id, { status: 'recording', ended_at: null });
-    await this.beginRun(offset);
-    this.status = 'recording';
-    this.startHeartbeat();
-    this.emitState();
+    this.invalidateDeferredSummary(sessionId);
+    // Reserve the session before cancelling a worker or starting ASR; Quick Start/delete cannot race it.
+    this.status = 'starting'; this.session = s; this.source = source; this.emitState();
+    let resumed = false;
+    try {
+      await this.beforeResume?.(sessionId);
+      await this.whisper.ensure();
+      this.fileOpts = file ? { path: file.path, speed: file.speed, posSec: 0 } : null; this.warnings = []; this.transcriber.reset();
+      const lastT = Math.max(s.duration_ms, this.store.lastSegment(s.id)?.t_end ?? 0);
+      const offset = Math.max(now() - (s.started_at ?? s.created_at), lastT + 1000);
+      this.store.addTimeline(s.id, lastT, 'gap', `Not recorded from ${fmtT(lastT)} to ${fmtT(offset)} (${s.status === 'interrupted' ? 'app restarted' : 'session resumed'}).`);
+      this.store.addTimeline(s.id, offset, 'resume', source);
+      this.store.updateSession(s.id, { status: 'recording', ended_at: null });
+      resumed = true;
+      await this.beginRun(offset);
+      this.status = 'recording';
+      this.startHeartbeat();
+      this.emitState();
+    } catch (error) {
+      if (resumed) this.store.updateSession(s.id, { status: 'interrupted' });
+      this.session = null; this.run = null; this.fileOpts = null; this.status = 'idle'; this.emitState();
+      throw error;
+    }
   }
 
   async end(): Promise<{ sessionId: string; summaryId: string | null }> {
@@ -334,7 +379,14 @@ export class SessionManager {
     this.heartbeat = null;
     this.run = null;
     this.status = 'idle';
-    const summaryId = this.store.segments(id).length ? this.assistant.summary(id) : null;
+    let summaryId: string | null = null;
+    const pendingSpeakers = this.beforeSummary?.(id);
+    if (pendingSpeakers) {
+      this.pendingSpeakerSummaries.add(id);
+      void pendingSpeakers.then(() => {
+        if (this.pendingSpeakerSummaries.delete(id) && !this.stopping && this.store.getSession(id)?.status === 'ended' && this.store.segments(id).length) this.assistant.summary(id);
+      }).catch((error) => this.notice('warning', 'speaker_analysis_failed', (error as Error).message));
+    } else if (this.store.segments(id).length) summaryId = this.assistant.summary(id);
     this.session = null;
     this.fileOpts = null;
     this.emitState();

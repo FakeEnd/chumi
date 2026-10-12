@@ -7,9 +7,16 @@ export const RECENT_WINDOW_MS = 10 * 60_000;
 const STOP = new Set(('the and for that this with from have what about there their they them then than were been being into just like your you our are was but not can will would could should also more some such very when where which while who why how its it’s it\'s okay yeah right know think mean really going thing things kind sort lot well because actually basically '
   + 'explain does what mean term this that why using use used method').split(' '));
 
+/**
+ * One transcript line for the AI. Tags stay short because they repeat on every line; their meaning is stated once
+ * in the base rules: (Speaker A) or a name is automatic, "✓" marks the user's correction. Unanalysed lines have none.
+ */
 export function formatSeg(s: SegmentRow, label = true): string {
-  const who = label && s.source === 'system' ? '(computer audio) ' : label && s.source === 'mic' ? '' : '';
-  return `[${fmtT(s.t_start)}] ${who}${s.text}`;
+  const speaker = s.speaker_state === 'mixed' ? 'mixed speakers'
+    : s.speaker_state === 'assigned' && s.speaker_label ? `${s.speaker_label}${s.speaker_origin === 'manual' ? ' ✓' : ''}`
+      : s.speaker_state === 'unknown' ? 'speaker unknown' : '';
+  const tags = [s.source === 'system' ? 'computer audio' : '', speaker].filter(Boolean).join('; ');
+  return `[${fmtT(s.t_start)}] ${label && tags ? `(${tags}) ` : ''}${s.text}`;
 }
 
 /** Render transcript lines, keeping the most recent ones if over budget. */
@@ -30,7 +37,8 @@ export function renderSegments(segs: SegmentRow[], maxChars: number): { text: st
   };
 }
 
-export function totalChars(segs: SegmentRow[]): number { return segs.reduce((n, s) => n + s.text.length + 10, 0); }
+/** Size as sent (with time and speaker tags), so budget checks match what renderSegments keeps. */
+export function totalChars(segs: SegmentRow[]): number { return segs.reduce((n, s) => n + formatSeg(s).length + 1, 0); }
 
 /** Keywords for retrieval: technical-looking English words and CJK trigrams. */
 export function keywords(text: string, max = 12): string[] {
@@ -49,7 +57,7 @@ export function keywords(text: string, max = 12): string[] {
 export interface Digest { from: number; to: number; text: string }
 
 export function digests(store: Store, sessionId: string): Digest[] {
-  return store.outputs(sessionId, ['digest']).filter((o) => o.status === 'done' && o.content)
+  return store.outputs(sessionId, ['digest']).filter((o) => o.status === 'done' && o.content && !o.stale_reason)
     .map((o) => ({ from: o.covered_from ?? 0, to: o.covered_to ?? 0, text: o.content! }))
     .sort((a, b) => a.from - b.from);
 }
@@ -69,7 +77,7 @@ export interface OverviewData {
 
 export function latestOverview(store: Store, sessionId: string): (OutputRow & { data: OverviewData }) | null {
   const o = store.latestOutput(sessionId, 'overview');
-  if (!o?.data_json) return null;
+  if (!o?.data_json || o.stale_reason) return null;
   try { return { ...o, data: JSON.parse(o.data_json) as OverviewData }; } catch { return null; }
 }
 
@@ -97,8 +105,9 @@ export function undigestedChunks(store: Store, sessionId: string, upTo: number, 
   let cur: SegmentRow[] = [], chars = 0;
   for (const s of segs) {
     const contiguous = !cur.length || s.t_start - cur[cur.length - 1].t_end < 5 * 60_000;
-    if (cur.length && (chars + s.text.length > maxChars || !contiguous)) { chunks.push(cur); cur = []; chars = 0; }
-    cur.push(s); chars += s.text.length + 10;
+    const size = formatSeg(s).length + 1;
+    if (cur.length && (chars + size > maxChars || !contiguous)) { chunks.push(cur); cur = []; chars = 0; }
+    cur.push(s); chars += size;
   }
   if (cur.length) chunks.push(cur);
   return chunks;

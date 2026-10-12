@@ -1,0 +1,3 @@
+# Kept separate from the app and system Python environment.
+sherpa-onnx==1.13.8
+numpy==1.26.4

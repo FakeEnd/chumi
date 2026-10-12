@@ -1,3 +1,6 @@
+import { validateSessionTypes } from '../shared/session-types.ts';
+import { randomUUID } from 'node:crypto';
+import type { Speaker, SpeakerAnalysis, SpeakerAnnotation, SpeakerCorrection, SpeakerTurn } from '../shared/speakers.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { DB_PATH } from './paths.ts';
 import { DEFAULT_PROFILE, DEFAULT_SETTINGS, normalizeLanguage, type Profile, type Settings } from './settings.ts';
@@ -31,7 +34,7 @@ export interface HandoffItemRow {
   evidence_json: string; review: 'pending' | 'confirmed' | 'rejected'; edited: number; updated_at: number;
 }
 export interface AgentReadRow { id: number; at: number; client: string | null; tool: string; project_id: string | null; session_id: string | null; handoff_id: string | null; revision: number | null; token: string | null }
-export interface SegmentRow {
+export interface SegmentRow extends SpeakerAnnotation {
   id: number; session_id: string; t_start: number; t_end: number; text: string;
   lang: string | null; source: string | null; run: number; created_at: number;
 }
@@ -41,6 +44,8 @@ export interface OutputRow {
   scope: string | null; depth: string | null; covered_from: number | null; covered_to: number | null; content: string | null;
   data_json: string | null; error: string | null; provider: string | null; model: string | null; billing: string | null;
   auto_epoch: number | null; parent_id: string | null; created_at: number; completed_at: number | null;
+  /** Existing generated text is retained, but no longer used as fresh context after a speaker correction. */
+  stale_reason?: string | null;
 }
 
 const SCHEMA = `
@@ -159,10 +164,82 @@ const MIGRATIONS: string[] = [
     project_id TEXT, session_id TEXT, handoff_id TEXT, revision INTEGER, token TEXT
   );
   `,
+  // 2 — meeting-local speaker annotations; the original transcript stays unchanged.
+  `
+  CREATE TABLE session_speakers (
+    id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    source TEXT NOT NULL, label TEXT NOT NULL, name TEXT, created_at INTEGER NOT NULL,
+    UNIQUE(session_id, label)
+  );
+  CREATE TABLE speaker_analyses (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    status TEXT NOT NULL, generation TEXT, error TEXT, updated_at INTEGER
+  );
+  CREATE TABLE speaker_turns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    source TEXT NOT NULL, speaker_id TEXT NOT NULL REFERENCES session_speakers(id) ON DELETE CASCADE,
+    start_ms REAL NOT NULL, end_ms REAL NOT NULL
+  );
+  CREATE INDEX speaker_turns_session ON speaker_turns(session_id, source, start_ms);
+  CREATE TABLE segment_speakers (
+    segment_id INTEGER PRIMARY KEY REFERENCES segments(id) ON DELETE CASCADE,
+    speaker_id TEXT REFERENCES session_speakers(id), state TEXT NOT NULL, origin TEXT NOT NULL,
+    auto_speaker_id TEXT REFERENCES session_speakers(id), auto_state TEXT NOT NULL
+  );
+  ALTER TABLE ai_outputs ADD COLUMN stale_reason TEXT;
+  `,
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
 export interface FrameRow { id: number; session_id: string; t: number; path: string; width: number | null; height: number | null; kind: string; window_title: string | null; app: string | null; created_at: number }
+
+export interface SpeakerCoverage { source: string; start_ms: number; end_ms: number }
+type StoredTurn = SpeakerCoverage & { speaker_id: string };
+type SpeakerState = NonNullable<SpeakerAnnotation['speaker_state']>;
+const SEGMENT_SELECT = `SELECT s.*, a.speaker_id, CASE WHEN a.speaker_id IS NOT NULL THEN COALESCE(p.name, 'Speaker ' || p.label) END AS speaker_label,
+  a.state AS speaker_state, a.origin AS speaker_origin FROM segments s
+  LEFT JOIN segment_speakers a ON a.segment_id = s.id LEFT JOIN session_speakers p ON p.id = a.speaker_id`;
+/** Speaker fields for agents and exports; speaker_state is null when the line was never analysed. */
+export const speakerFields = (s: SegmentRow) => ({ speaker_id: s.speaker_id ?? null, speaker_label: s.speaker_label ?? null, speaker_state: s.speaker_state ?? null, speaker_origin: s.speaker_origin ?? null });
+const overlapMs = (a: { start_ms: number; end_ms: number }, b: { start_ms: number; end_ms: number }) => Math.max(0, Math.min(a.end_ms, b.end_ms) - Math.max(a.start_ms, b.start_ms));
+/** Union intervals before measuring, so overlapping worker turns cannot inflate confidence. */
+function intervals(rows: Array<{ start_ms: number; end_ms: number }>): Array<{ start_ms: number; end_ms: number }> {
+  const out: Array<{ start_ms: number; end_ms: number }> = [];
+  for (const r of [...rows].sort((a, b) => a.start_ms - b.start_ms)) {
+    const last = out.at(-1);
+    if (last && r.start_ms <= last.end_ms) last.end_ms = Math.max(last.end_ms, r.end_ms);
+    else out.push({ start_ms: r.start_ms, end_ms: r.end_ms });
+  }
+  return out;
+}
+type Span = { start_ms: number; end_ms: number };
+/** Overlap of two already merged, sorted interval lists (a linear sweep). */
+function mergedOverlap(a: Span[], b: Span[]): number {
+  let total = 0, i = 0, j = 0;
+  while (i < a.length && j < b.length) {
+    total += overlapMs(a[i], b[j]);
+    if (a[i].end_ms < b[j].end_ms) i++; else j++;
+  }
+  return total;
+}
+function intervalOverlap(a: Span[], b: Span[]): number { return mergedOverlap(intervals(a), intervals(b)); }
+/** Turns of one source sorted by start, with the longest duration, for range lookups. */
+function turnIndex(turns: StoredTurn[]): Map<string, { turns: StoredTurn[]; longest: number }> {
+  const out = new Map<string, { turns: StoredTurn[]; longest: number }>();
+  for (const t of turns) { const g = out.get(t.source) ?? { turns: [], longest: 0 }; g.turns.push(t); g.longest = Math.max(g.longest, t.end_ms - t.start_ms); out.set(t.source, g); }
+  for (const g of out.values()) g.turns.sort((a, b) => a.start_ms - b.start_ms);
+  return out;
+}
+function firstStartAtOrAfter(turns: StoredTurn[], ms: number): number {
+  let lo = 0, hi = turns.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (turns[mid].start_ms < ms) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+function speakerLabel(n: number): string {
+  let label = '';
+  do { label = String.fromCharCode(65 + n % 26) + label; n = Math.floor(n / 26) - 1; } while (n >= 0);
+  return label;
+}
 
 export class Store {
   db: DatabaseSync;
@@ -205,7 +282,13 @@ export class Store {
       .run(key, JSON.stringify(value), now());
   }
   getSettings(): Settings { return deepMerge(DEFAULT_SETTINGS, this.getKV('settings', {})); }
-  saveSettings(s: Settings): void { this.setKV('settings', s); }
+  saveSettings(s: Settings): Settings {
+    const sessionTypes = validateSessionTypes(s.sessionTypes, this.getSettings().sessionTypes);
+    const type = sessionTypes.some((o) => o.id === s.quickStart.type && !o.archived) ? s.quickStart.type : sessionTypes.find((o) => !o.archived)!.id;
+    const next = { ...s, sessionTypes, quickStart: { ...s.quickStart, type } };
+    this.setKV('settings', next);
+    return next;
+  }
   getProfile(): Profile {
     const p = { ...DEFAULT_PROFILE, ...this.getKV<Partial<Profile>>('profile', {}) };
     return { ...p, explanationLanguage: normalizeLanguage(p.explanationLanguage) };
@@ -268,18 +351,18 @@ export class Store {
     return { ...seg, id: Number(r.lastInsertRowid), created_at: now() };
   }
   segments(sessionId: string, fromT = -Infinity, toT = Infinity): SegmentRow[] {
-    return this.db.prepare('SELECT * FROM segments WHERE session_id = ? AND t_end >= ? AND t_start <= ? ORDER BY t_start, id')
+    return this.db.prepare(`${SEGMENT_SELECT} WHERE s.session_id = ? AND s.t_end >= ? AND s.t_start <= ? ORDER BY s.t_start, s.id`)
       .all(sessionId, Number.isFinite(fromT) ? fromT : -1e15, Number.isFinite(toT) ? toT : 1e15) as unknown as SegmentRow[];
   }
   /** Segments that start after time t (used by the assistant's triggers instead of re-reading the whole session). */
   segmentsAfter(sessionId: string, t: number): SegmentRow[] {
-    return this.db.prepare('SELECT * FROM segments WHERE session_id = ? AND t_start > ? ORDER BY t_start, id').all(sessionId, t) as unknown as SegmentRow[];
+    return this.db.prepare(`${SEGMENT_SELECT} WHERE s.session_id = ? AND s.t_start > ? ORDER BY s.t_start, s.id`).all(sessionId, t) as unknown as SegmentRow[];
   }
   firstSegment(sessionId: string): SegmentRow | undefined {
-    return this.db.prepare('SELECT * FROM segments WHERE session_id = ? ORDER BY t_start LIMIT 1').get(sessionId) as SegmentRow | undefined;
+    return this.db.prepare(`${SEGMENT_SELECT} WHERE s.session_id = ? ORDER BY s.t_start, s.id LIMIT 1`).get(sessionId) as SegmentRow | undefined;
   }
   lastSegment(sessionId: string): SegmentRow | undefined {
-    return this.db.prepare('SELECT * FROM segments WHERE session_id = ? ORDER BY t_end DESC LIMIT 1').get(sessionId) as SegmentRow | undefined;
+    return this.db.prepare(`${SEGMENT_SELECT} WHERE s.session_id = ? ORDER BY s.t_end DESC, s.id DESC LIMIT 1`).get(sessionId) as SegmentRow | undefined;
   }
   /** Keyword retrieval over one session (trigram FTS, BM25 ranking). */
   searchSegments(sessionId: string, terms: string[], limit = 12): SegmentRow[] {
@@ -287,9 +370,191 @@ export class Store {
     if (!usable.length) return [];
     const match = usable.map((t) => `"${t.replace(/"/g, '""')}"`).join(' OR ');
     try {
-      return this.db.prepare(`SELECT s.* FROM segments_fts f JOIN segments s ON s.id = f.rowid
+      return this.db.prepare(`${SEGMENT_SELECT} JOIN segments_fts f ON s.id = f.rowid
         WHERE segments_fts MATCH ? AND s.session_id = ? ORDER BY bm25(segments_fts) LIMIT ?`).all(match, sessionId, limit) as unknown as SegmentRow[];
     } catch { return []; }
+  }
+
+  segmentsByIds(sessionId: string, ids: number[]): SegmentRow[] {
+    if (!ids.length) return [];
+    return this.db.prepare(`${SEGMENT_SELECT} WHERE s.session_id = ? AND s.id IN (${ids.map(() => '?').join(',')}) ORDER BY s.t_start, s.id`)
+      .all(sessionId, ...ids) as unknown as SegmentRow[];
+  }
+
+  // ---------- meeting-local speaker annotations ----------
+  speakers(sessionId: string): Speaker[] {
+    return this.db.prepare('SELECT id, session_id, source, label, name FROM session_speakers WHERE session_id = ? ORDER BY rowid').all(sessionId) as unknown as Speaker[];
+  }
+  speakerAnalysis(sessionId: string): SpeakerAnalysis {
+    return this.db.prepare('SELECT status, generation, error, updated_at FROM speaker_analyses WHERE session_id = ?').get(sessionId) as unknown as SpeakerAnalysis
+      ?? { status: 'not_run', generation: null, error: null, updated_at: null };
+  }
+  setSpeakerAnalysis(sessionId: string, analysis: SpeakerAnalysis): void {
+    this.requireSpeakerSession(sessionId);
+    if (!['not_run', 'queued', 'running', 'done', 'failed', 'cancelled'].includes(analysis.status)
+      || analysis.generation != null && (typeof analysis.generation !== 'string' || !analysis.generation.trim())) throw new Error('Invalid speaker analysis');
+    this.db.prepare(`INSERT INTO speaker_analyses(session_id, status, generation, error, updated_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET status = excluded.status, generation = excluded.generation, error = excluded.error, updated_at = excluded.updated_at`)
+      .run(sessionId, analysis.status, analysis.generation, analysis.error, analysis.updated_at ?? now());
+  }
+  private requireSpeakerSession(sessionId: string): SessionRow {
+    const session = this.getSession(sessionId);
+    if (!session) throw new Error('Session not found');
+    return session;
+  }
+  private speakerTransaction(fn: () => void): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try { fn(); this.db.exec('COMMIT'); } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+  }
+  private speakerChanged(sessionId: string, staleOutputs = true): void {
+    this.db.prepare('UPDATE sessions SET revision = revision + 1 WHERE id = ?').run(sessionId);
+    const session = this.getSession(sessionId)!;
+    this.addTimeline(sessionId, session.duration_ms, 'speaker_labels_changed', { revision: session.revision });
+    // Keep generated history visible, but never feed outdated names/assignments into a new AI request.
+    if (staleOutputs) this.db.prepare("UPDATE ai_outputs SET stale_reason = 'speaker_labels_changed' WHERE session_id = ?").run(sessionId);
+  }
+  /**
+   * One voice covering half the line, or (when the whole line was analysed) at least a second of it with no other
+   * voice, is that speaker. Whisper lines often span pauses or music, which no speaker covers.
+   */
+  private speakerForSegment(segment: SegmentRow, index: Map<string, { turns: StoredTurn[]; longest: number }>, fullyAnalysed: boolean): { id: string | null; state: SpeakerState } {
+    const range = { start_ms: segment.t_start, end_ms: segment.t_end }, duration = segment.t_end - segment.t_start;
+    if (duration <= 0) return { id: null, state: 'unknown' };
+    const group = index.get(segment.source ?? '');
+    const bySpeaker = new Map<string, StoredTurn[]>();
+    if (group) {
+      const end = firstStartAtOrAfter(group.turns, range.end_ms);
+      for (let i = firstStartAtOrAfter(group.turns, range.start_ms - group.longest); i < end; i++) {
+        const t = group.turns[i];
+        if (overlapMs(t, range) > 0) { const g = bySpeaker.get(t.speaker_id) ?? []; g.push(t); bySpeaker.set(t.speaker_id, g); }
+      }
+    }
+    const significant = [...bySpeaker].map(([id, ts]) => ({ id, ms: intervalOverlap(ts, [range]) }))
+      .filter((s) => s.ms >= Math.min(250, duration * 0.15)).sort((a, b) => b.ms - a.ms);
+    if (significant.length > 1) return { id: null, state: 'mixed' };
+    const top = significant[0];
+    if (top && (top.ms >= duration * 0.5 || fullyAnalysed && top.ms >= 1000)) return { id: top.id, state: 'assigned' };
+    return { id: null, state: 'unknown' };
+  }
+  /** Apply only the analysed time ranges. Worker cluster names never identify a person across takes. */
+  /** Returns false when this result was superseded (cancelled or replaced) and nothing was written. */
+  applySpeakerTurns(sessionId: string, generation: string, turns: SpeakerTurn[], coverage?: SpeakerCoverage[]): boolean {
+    this.requireSpeakerSession(sessionId);
+    const validRange = (r: SpeakerCoverage) => typeof r.source === 'string' && ['mic', 'system', 'file'].includes(r.source)
+      && Number.isFinite(r.start_ms) && Number.isFinite(r.end_ms) && r.start_ms >= 0 && r.end_ms > r.start_ms;
+    if (!generation || !Array.isArray(turns) || turns.some((t) => !validRange(t) || typeof t.speaker !== 'string' || !t.speaker.trim() || t.speaker.length > 200)
+      || coverage && (!Array.isArray(coverage) || coverage.some((c) => !validRange(c)))) throw new Error('Invalid speaker turns or coverage');
+    const rawCoverage = coverage ?? [...new Set(turns.map((t) => t.source))].map((source) => turns.filter((t) => t.source === source)
+      .reduce((r, t) => ({ source, start_ms: Math.min(r.start_ms, t.start_ms), end_ms: Math.max(r.end_ms, t.end_ms) }), { source, start_ms: Infinity, end_ms: -Infinity }));
+    const ranges = [...new Set(rawCoverage.map((r) => r.source))].flatMap((source) => intervals(rawCoverage.filter((r) => r.source === source)).map((r) => ({ ...r, source })));
+    if (turns.some((t) => !ranges.some((r) => r.source === t.source && r.start_ms <= t.start_ms && r.end_ms >= t.end_ms))) throw new Error('Speaker turn is outside analysed coverage');
+    let applied = false;
+    this.speakerTransaction(() => {
+      const analysis = this.speakerAnalysis(sessionId);
+      if (analysis.generation !== generation || !['queued', 'running'].includes(analysis.status)) return;
+      applied = true;
+      const previous = this.db.prepare('SELECT source, speaker_id, start_ms, end_ms FROM speaker_turns WHERE session_id = ?').all(sessionId) as unknown as StoredTurn[];
+      const groups = new Map<string, SpeakerTurn[]>();
+      for (const t of turns) { const key = JSON.stringify([t.source, t.speaker]); const group = groups.get(key) ?? []; group.push(t); groups.set(key, group); }
+      // Match only when old and new clusters agree in their overlapping audio, in both directions.
+      const candidates: Array<{ key: string; id: string; score: number }> = [];
+      const merged = new Map<string, Span[]>();
+      const spans = (key: string, rows: Span[]) => { let m = merged.get(key); if (!m) { m = intervals(rows); merged.set(key, m); } return m; };
+      const oldBySpeaker = new Map<string, StoredTurn[]>();
+      for (const t of previous) { const g = oldBySpeaker.get(t.speaker_id) ?? []; g.push(t); oldBySpeaker.set(t.speaker_id, g); }
+      for (const [key, group] of groups) {
+        const source = group[0].source;
+        const mine = spans(key, group);
+        const newInOld = mergedOverlap(mine, spans(`old:${source}`, previous.filter((t) => t.source === source)));
+        if (!newInOld) continue;
+        const allNew = spans(`new:${source}`, turns.filter((t) => t.source === source));
+        for (const [id, oldGroup] of oldBySpeaker) {
+          if (oldGroup[0].source !== source) continue;
+          const theirs = spans(`id:${id}`, oldGroup), score = mergedOverlap(mine, theirs);
+          if (!score) continue;
+          const oldInNew = mergedOverlap(theirs, allNew);
+          if (score / newInOld >= 0.6 && oldInNew && score / oldInNew >= 0.6) candidates.push({ key, id, score });
+        }
+      }
+      const mapped = new Map<string, string>(), used = new Set<string>();
+      for (const c of candidates.sort((a, b) => b.score - a.score)) if (!mapped.has(c.key) && !used.has(c.id)) { mapped.set(c.key, c.id); used.add(c.id); }
+      let labelIndex = this.speakers(sessionId).length;
+      for (const [key, group] of groups) if (!mapped.has(key)) {
+        const id = `sp_${randomUUID()}`;
+        this.db.prepare('INSERT INTO session_speakers(id, session_id, source, label, name, created_at) VALUES (?, ?, ?, ?, NULL, ?)')
+          .run(id, sessionId, group[0].source, speakerLabel(labelIndex++), now());
+        mapped.set(key, id);
+      }
+      // Retain earlier coverage and split old turns at a partial replacement boundary.
+      const kept: StoredTurn[] = previous.flatMap((t) => {
+        let pieces = [t];
+        for (const r of ranges.filter((r) => r.source === t.source)) pieces = pieces.flatMap((p) => overlapMs(p, r) <= 0 ? [p] : [
+          ...(p.start_ms < r.start_ms ? [{ ...p, end_ms: r.start_ms }] : []),
+          ...(p.end_ms > r.end_ms ? [{ ...p, start_ms: r.end_ms }] : []),
+        ]);
+        return pieces;
+      });
+      const next: StoredTurn[] = [...kept, ...turns.map((t) => ({ source: t.source, start_ms: t.start_ms, end_ms: t.end_ms, speaker_id: mapped.get(JSON.stringify([t.source, t.speaker]))! }))];
+      this.db.prepare('DELETE FROM speaker_turns WHERE session_id = ?').run(sessionId);
+      const insert = this.db.prepare('INSERT INTO speaker_turns(session_id, source, speaker_id, start_ms, end_ms) VALUES (?, ?, ?, ?, ?)');
+      for (const t of next) insert.run(sessionId, t.source, t.speaker_id, t.start_ms, t.end_ms);
+      // Lines that only gain their first labels do not make earlier AI output wrong; changed labels do.
+      let labelled = false, relabelled = false;
+      const index = turnIndex(next);
+      const upsert = this.db.prepare(`INSERT INTO segment_speakers(segment_id, speaker_id, state, origin, auto_speaker_id, auto_state) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(segment_id) DO UPDATE SET speaker_id = excluded.speaker_id, state = excluded.state, origin = excluded.origin,
+        auto_speaker_id = excluded.auto_speaker_id, auto_state = excluded.auto_state`);
+      const bySource = new Map<string, Span[]>();
+      for (const r of ranges) bySource.set(r.source, [...(bySource.get(r.source) ?? []), r]);
+      for (const s of this.segments(sessionId)) {
+        const span = { start_ms: s.t_start, end_ms: s.t_end }, analysed = bySource.get(s.source ?? '') ?? [];
+        const covered = mergedOverlap(analysed, [span]);
+        if (!covered) continue;
+        const auto = this.speakerForSegment(s, index, covered >= s.t_end - s.t_start), manual = s.speaker_origin === 'manual';
+        const id = manual ? s.speaker_id ?? null : auto.id, state = manual ? s.speaker_state! : auto.state;
+        if (!s.speaker_state) labelled = true;
+        else if (id !== (s.speaker_id ?? null) || state !== s.speaker_state) relabelled = true;
+        upsert.run(s.id, id, state, manual ? 'manual' : 'automatic', auto.id, auto.state);
+      }
+      this.setSpeakerAnalysis(sessionId, { status: 'done', generation, error: null, updated_at: now() });
+      if (relabelled) this.speakerChanged(sessionId);
+      else if (labelled) this.speakerChanged(sessionId, false);
+    });
+    return applied;
+  }
+  renameSpeaker(sessionId: string, speakerId: string, name: string | null): void {
+    this.requireSpeakerSession(sessionId);
+    if (name !== null && (typeof name !== 'string' || !name.trim() || name.trim().length > 80 || /[\u0000-\u001f\u007f]/.test(name))) throw new Error('Speaker name must be 1–80 characters without control characters');
+    const clean = name?.trim() ?? null;
+    this.speakerTransaction(() => {
+      const speaker = this.speakers(sessionId).find((s) => s.id === speakerId);
+      if (!speaker) throw new Error('Speaker does not belong to this session');
+      if (speaker.name === clean) return;
+      this.db.prepare('UPDATE session_speakers SET name = ? WHERE id = ? AND session_id = ?').run(clean, speakerId, sessionId);
+      this.speakerChanged(sessionId);
+    });
+  }
+  correctSegmentSpeaker(sessionId: string, segmentId: number, correction: SpeakerCorrection): void {
+    this.requireSpeakerSession(sessionId);
+    if (!correction || !['automatic', 'unknown', 'speaker'].includes(correction.mode)) throw new Error('Invalid speaker correction');
+    this.speakerTransaction(() => {
+      const segment = this.segmentsByIds(sessionId, [segmentId])[0];
+      if (!segment) throw new Error('Transcript segment does not belong to this session');
+      const saved = this.db.prepare('SELECT auto_speaker_id, auto_state FROM segment_speakers WHERE segment_id = ?').get(segmentId) as { auto_speaker_id: string | null; auto_state: SpeakerState } | undefined;
+      const auto = saved ?? { auto_speaker_id: null, auto_state: 'unknown' as const };
+      let id: string | null = null, state: SpeakerState = 'unknown';
+      if (correction.mode === 'speaker') {
+        const speaker = this.speakers(sessionId).find((s) => s.id === correction.speakerId);
+        if (!speaker || speaker.source !== segment.source) throw new Error('Speaker does not belong to this session and audio source');
+        id = speaker.id; state = 'assigned';
+      } else if (correction.mode === 'automatic') { id = auto.auto_speaker_id; state = auto.auto_state; }
+      const origin = correction.mode === 'automatic' ? 'automatic' : 'manual';
+      if (segment.speaker_id === id && segment.speaker_state === state && segment.speaker_origin === origin) return;
+      this.db.prepare(`INSERT INTO segment_speakers(segment_id, speaker_id, state, origin, auto_speaker_id, auto_state) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(segment_id) DO UPDATE SET speaker_id = excluded.speaker_id, state = excluded.state, origin = excluded.origin`)
+        .run(segmentId, id, state, origin, auto.auto_speaker_id, auto.auto_state);
+      this.speakerChanged(sessionId);
+    });
   }
 
   // ---------- timeline ----------

@@ -1,4 +1,6 @@
 import { marked } from 'marked';
+import { getState } from './store.ts';
+import { DEFAULT_SESSION_TYPES } from '../../shared/session-types.ts';
 import { locale, msg, t as tr } from './i18n.ts';
 
 export function fmtT(ms: number | null | undefined): string {
@@ -56,7 +58,10 @@ export function renderMd(md: string): string {
 }
 
 const TYPE_LABEL: Record<string, string> = { lab_meeting: msg('Lab meeting'), advisor: msg('Advisor 1:1'), lecture: msg('Lecture'), wip: msg('WIP / seminar'), other: msg('Other') };
-export const SESSION_TYPES = Object.keys(TYPE_LABEL);
-export const typeLabel = (id: string): string => (TYPE_LABEL[id] ? tr(TYPE_LABEL[id]) : id);
+export const typeLabel = (id: string): string => {
+  const option = (getState().settings?.sessionTypes ?? DEFAULT_SESSION_TYPES).find((o) => o.id === id);
+  const original = DEFAULT_SESSION_TYPES.find((o) => o.id === id);
+  return option && option.name !== original?.name ? option.name : Object.hasOwn(TYPE_LABEL, id) ? tr(TYPE_LABEL[id]) : option?.name ?? id;
+};
 const SOURCE_LABEL: Record<string, string> = { mic: msg('Microphone'), system: msg('Computer audio'), both: msg('Mic + computer'), file: msg('Audio file (test)') };
 export const sourceLabel = (src: string): string => (SOURCE_LABEL[src] ? tr(SOURCE_LABEL[src]) : src);

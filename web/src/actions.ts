@@ -2,7 +2,8 @@ import { api, subscribe } from './api.ts';
 import { getState, notify, setState, upsertOutput, type AppState } from './store.ts';
 import { projectContextOn } from './projectContext.ts';
 import { t } from './i18n.ts';
-import type { Depth, Effort, Frame, Handoff, Output, Profile, Project, Segment, SessionData, Settings, WindowInfo } from './types.ts';
+import type { SpeakerAnnotation, SpeakerCorrection, SpeakerView } from '../../shared/speakers.ts';
+import type { Depth, Effort, Frame, Handoff, Output, Profile, Project, Segment, SessionData, Settings, SpeakerUpdate, WindowInfo } from './types.ts';
 
 export async function loadState(): Promise<void> {
   const s = await api('/api/state');
@@ -63,9 +64,10 @@ export function connectEvents(): () => void {
     profile: (p: Profile) => setState({ profile: p }),
     notice: (n) => notify(n.level, n.message, n.code),
     asr: (a) => setState((s) => ({ live: s.live ? { ...s.live, asr: { ...s.live.asr, state: a.state, message: a.message } } : s.live })),
-    'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); notify('info', t('Session saved. Generating the final summary…'), 'ended'); },
+    'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); notify('info', t('Session saved. Preparing the final summary…'), 'ended'); },
     'session-updated': (sess) => setState((s) => (s.data && s.data.session.id === sess.id ? { data: { ...s.data, session: sess } } : {})),
     handoff: (e: { sessionId: string; handoff: Handoff | null }) => setHandoff(e.sessionId, e.handoff),
+    speakers: (e: SpeakerUpdate) => mergeSpeakerUpdate(e),
     projects: () => void loadProjects(),
   }, (ok) => { setState({ connected: ok }); if (ok) void loadState().catch(() => {}); });
 }
@@ -127,6 +129,36 @@ export async function deleteSession(id: string): Promise<boolean> {
 }
 export function exportUrl(id: string, format: 'md' | 'txt'): string { return `/api/sessions/${id}/export?format=${format}`; }
 export async function refreshProvider(): Promise<void> { const p = await guard(api('/api/provider/status?refresh=1')); if (p) setState({ provider: p }); }
+
+// Speaker updates replace annotations without resetting the viewed passage or attached question.
+export function mergeSpeakerUpdate(update: SpeakerUpdate): void {
+  setState((s) => {
+    if (!s.data || s.data.session.id !== update.sessionId || update.session.revision < s.data.session.revision) return {};
+    // Keep unchanged objects, so memoized transcript rows and cards only re-render where something changed.
+    const byId = new Map(update.annotations.map((a) => [a.id, a]));
+    const same = (seg: Segment, a: SpeakerAnnotation) => seg.speaker_id === a.speaker_id && seg.speaker_label === a.speaker_label && seg.speaker_state === a.speaker_state && seg.speaker_origin === a.speaker_origin;
+    const segments = s.data.segments.map((seg) => { const a = byId.get(seg.id); return !a || same(seg, a) ? seg : { ...seg, ...a }; });
+    const outputs = s.data.outputs.map((o) => o.id in update.stale && (o.stale_reason ?? null) !== update.stale[o.id] ? { ...o, stale_reason: update.stale[o.id] } : o);
+    const speakerView = s.data.speakerView && JSON.stringify(s.data.speakerView) === JSON.stringify(update.speakerView) ? s.data.speakerView : update.speakerView;
+    return {
+      data: { ...s.data, speakerView, segments, session: update.session, handoff: update.handoff, outputs },
+      ...(s.live?.session?.id === update.sessionId ? { live: { ...s.live, session: update.session } } : {}),
+    };
+  });
+}
+export async function refreshSpeakers(sessionId: string): Promise<SpeakerView> {
+  const revision = getState().data?.session.id === sessionId ? getState().data?.session.revision : undefined;
+  const speakerView = await api<SpeakerView>(`/api/sessions/${sessionId}/speakers`);
+  setState((s) => s.data?.session.id === sessionId && s.data.session.revision === revision && (s.data.speakerView?.analysis.updated_at ?? 0) <= (speakerView.analysis.updated_at ?? 0) ? { data: { ...s.data, speakerView } } : {});
+  return speakerView;
+}
+async function mutateSpeakers(path: string, method: string, body: unknown): Promise<void> {
+  mergeSpeakerUpdate(await api<SpeakerUpdate>(path, { method, body }));
+}
+export const analyzeSpeakers = (sessionId: string) => mutateSpeakers(`/api/sessions/${sessionId}/speakers/analyze`, 'POST', {});
+export const cancelSpeakers = (sessionId: string) => mutateSpeakers(`/api/sessions/${sessionId}/speakers/cancel`, 'POST', {});
+export const renameSpeaker = (sessionId: string, speakerId: string, name: string | null) => mutateSpeakers(`/api/sessions/${sessionId}/speakers/${encodeURIComponent(speakerId)}`, 'PATCH', { name });
+export const correctSpeaker = (sessionId: string, segmentId: number, correction: SpeakerCorrection) => mutateSpeakers(`/api/sessions/${sessionId}/segments/${segmentId}/speaker`, 'PATCH', correction);
 
 // ---------------------------------------------------------------- projects
 export async function loadProjects(): Promise<void> {

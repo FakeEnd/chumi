@@ -3,6 +3,7 @@ import type { ProviderId } from '../settings.ts';
 import { AnthropicApiProvider } from './anthropic-api.ts';
 import { ClaudeCliProvider } from './claude-cli.ts';
 import { CodexProvider } from './codex.ts';
+import { CompatibleProvider } from './compatible.ts';
 import { MockProvider } from './mock.ts';
 import { ProviderError, type AIProvider, type CompletionRequest, type CompletionResult, type ProviderStatus } from './provider.ts';
 
@@ -14,6 +15,7 @@ import { ProviderError, type AIProvider, type CompletionRequest, type Completion
 export class ProviderRegistry {
   readonly providers: Record<ProviderId, AIProvider>;
   readonly mock: MockProvider;
+  readonly compatible: CompatibleProvider;
   private store: Store;
   private statusCache = new Map<string, ProviderStatus>();
   onStatus: (s: ProviderStatus) => void = () => {};
@@ -21,10 +23,12 @@ export class ProviderRegistry {
   constructor(store: Store) {
     this.store = store;
     this.mock = new MockProvider();
+    this.compatible = new CompatibleProvider(() => store.getSettings().ai.compatible);
     this.providers = {
       codex: new CodexProvider(() => store.getSettings().ai.codex),
       'claude-cli': new ClaudeCliProvider(() => store.getSettings().ai.claudeCli),
       'anthropic-api': new AnthropicApiProvider(() => store.getSettings().ai.anthropicApi),
+      compatible: this.compatible,
       mock: this.mock,
     };
   }

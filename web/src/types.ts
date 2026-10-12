@@ -1,19 +1,25 @@
+import type { SessionTypeOption } from '../../shared/session-types.ts';
+import type { CompatibleSettings } from '../../shared/compatible-provider.ts';
+import type { SpeakerAnnotation, SpeakerView } from '../../shared/speakers.ts';
+
 export type Depth = 'quick' | 'standard' | 'deep';
 export type Effort = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-export type SessionType = 'lab_meeting' | 'advisor' | 'lecture' | 'wip' | 'other';
+export type SessionType = string;
 
 export interface Settings {
   audio: { source: 'mic' | 'system' | 'both'; micDeviceUid: string | null; aec: boolean; saveRawAudio: boolean };
-  asr: { model: string; language: 'auto' | 'en' | 'zh'; threads: number; glossary: string[]; chineseScript: 'simplified' | 'original' };
+  asr: { model: string; language: 'auto' | 'en' | 'zh'; threads: number; glossary: string[]; chineseScript: 'simplified' | 'original'; diarization: boolean };
   ai: {
-    provider: 'codex' | 'claude-cli' | 'anthropic-api' | 'mock';
+    provider: 'codex' | 'claude-cli' | 'anthropic-api' | 'compatible' | 'mock';
     effort: Effort;
     backgroundEffort: 'low' | 'medium' | 'high';
     codex: { model: string | null; allowCredits: boolean };
     claudeCli: { model: string };
     anthropicApi: { enabled: boolean; model: string };
+    compatible: CompatibleSettings;
   };
   assist: { autoExplain: boolean; autoExplainFrequency: 'low' | 'medium' | 'high'; defaultDepth: Depth; autoOverview: boolean };
+  sessionTypes: SessionTypeOption[];
   quickStart: { hotkey: string; source: 'default' | 'mic' | 'system' | 'both'; type: SessionType; notify: boolean };
   integrations: { mybot: { enabled: boolean; exportDir: string; shareWithTeam: boolean; serverUrl: string } };
   screen: { sendImagesToAI: boolean; intervalSec: number };
@@ -42,13 +48,14 @@ export interface Session {
   audio_source: string | null; duration_ms: number; segment_count?: number; snippet?: string;
   project_id: string | null; revision: number;
 }
-export interface Segment { id: number; session_id: string; t_start: number; t_end: number; text: string; lang: string | null; source: string | null; run: number }
+export interface Segment extends SpeakerAnnotation { id: number; session_id: string; t_start: number; t_end: number; text: string; lang: string | null; source: string | null; run: number }
 export interface TimelineEvent { id: number; session_id: string; t: number; kind: string; wall: number; detail: string | null }
 export interface Output {
   id: string; session_id: string; kind: string; status: string; question: string | null; selection: { fromT: number; toT: number; text: string } | null;
   scope: string | null; depth: string | null; covered_from: number | null; covered_to: number | null; content: string | null;
   data: Record<string, any> | null; error: string | null; provider: string | null; model: string | null; billing: string | null;
   auto_epoch: number | null; parent_id: string | null; created_at: number; completed_at: number | null;
+  stale_reason?: string | null;
 }
 
 export interface LiveState {
@@ -65,7 +72,9 @@ export interface LiveState {
 export interface Frame { id: number; session_id: string; t: number; width: number | null; height: number | null; kind: string; window_title: string | null; app: string | null; created_at: number }
 export interface WindowInfo { id: number; app: string; bundleId: string; pid: number; title: string; width: number; height: number; onScreen: boolean }
 
-export interface SessionData { session: Session; segments: Segment[]; timeline: TimelineEvent[]; outputs: Output[]; frames: Frame[]; live: boolean; handoff: Handoff | null }
+export interface SessionData { session: Session; segments: Segment[]; timeline: TimelineEvent[]; outputs: Output[]; frames: Frame[]; live: boolean; handoff: Handoff | null; speakerView?: SpeakerView }
+/** Annotations of analysed lines and every output's staleness; clients merge them into what they already have. */
+export interface SpeakerUpdate { sessionId: string; speakerView: SpeakerView; session: Session; handoff: Handoff | null; annotations: Array<SpeakerAnnotation & { id: number }>; stale: Record<string, string | null> }
 
 export interface Project {
   id: string; name: string; workspace: string; repo: { root: string; remote: string | null; branch: string | null } | null;
@@ -83,7 +92,7 @@ export interface Handoff {
   delivered_at: number | null; delivered_via: string | null; error: string | null; created_at: number; updated_at: number;
   project: { id: string; name: string; workspace: string } | null; meeting_project_id: string | null; project_mismatch: boolean;
   items: HandoffItem[];
-  freshness: { current_revision: number | null; reviewed_revision: number | null; stale: boolean; detail: { new_transcript_lines: number; new_outputs: number; summary_regenerated: boolean; new_frames: number; resumed: boolean; reassigned: boolean; meeting_deleted: boolean } };
+  freshness: { current_revision: number | null; reviewed_revision: number | null; stale: boolean; detail: { new_transcript_lines: number; new_outputs: number; summary_regenerated: boolean; new_frames: number; resumed: boolean; reassigned: boolean; meeting_deleted: boolean; speaker_labels_changed?: boolean } };
   last_agent_read: { at: number; client: string | null; revision: number | null } | null;
 }
 export interface AgentStatus {

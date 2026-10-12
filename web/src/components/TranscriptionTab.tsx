@@ -3,6 +3,7 @@ import { useStore } from '../store.ts';
 import { saveSettings } from '../actions.ts';
 import { api } from '../api.ts';
 import { getLang, t, tn } from '../i18n.ts';
+import { SpeakerSettings } from './Speakers.tsx';
 
 interface ModelRow {
   id: string; name: string; sizeMB: number; speed: number; accuracy: number; minRamGB: number;
@@ -48,6 +49,8 @@ export function TranscriptionTab() {
   return (
     <section>
       <p className="small">{t('Speech recognition runs on this Mac with whisper.cpp. It is free, needs no network, and keeps running when the AI provider is unavailable.')}</p>
+
+      <SpeakerSettings />
 
       <h3>{t('Speech model')}</h3>
       {hw && (

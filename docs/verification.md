@@ -2,6 +2,53 @@
 
 Results from the development Mac: Apple M5 Max, macOS 26.5, Node 26.5, whisper.cpp 1.9.5 with large-v3-turbo q8_0.
 
+## Branch review and optimization — 2026-10-12
+
+A review of the speaker-label, compatible-model, local-model, and session-type work before merging.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass. All tests pass, including new regression tests for each fix below. |
+| Real speaker model, end to end | Chinese 4-speaker sample through the file input at 4× (real Whisper, mock AI): 4 speakers. The 14 s line at 0:32, with one detected voice and long non-speech, is now assigned (it was "unknown"). Rename in the UI relabels the line and flags the summary. A meeting without analysis shows no speaker bar or tags. |
+| Re-analysis cost (2,000 lines, 3,000 turns) | First run 87 → 73 ms. Rerun on retained audio 2,676 → 30 ms. Resume-style run 1,315 → 27 ms. |
+| Acceptance harness | `scripts/acceptance-speakers.ts`: English 2-speaker passed (2 groups), Chinese 4-speaker passed (4 groups). |
+
+Fixed in this pass:
+
+- **Transcript budgets.** Every line carried a speaker tag, even in meetings never analyzed, while budgets counted only the bare text. Summaries of long meetings silently dropped their first ~25 minutes. Unanalyzed lines now have no tag, tags are short (legend once in the rules), and budgets measure the formatted lines.
+- **Capture and analysis.**
+  - A small backward clock step (device switch, drift re-anchor) no longer stops speaker capture for both sources. A large step starts a new take for that source only.
+  - Speaker updates now send only annotations and staleness, and unchanged rows don't re-render.
+  - First labels no longer mark earlier AI output stale, which used to force a full re-digest.
+  - A superseded analysis no longer records "done" or overwrites the newer job's state.
+  - The worker converts audio in blocks, using about a third less peak memory.
+- **Compatible models.**
+  - JSON wrapped in code fences or prose is accepted.
+  - Leading `<think>` blocks are hidden while streaming and removed from the answer.
+  - The timeout starts after the local queue and resets on each chunk.
+  - A stream finished with `finish_reason: stop` is accepted without `[DONE]`.
+  - An invalid saved profile no longer blocks unrelated settings saves.
+  - An LM Studio download Chumi can no longer reach can be dropped ("Stop tracking").
+- **Session types.**
+  - Each type chooses its summary style, so a renamed or added type gets the right template. Exports, agent evidence and mybot carry the type's name.
+  - Names reject control characters, and duplicates of translated defaults are caught.
+  - Removing an unsaved row drops it instead of archiving it, and re-adding a removed type restores it.
+  - Only active types count toward the 50-type limit.
+
+## Compatible model integration — 2026-10-11
+
+This pass covers the new local/API adapter, configuration, credentials interface, and settings UI. Earlier end-to-end results below were not rerun for this change.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Backend and frontend TypeScript pass; **54 / 54 tests pass**, including 27 new adapter, configuration, and answer-metadata tests. Transports and credentials are mocked. Download tests use a temporary loopback server. |
+| `npm run build:web` | Production build passes. |
+| Browser smoke test | Isolated database and fake local Chat Completions server: saved a profile without selecting it, tested a synthetic completion, explicitly selected the provider, and verified unsaved edits disable testing and can be discarded. Unsupported reasoning controls disappear after selection. |
+| HTTP smoke test | Stale model tests return 409; settings containing API keys and remote URLs in local profiles return 400; the fake local completion test succeeds. |
+| `git diff --check` | Passes. |
+
+Not verified in this pass: real vendor completions, Keychain write/delete round trips, actual Ollama/LM Studio installations, model answer quality, or simultaneous local inference and speech recognition performance. No paid model requests were made. Local runtimes and model downloads remain user-managed; configure a sufficient context window before evaluating long meetings.
+
 ## Automated
 
 | Run | Command | Result |

@@ -48,6 +48,7 @@ function OutputCard({ o, depth }: { o: Output; depth: Depth }) {
       <header className="card-head" onClick={() => setCollapsed(!collapsed)}>
         {auto && <span className="tag">{t('Background')}</span>}
         {o.kind === 'final_summary' && <span className="tag tag-summary">{t('Summary')}</span>}
+        {o.stale_reason === 'speaker_labels_changed' && <span className="tag tag-warn">{t('Speaker labels changed')}</span>}
         <span className="card-title">{title(o)}</span>
         {o.depth && o.kind !== 'catchup' && <span className="tag tag-depth">{t(DEPTH_LABEL[o.depth as Depth] ?? o.depth)}</span>}
         {o.data?.effort && !['auto_explain', 'overview'].includes(o.kind) && <span className="tag tag-depth" title={t('Reasoning effort used')}>{EFFORT_LABEL[o.data.effort] ? t(EFFORT_LABEL[o.data.effort]) : o.data.effort}</span>}
@@ -69,6 +70,7 @@ function OutputCard({ o, depth }: { o: Output; depth: Depth }) {
             {o.provider && <span className="muted" title={`${o.model ?? ''} · ${o.billing ?? ''}`}>{PROVIDER_SHORT[o.provider] ? t(PROVIDER_SHORT[o.provider]) : o.provider}{o.billing === 'subscription' ? ` · ${t('subscription')}` : o.billing === 'api' ? ` · ${t('billed')}` : ''}</span>}
           </div>
           <ProjectContextSources o={o} />
+          {o.stale_reason === 'speaker_labels_changed' && <p className="small warn-text">{t('This answer used older speaker labels or names. Regenerate it to use the current corrections.')}</p>}
           {auto && o.data?.why && <p className="why muted">{o.data.why}</p>}
           {o.status === 'pending' && <div className="pending"><span className="spinner" /> {t('Waiting for the AI provider…')}</div>}
           {(o.status === 'streaming' || o.status === 'done') && body && <Markdown text={body} />}
@@ -78,7 +80,7 @@ function OutputCard({ o, depth }: { o: Output; depth: Depth }) {
           {invalid.length > 0 && <div className="muted small warn-text">{t(invalid.length === 1 ? msg('Note: {n} cited time ({list}) did not match any transcript line.') : msg('Note: {n} cited times ({list}) did not match any transcript line.'), { n: invalid.length, list: invalid.slice(0, 3).join(', ') })}</div>}
           <div className="card-actions">
             {(o.status === 'pending' || o.status === 'streaming') && <button className="btn small" onClick={() => cancelOutput(o.id)}>{t('Cancel')}</button>}
-            {o.status === 'done' && (o.kind === 'catchup' || o.kind === 'final_summary') && <button className="btn small" onClick={() => refreshOutput(o.id)} title={t('Re-run up to the current moment')}>{t('Refresh')}</button>}
+            {o.status === 'done' && (o.stale_reason === 'speaker_labels_changed' || o.kind === 'catchup' || o.kind === 'final_summary') && <button className="btn small" onClick={() => refreshOutput(o.id)} title={t('Re-run up to the current moment')}>{o.stale_reason === 'speaker_labels_changed' ? t('Regenerate with current speakers') : t('Refresh')}</button>}
             {auto && o.status === 'done' && (
               <>
                 <button className="btn small" onClick={() => explain(o.question ?? '', evidenceT != null ? { fromT: evidenceT, toT: evidenceT + 5000, text: o.question ?? '' } : null, depth === 'quick' ? 'standard' : depth, o.id)}>{t('Explain more')}</button>
@@ -100,6 +102,7 @@ function AskBox() {
   const draft = useStore((s) => s.askDraft);
   const defaultDepth = useStore((s) => s.settings?.assist.defaultDepth ?? 'standard');
   const defaultEffort = useStore((s) => s.settings?.ai.effort ?? 'auto');
+  const supportsEffort = useStore((s) => s.settings?.ai.provider !== 'compatible');
   const [depth, setDepth] = useState<Depth>(defaultDepth);
   const [effort, setEffort] = useState<Effort>(defaultEffort);
   const [showAll, setShowAll] = useState(false);
@@ -108,8 +111,9 @@ function AskBox() {
   const send = (q: string, mode: 'ask' | 'explain' = 'ask') => {
     const text = q.trim();
     if (!text && !attached) return;
-    if (mode === 'explain') explain(text || attached!.text.slice(0, 80), attached, depth, undefined, effort);
-    else ask(text || t('What does this passage mean?'), attached, depth, [], effort);
+    const requestedEffort = supportsEffort ? effort : undefined;
+    if (mode === 'explain') explain(text || attached!.text.slice(0, 80), attached, depth, undefined, requestedEffort);
+    else ask(text || t('What does this passage mean?'), attached, depth, [], requestedEffort);
     setState({ askDraft: '', attached: null });
     setDepth(defaultDepth); // one-off choices; they do not change settings or the profile
     setEffort(defaultEffort);
@@ -130,9 +134,9 @@ function AskBox() {
           <div className="seg-control small" role="group" aria-label={t('Depth for this question')}>
             {(['quick', 'standard', 'deep'] as Depth[]).map((d) => <button key={d} className={depth === d ? 'on' : ''} onClick={() => setDepth(d)}>{t(DEPTH_LABEL[d])}</button>)}
           </div>
-          <select className="effort-select" value={effort} onChange={(e) => setEffort(e.target.value as Effort)} title={t('Reasoning effort for this question: higher is more thorough but slower and uses more of your plan')} aria-label={t('Reasoning effort')}>
+          {supportsEffort && <select className="effort-select" value={effort} onChange={(e) => setEffort(e.target.value as Effort)} title={t('Reasoning effort for this question: higher is more thorough but slower and uses more of your plan')} aria-label={t('Reasoning effort')}>
             {(['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as Effort[]).map((x) => <option key={x} value={x}>{t('Effort: {level}', { level: t(EFFORT_LABEL[x]) })}</option>)}
-          </select>
+          </select>}
           <ProjectContextToggle />
         </div>
         <div className="ask-actions">

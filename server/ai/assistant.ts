@@ -7,10 +7,11 @@ import {
 } from './context.ts';
 import {
   askInstructions, autoExplainInstructions, AUTO_EXPLAIN_SCHEMA, baseRules, catchupInstructions, digestInstructions,
-  explainInstructions, handoffInstructions, HANDOFF_SCHEMA, languageRule, overviewInstructions, OVERVIEW_SCHEMA, renderProfile, summaryInstructions, SESSION_TYPE_LABEL,
+  explainInstructions, handoffInstructions, HANDOFF_SCHEMA, languageRule, overviewInstructions, OVERVIEW_SCHEMA, renderProfile, summaryInstructions,
 } from './prompts.ts';
 import { ProviderError, parseJsonLoose, type CompletionRequest } from './provider.ts';
 import type { ProviderRegistry } from './registry.ts';
+import { sessionStyle, sessionTypeName } from '../../shared/session-types.ts';
 
 export type Broadcast = (event: string, data: unknown) => void;
 export type CatchupScope = '2m' | '5m' | 'all';
@@ -101,11 +102,11 @@ export class Assistant {
   private system(sessionId: string, task: string): string {
     const s = this.store.getSession(sessionId);
     const p = this.profile();
-    return [baseRules(s?.type ?? 'other'), task, renderProfile(p), languageRule(p)].join('\n\n');
+    return [baseRules(sessionStyle(this.settings().sessionTypes, s?.type)), task, renderProfile(p), languageRule(p)].join('\n\n');
   }
   private header(sessionId: string): string {
     const s = this.store.getSession(sessionId);
-    return `SESSION: "${s?.title ?? ''}" — ${SESSION_TYPE_LABEL[s?.type ?? 'other'] ?? ''}`;
+    return `SESSION: "${s?.title ?? ''}" — ${sessionTypeName(this.settings().sessionTypes, s?.type)}`;
   }
 
   // ------------------------------------------------------------------ generic runner
@@ -140,7 +141,7 @@ export class Assistant {
             task: o.kind, instructions: built.instructions, input: built.input, jsonSchema: built.schema, effort: built.effort, signal: controller.signal, images: built.images,
             onDelta: built.schema ? undefined : (d) => { pendingDelta += d; flushTimer ??= setTimeout(flush, 120); },
           });
-          text = r.text; meta = { provider: r.provider, model: r.model, billing: r.billing, effort: r.effort ?? built.effort ?? null };
+          text = r.text; meta = { provider: r.provider, model: r.model, billing: r.billing, effort: r.effort !== undefined ? r.effort : built.effort ?? null };
         }
         if (flushTimer) { clearTimeout(flushTimer); flush(); }
         const fin = o.finalize ? o.finalize(text, built) : { content: text };
@@ -187,13 +188,19 @@ export class Assistant {
 
   private complete(req: CompletionRequest) { return this.registry.complete(req); }
 
+  private speakerRevision(sessionId: string): number {
+    return (this.store.db.prepare("SELECT COALESCE(MAX(id), 0) AS revision FROM timeline WHERE session_id = ? AND kind = 'speaker_labels_changed'").get(sessionId) as { revision: number }).revision;
+  }
+
   // ------------------------------------------------------------------ digests (rolling memory for long sessions)
   /** Summarise transcript chunks that have no digest yet, so long sessions never send the full transcript. */
   private async ensureDigests(sessionId: string, upTo: number, signal: AbortSignal): Promise<void> {
     for (const chunk of undigestedChunks(this.store, sessionId, upTo)) {
       if (signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
+      const speakerRevision = this.speakerRevision(sessionId);
       const r = renderSegments(chunk, 16_000);
       const res = await this.complete({ task: 'digest', instructions: this.system(sessionId, digestInstructions()), input: `${this.header(sessionId)}\n\nTRANSCRIPT CHUNK:\n${r.text}`, effort: this.effort('background'), signal });
+      if (speakerRevision !== this.speakerRevision(sessionId)) throw new ProviderError('aborted', 'Speaker labels changed. Regenerate the response to use the updated names.');
       this.store.insertOutput({ id: uid('o_'), session_id: sessionId, kind: 'digest', status: 'done', content: res.text.trim(), covered_from: chunk[0].t_start, covered_to: chunk[chunk.length - 1].t_end, provider: res.provider, model: res.model, billing: res.billing, completed_at: Date.now() });
     }
   }
@@ -379,7 +386,7 @@ export class Assistant {
           instructions: this.system(sessionId, overviewInstructions()),
           input: `${this.header(sessionId)}\n\nPREVIOUS OVERVIEW:\n${renderOverview(prev?.data)}\n\nNOTES ON EARLIER PARTS:\n${renderDigests(digests(this.store, sessionId), fresh[0].t_start).slice(-5000) || '(none)'}\n\nNEW TRANSCRIPT [${fmtT(fresh[0].t_start)}–${fmtT(fresh[fresh.length - 1].t_end)}]:\n${r.text}`,
           coveredFrom: first.t_start, coveredTo: fresh[fresh.length - 1].t_end, schema: OVERVIEW_SCHEMA as unknown as Record<string, unknown>, effort: this.effort('background'),
-          extra: { chunkFrom: fresh[0].t_start },
+          extra: { chunkFrom: fresh[0].t_start, speakerRevision: this.speakerRevision(sessionId) },
         };
       },
       finalize: (text, built) => {
@@ -387,7 +394,7 @@ export class Assistant {
         const d = parseJsonLoose<OverviewData>(text);
         if (!d || typeof d.current_topic !== 'string' || !Array.isArray(d.overview)) throw new ProviderError('bad_response', 'The model returned an overview in an unexpected format.', true);
         const md = `**${d.current_topic}**\n\n${d.overview.map((b) => `- ${b}`).join('\n')}${d.open_question ? `\n\n*Open question:* ${d.open_question}` : ''}`;
-        if (d.digest && built.extra?.chunkFrom != null) {
+        if (d.digest && built.extra?.chunkFrom != null && built.extra.speakerRevision === this.speakerRevision(sessionId)) {
           this.store.insertOutput({ id: uid('o_'), session_id: sessionId, kind: 'digest', status: 'done', content: d.digest, covered_from: built.extra.chunkFrom as number, covered_to: built.coveredTo, completed_at: Date.now() });
         }
         return { content: md, data: d as unknown as Record<string, unknown> };
@@ -532,7 +539,7 @@ export class Assistant {
         }
         const vis = await this.pickImages(sessionId, { kind: 'spread', max: 6 });
         return {
-          instructions: this.system(sessionId, summaryInstructions(s.type)),
+          instructions: this.system(sessionId, summaryInstructions(sessionStyle(this.settings().sessionTypes, s.type))),
           input: `${this.header(sessionId)}\n${gaps ? `RECORDING GAPS / PAUSES:\n${gaps}\n` : ''}${vis.text ? `\n${vis.text}\n` : ''}\n${body}`,
           coveredFrom: all[0].t_start, coveredTo: end, effort: this.effort('summary', null, effortOverride), images: vis.images, extra: { usedDigests, images: vis.used },
         };

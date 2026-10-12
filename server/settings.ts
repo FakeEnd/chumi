@@ -1,9 +1,15 @@
 import os from 'node:os';
+import { DEFAULT_SESSION_TYPES, type SessionTypeOption } from '../shared/session-types.ts';
 import { recommendModel } from './asr/models.ts';
+import { defaultCompatibleSettings, type CompatibleSettings } from '../shared/compatible-provider.ts';
 export type AudioSourceMode = 'mic' | 'system' | 'both';
 export type Depth = 'quick' | 'standard' | 'deep';
-export type SessionType = 'lab_meeting' | 'advisor' | 'lecture' | 'wip' | 'other';
-export type ProviderId = 'codex' | 'claude-cli' | 'anthropic-api' | 'mock';
+export type SessionType = string;
+export const PROVIDER_IDS = ['codex', 'claude-cli', 'anthropic-api', 'compatible', 'mock'] as const;
+export type ProviderId = typeof PROVIDER_IDS[number];
+export function isProviderId(value: unknown): value is ProviderId {
+  return typeof value === 'string' && (PROVIDER_IDS as readonly string[]).includes(value);
+}
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -25,6 +31,8 @@ export interface Settings {
     glossary: string[];
     /** Whisper sometimes emits Traditional characters for Mandarin; convert to Simplified by default. */
     chineseScript: 'simplified' | 'original';
+    /** Opt-in local speaker labeling after a meeting; temporary PCM is deleted after processing. */
+    diarization: boolean;
   };
   ai: {
     provider: ProviderId;
@@ -35,6 +43,7 @@ export interface Settings {
     codex: { model: string | null; allowCredits: boolean };
     claudeCli: { model: string };
     anthropicApi: { enabled: boolean; model: string };
+    compatible: CompatibleSettings;
   };
   assist: {
     autoExplain: boolean;
@@ -44,6 +53,7 @@ export interface Settings {
     defaultDepth: Depth;
     autoOverview: boolean;
   };
+  sessionTypes: SessionTypeOption[];
   quickStart: {
     /** System-wide shortcut: start listening immediately (press again to pause / resume). 'off' disables it. */
     hotkey: string;
@@ -77,6 +87,7 @@ export const DEFAULT_SETTINGS: Settings = {
     threads: Math.max(2, Math.min(8, os.cpus().length - 2)), // leave cores for audio, UI and the AI client
     glossary: ['ATAC-seq', 'ChIP-seq', 'RNA-seq', 'scRNA-seq', 'enhancer', 'promoter', 'motif', 'transcription factor', 'chromatin accessibility', 'gene regulation', 'CRISPR', 'GWAS', 'eQTL', 'transformer', 'convolutional'],
     chineseScript: 'simplified',
+    diarization: false,
   },
   ai: {
     provider: 'codex',
@@ -85,6 +96,7 @@ export const DEFAULT_SETTINGS: Settings = {
     codex: { model: null, allowCredits: false },
     claudeCli: { model: 'sonnet' },
     anthropicApi: { enabled: false, model: 'claude-opus-5-5' },
+    compatible: defaultCompatibleSettings(),
   },
   assist: {
     autoExplain: false,
@@ -92,6 +104,7 @@ export const DEFAULT_SETTINGS: Settings = {
     defaultDepth: 'standard',
     autoOverview: true,
   },
+  sessionTypes: DEFAULT_SESSION_TYPES,
   quickStart: { hotkey: 'ctrl+opt+cmd+L', source: 'default', type: 'other', notify: true },
   integrations: { mybot: { enabled: false, exportDir: '~/Library/Application Support/Chumi/exports/mybot', shareWithTeam: false, serverUrl: 'http://127.0.0.1:8788' } },
   screen: { sendImagesToAI: true, intervalSec: 3 },

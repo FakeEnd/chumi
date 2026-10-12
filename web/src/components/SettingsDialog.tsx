@@ -3,17 +3,19 @@ import { setState, useStore } from '../store.ts';
 import { refreshProvider, saveProfile, saveSettings } from '../actions.ts';
 import { api } from '../api.ts';
 import { locale, msg, plural, t, tn } from '../i18n.ts';
-import { sourceLabel, SESSION_TYPES, typeLabel } from '../util.ts';
+import { SessionTypeSelect, SessionTypesTab } from './SessionTypes.tsx';
+import { sourceLabel } from '../util.ts';
 import { Dialog } from './Dialog.tsx';
 import { TranscriptionTab } from './TranscriptionTab.tsx';
 import { AgentsTab, ProjectsTab } from './Projects.tsx';
 import { MybotServerSettings } from './ProjectContext.tsx';
+import { CompatibleProviderSettings } from './CompatibleProviderSettings.tsx';
 import type { ProviderStatus } from '../types.ts';
 import { IconBolt, IconBulb, IconFolder, IconGlobe, IconLink, IconMic, IconShield, IconSpark, IconTerminal, IconWave, IconWindow } from './icons.tsx';
 
 /** Sections in the sidebar, grouped. */
 const GROUPS = [
-  { label: msg('General'), tabs: [['language', msg('Language'), IconGlobe], ['audio', msg('Audio'), IconMic], ['quick', msg('Quick start'), IconBolt], ['screen', msg('Screen'), IconWindow], ['asr', msg('Transcription'), IconWave]] },
+  { label: msg('General'), tabs: [['language', msg('Language'), IconGlobe], ['audio', msg('Audio'), IconMic], ['session-types', msg('Session types'), IconFolder], ['quick', msg('Quick start'), IconBolt], ['screen', msg('Screen'), IconWindow], ['asr', msg('Transcription'), IconWave]] },
   { label: msg('AI'), tabs: [['ai', msg('AI provider'), IconSpark], ['assist', msg('Assistance'), IconBulb]] },
   { label: msg('Projects'), tabs: [['projects', msg('Projects'), IconFolder], ['agents', msg('Claude Code & Codex'), IconTerminal], ['integrations', msg('Integrations'), IconLink]] },
   { label: msg('Data'), tabs: [['privacy', msg('Privacy & data'), IconShield]] },
@@ -52,6 +54,7 @@ export function SettingsDialog() {
   const devMode = useStore((s) => s.devMode);
   const dataDir = useStore((s) => s.dataDir);
   const systemLanguage = useStore((s) => s.systemLanguage);
+  const compatibleProfile = settings.ai.compatible.profiles[settings.ai.compatible.preset];
   const [devices, setDevices] = useState<Array<{ uid: string; name: string; isDefault: boolean }>>([]);
   const [perm, setPerm] = useState<Record<string, string>>({});
   const [apiKey, setApiKey] = useState('');
@@ -114,6 +117,8 @@ export function SettingsDialog() {
         </section>
       )}
 
+      {tab === 'session-types' && <SessionTypesTab />}
+
       {tab === 'audio' && (
         <section>
           <label className="field"><span>{t('Default audio source')}</span>
@@ -166,9 +171,7 @@ export function SettingsDialog() {
             </select>
           </label>
           <label className="field"><span>{t('Session type for quick start')}</span>
-            <select value={settings.quickStart.type} onChange={(e) => S({ quickStart: { type: e.target.value } })}>
-              {SESSION_TYPES.map((id) => <option key={id} value={id}>{typeLabel(id)}</option>)}
-            </select>
+            <SessionTypeSelect value={settings.quickStart.type} onChange={(type) => void S({ quickStart: { type } })} />
           </label>
           <label className="field check"><input type="checkbox" checked={settings.quickStart.notify} onChange={(e) => S({ quickStart: { notify: e.target.checked } })} /> {t('Show a macOS notification when the shortcut starts, pauses or resumes listening')}</label>
         </section>
@@ -191,7 +194,8 @@ export function SettingsDialog() {
             <li>{t('Needs Screen Recording permission for Chumi. macOS may ask you to confirm it again from time to time.')}</li>
             <li>{t('Protected (DRM) video and minimized windows capture as black. Chumi warns you when that happens.')}</li>
             <li>{t('Only images are captured, never video. Typically one picture per slide, at about 150–300 KB each.')}</li>
-            <li>{t('All three providers can receive images: ChatGPT via Codex, Claude via Claude Code, and the Anthropic API.')}</li>
+            <li>{t('Image input depends on the selected provider and model. For other local or API models, enable image support in AI provider settings only if the model and endpoint accept images.')}</li>
+            {settings.ai.provider === 'compatible' && !compatibleProfile.supportsImages && <li className="warn-text">{t('Your selected model is configured for text only. Screen captures will not be sent to it.')}</li>}
             <li>{t("Respect meeting norms: tell participants if you capture shared screens, and follow your institution's rules.")}</li>
           </ul>
         </section>
@@ -208,8 +212,11 @@ export function SettingsDialog() {
             <label><input type="radio" checked={settings.ai.provider === 'codex'} onChange={() => S({ ai: { provider: 'codex' } })} /> {tn('{name} (subscription, recommended). Uses OpenAI\'s documented Codex app-server and your existing {cmd}.', { name: <b>{t('ChatGPT plan via Codex sign-in')}</b>, cmd: <code>codex login</code> })}</label>
             <label><input type="radio" checked={settings.ai.provider === 'claude-cli'} onChange={() => S({ ai: { provider: 'claude-cli' } })} /> {tn('{name} (subscription, personal use). Runs {cmd} with your own {login}.', { name: <b>{t('Claude plan via the Claude Code CLI')}</b>, cmd: <code>claude -p</code>, login: <code>claude auth login</code> })}</label>
             <label className={settings.ai.anthropicApi.enabled ? '' : 'disabled'}><input type="radio" disabled={!settings.ai.anthropicApi.enabled} checked={settings.ai.provider === 'anthropic-api'} onChange={() => S({ ai: { provider: 'anthropic-api' } })} /> {tn('{name} (paid, billed per request). Disabled until you enable it below.', { name: <b>{t('Anthropic API key')}</b> })}</label>
+            <label><input type="radio" checked={settings.ai.provider === 'compatible'} onChange={() => S({ ai: { provider: 'compatible' } })} /> <b>{t('Other models: local or API')}</b> {t('Choose an available local model or configure an API.')}</label>
             {devMode && <label><input type="radio" checked={settings.ai.provider === 'mock'} onChange={() => S({ ai: { provider: 'mock' } })} /> {tn('{name}: placeholder text, not AI (developer mode).', { name: <b>{t('Offline test provider')}</b> })}</label>}
           </div>
+          {settings.ai.provider === 'compatible' && <CompatibleProviderSettings />}
+          {settings.ai.provider !== 'compatible' && <>
           <h3>{t('Reasoning effort')}</h3>
           <label className="field"><span>{t('For your questions, explanations, catch-ups and the final summary. You can also change it for one question in the Ask box.')}</span>
             <select value={settings.ai.effort} onChange={(e) => S({ ai: { effort: e.target.value } })}>
@@ -229,6 +236,7 @@ export function SettingsDialog() {
             </select>
           </label>
           <p className="muted small">{t("Higher effort makes the model think longer before answering. Answers usually get better on hard questions, but they take longer and use more of your plan's limit. If the model doesn't support a level, Chumi uses the closest lower one it does support. Claude Haiku has no effort setting.")}</p>
+          </>}
           {provider && <><h3>{t('Status: {name}', { name: t(provider.label) })} <button className="btn small" onClick={() => void refreshProvider()}>{t('Refresh')}</button></h3><QuotaView p={provider} /></>}
           {settings.ai.provider === 'codex' && (
             <>
@@ -310,7 +318,7 @@ export function SettingsDialog() {
           <ul>
             <li>{t('Audio is captured and transcribed locally by whisper.cpp. Audio is never uploaded.')}</li>
             <li>{tn('Sessions, transcripts, AI answers, your profile and settings live in a local SQLite database: {dir}.', { dir: <code>{dataDir}</code> })}</li>
-            <li>{t('Raw audio is written to disk only if you turn on “Save raw audio”.')}</li>
+            <li>{t('Raw audio is retained only when “Save raw audio” is on. Optional speaker labeling also writes temporary local audio, which is deleted after analysis, failure or cancellation unless raw audio retention is enabled.')}</li>
             <li>{t('Window captures (if you choose a window) are stored as JPEG images in the same folder.')}</li>
             <li>{t('If you enable the mybot integration, finished sessions are also written as JSONL files to the export folder you choose. They stay on this Mac.')}</li>
             <li>{t('Credentials: Codex and Claude Code keep their own sign-in and Chumi never reads it. An optional API key is stored in the macOS Keychain.')}</li>
@@ -319,9 +327,10 @@ export function SettingsDialog() {
           <ul>
             <li>{t('Only when you ask a question, request a catch-up or summary, or have auto-overview or auto-explain turned on.')}</li>
             <li>{t('Each request contains transcript excerpts: recent lines, your selected passage, a few keyword-matched earlier lines, and short AI-written notes on older parts. It also contains your knowledge profile and your question.')}</li>
-            <li>{t('If you capture a window and “Send screen captures” is on, up to 2 recent captures go with questions and catch-ups, and up to 6 with the final summary. Overview and auto-explain never send images.')}</li>
+            <li>{t('Speaker labels and names you enter accompany transcript excerpts used in new answers, summaries and handoffs. Speaker audio analysis stays on this Mac.')}</li>
+            <li>{t('If you capture a window, “Send screen captures” is on, and your model supports images, up to 2 recent captures go with questions and catch-ups, and up to 6 with the final summary. Overview and auto-explain never send images.')}</li>
             <li>{t('Long sessions are summarized into rolling notes, so the full transcript is not sent again with every request.')}</li>
-            <li>{t("The selected provider processes requests under your account's terms: OpenAI for the ChatGPT plan, Anthropic for the Claude plan or API.")}</li>
+            <li>{t('Requests go to the provider you select: OpenAI, Anthropic, or your configured model server. Remote services process them under your provider account’s terms. A local server may itself forward requests externally; check its routing settings.')}</li>
           </ul>
           <p>{t('Turn off auto-overview and auto-explain if you want nothing sent unless you click something.')}</p>
         </section>

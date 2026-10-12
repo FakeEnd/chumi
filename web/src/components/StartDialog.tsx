@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useStore } from '../store.ts';
 import { startSession } from '../actions.ts';
-import { SESSION_TYPES, typeLabel } from '../util.ts';
+import { DEFAULT_SESSION_TYPES } from '../../../shared/session-types.ts';
+import { SessionTypeSelect } from './SessionTypes.tsx';
+import { typeLabel } from '../util.ts';
 import { locale, t, tn } from '../i18n.ts';
 import { Dialog } from './Dialog.tsx';
 import { WindowPicker } from './WindowPicker.tsx';
@@ -14,7 +16,7 @@ export function StartDialog() {
   const samples = useStore((s) => s.samples);
   const helperBuilt = useStore((s) => s.helperBuilt);
   const [title, setTitle] = useState('');
-  const [type, setType] = useState('lab_meeting');
+  const [type, setType] = useState(() => (settings?.sessionTypes ?? DEFAULT_SESSION_TYPES).find((o) => !o.archived)?.id ?? 'lab_meeting');
   const [source, setSource] = useState<string>(settings?.audio.source ?? 'mic');
   const [file, setFile] = useState(samples[0]?.path ?? '');
   const [speed, setSpeed] = useState(1);
@@ -31,7 +33,7 @@ export function StartDialog() {
     <Dialog title={t('Start a session')} footer={<><span className="spacer" /><button className="btn primary" disabled={busy || (source !== 'file' && !helperBuilt) || (capture && !win)} onClick={go}>{busy ? t('Starting…') : t('Start listening')}</button></>}>
       <label className="field"><span>{t('Title')}</span><input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('e.g. Lab meeting: enhancer model')} onKeyDown={(e) => e.key === 'Enter' && go()} /></label>
       <label className="field"><span>{t('Session type')}</span>
-        <select value={type} onChange={(e) => setType(e.target.value)}>{SESSION_TYPES.map((id) => <option key={id} value={id}>{typeLabel(id)}</option>)}</select>
+        <SessionTypeSelect value={type} onChange={setType} />
       </label>
       <label className="field"><span>{t('Project (optional): the folder where this work continues in Claude Code or Codex')}</span>
         <ProjectSelect value={projectId} onChange={setProjectId} />

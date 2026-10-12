@@ -11,7 +11,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 const DATA = mkdtempSync(join(tmpdir(), 'chumi-projects-'));
 process.env.CHUMI_DATA_DIR = DATA;
-const { Store } = await import('../server/db.ts');
+const { Store, SCHEMA_VERSION } = await import('../server/db.ts');
 const { Evidence, EvidenceError } = await import('../server/projects/evidence.ts');
 const { HandoffService } = await import('../server/projects/handoff.ts');
 const { handoffForAgent } = await import('../server/projects/handoff-model.ts');
@@ -42,7 +42,7 @@ test('an existing database upgrades without losing meetings; old meetings stay u
     INSERT INTO segments(session_id, t_start, t_end, text, created_at) VALUES ('s_old', 0, 3000, 'An old line', 1);`);
   raw.close();
   const s = new Store(path);
-  assert.equal(s.schemaVersion(), 1);
+  assert.equal(s.schemaVersion(), SCHEMA_VERSION);
   const old = s.getSession('s_old')!;
   assert.equal(old.title, 'Old meeting');
   assert.equal(old.project_id, null);
@@ -51,7 +51,7 @@ test('an existing database upgrades without losing meetings; old meetings stay u
   assert.equal(s.listSessions(undefined, 'none').length, 1);
   s.close();
   const again = new Store(path); // re-opening is a no-op
-  assert.equal(again.schemaVersion(), 1);
+  assert.equal(again.schemaVersion(), SCHEMA_VERSION);
   again.close();
 });
 

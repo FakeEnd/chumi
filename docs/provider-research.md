@@ -46,3 +46,15 @@ The Anthropic API adapter uses the official TypeScript SDK with `claude-opus-5-5
 3. It is selected as the active provider.
 
 There is no automatic switching between providers.
+
+## Compatible local servers and APIs (implementation added 2026-10-11)
+
+This is an implementation note, separate from the subscription research above. The compatible Chat Completions adapter provides presets for **Qwen, Doubao, MiniMax, GLM, Ollama, LM Studio**, and a **custom compatible API**. Presets supply initial endpoint URLs; users must enter the exact model or deployment ID from their server or provider console.
+
+In **Settings → AI provider → Other model settings**, configure and explicitly enable a profile, save it, save its key if needed, optionally run **Test with a short generation**, then select **Other models: local or API** as the active provider. Saving or testing never selects the provider. Each preset keeps its own profile; keys are stored separately in macOS Keychain for each preset and endpoint. Unsaved changes block key actions and testing. The test sends synthetic text rather than meeting content and may incur a provider charge.
+
+Remote access requires explicit opt-in and uses the user's provider account. Chumi does not infer API entitlement from a chat subscription or report a remaining quota for compatible APIs; users must check provider billing and terms. The adapter does not automatically retry requests or fall back to another provider. These limits differ from the subscription safeguards described above.
+
+Image support is off by default and requires the user's explicit capability setting plus the global screen-capture sending toggle. Structured output defaults to prompt-only; JSON object/schema modes require declared server support. Compatible endpoints use server-default reasoning; Chumi does not send its reasoning-effort controls.
+
+Local runtimes and model downloads are managed outside Chumi. Select a downloaded model and configure the server's context window to fit meeting excerpts, rolling notes and output; Chumi does not set a generic server context window. A local server may itself route externally, so its model and routing configuration still matter. Automated compatibility tests use fake endpoints and do not establish real vendor model quality.
