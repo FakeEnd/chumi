@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdtempSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Store, type OutputRow } from '../server/db.ts';
 import { Assistant } from '../server/ai/assistant.ts';
@@ -105,7 +105,7 @@ test('project context retries with the folder name when few sessions are in the 
   const r = await new MybotContext(store).forSession('s_meet', 'negative binomial');
   assert.equal(r.meta.status, 'none_found');
   assert.equal(r.text, '');
-  assert.deepEqual(mybot.calls.map((c) => c.body?.query), ['negative binomial', `negative binomial ${WS.split('/').pop()}`]);
+  assert.deepEqual(mybot.calls.map((c) => c.body?.query), ['negative binomial', `negative binomial ${basename(WS)}`]);
   store.close(); await mybot.close();
 });
 

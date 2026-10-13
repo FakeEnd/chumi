@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { setState, useStore } from '../store.ts';
 import { api } from '../api.ts';
-import { openSession, quickStart } from '../actions.ts';
+import { openSession, quickStart, saveSettings } from '../actions.ts';
 import { sourceLabel } from '../util.ts';
 import { getLang, msg, t, tn } from '../i18n.ts';
 import type { Session } from '../types.ts';
@@ -26,13 +26,14 @@ export function Home() {
   const asr = useStore((s) => s.live?.asr);
   const live = useStore((s) => s.live);
   const hotkey = useStore((s) => s.hotkey);
+  const windows = useStore((s) => s.platform) === 'win32';
   const [recent, setRecent] = useState<Session[] | null>(null);
   const sessionsRev = useStore((s) => s.sessionsRev);
   useEffect(() => { void api<{ sessions: Session[] }>('/api/sessions').then((r) => setRecent(r.sessions.slice(0, 6))).catch(() => setRecent([])); }, [live?.status, sessionsRev]);
 
   const liveSession = live?.session && live.status !== 'idle' ? live.session : null;
-  const startWith = (source: string) => {
-    if (settings?.audio.source !== source) void api('/api/settings', { method: 'PUT', body: { audio: { source } } }).then((s) => setState({ settings: s }));
+  const startWith = async (source: string) => {
+    if (settings?.audio.source !== source) await saveSettings({ audio: { source } });
     setState({ dialog: 'start' });
   };
   const quickSrc = settings ? (settings.quickStart.source === 'default' ? settings.audio.source : settings.quickStart.source) : 'mic';
@@ -54,7 +55,7 @@ export function Home() {
           <h1>{greeting()}{getLang() === 'zh' ? '' : '.'}</h1>
           <p>{t('Chumi listens alongside you, keeps track of the discussion, and explains what you need, right when you need it.')}</p>
           <div className="hero-status">
-            <span className={`pill ${asr?.state === 'ready' ? 'ok' : 'muted'}`}><span className="dot" />{t('Speech engine')} {asr?.state === 'ready' ? t('ready (on this Mac)') : asr?.state ? t(ASR_STATE[asr.state] ?? asr.state) : '…'}</span>
+            <span className={`pill ${asr?.state === 'ready' ? 'ok' : 'muted'}`}><span className="dot" />{t('Speech engine')} {asr?.state === 'ready' ? t('ready (on this computer)') : asr?.state ? t(ASR_STATE[asr.state] ?? asr.state) : '…'}</span>
             <span className={`pill ${aiReady ? 'ok' : 'warn'}`} onClick={() => setState({ dialog: 'settings', settingsTab: 'ai' })} role="button" tabIndex={0}><span className="dot" />{provider ? `${providerShort(provider.label)} · ${aiReady ? billingWord(provider.billing) : t(PROVIDER_STATE[provider.state] ?? provider.state)}` : t('AI: checking…')}</span>
             {hotkey?.state === 'ready' && <span className="pill accent"><IconBolt width={13} height={13} />{t('{key} starts listening from any app', { key: hotkey.shortcut })}</span>}
           </div>
@@ -84,7 +85,7 @@ export function Home() {
             <button className="start-card" onClick={() => startWith('both')} disabled={!!liveSession}>
               <span className="start-icon both"><IconBoth /></span>
               <span className="start-title">{t('Hybrid')}</span>
-              <span className="start-sub">{t('The room plus remote speakers, with echo-cancelled mic and computer audio')}</span>
+              <span className="start-sub">{windows ? t('The room plus remote speakers, with microphone and computer audio') : t('The room plus remote speakers, with echo-cancelled mic and computer audio')}</span>
             </button>
           </section>
 
@@ -146,7 +147,7 @@ export function Home() {
               <li><IconSpark /><span>{tn('{b1} Press {b2} to get the last 2 or 5 minutes, or the whole session so far.', { b1: <b>{t('Lost the thread?')}</b>, b2: <b>{t('Catch me up')}</b> })}</span></li>
               <li><IconText /><span>{tn('{b} in the transcript to get an explanation pitched to your background.', { b: <b>{t('Select any words')}</b> })}</span></li>
               <li><IconWindow /><span>{tn('{b} (Zoom share, slides) so answers can see the figure being discussed.', { b: <b>{t('Capture a window')}</b> })}</span></li>
-              <li><IconShield /><span>{t('Audio stays on this Mac. Only short excerpts go to your AI provider, and only when you ask.')}</span></li>
+              <li><IconShield /><span>{t('Audio stays on this computer. Only short excerpts go to your AI provider, and only when you ask.')}</span></li>
             </ul>
           </section>
         </aside>

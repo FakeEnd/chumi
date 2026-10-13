@@ -51,7 +51,7 @@ export class FrameParser {
   }
 }
 
-/** Live capture through the native helper (Core Audio process tap for system audio, AVAudioEngine for the mic). */
+/** Live capture through the platform's native helper. Both use the same PCM/event protocol. */
 export class HelperCapture extends EventEmitter<CaptureEvents> implements AudioInput {
   readonly kind = 'helper';
   private proc: ChildProcess | null = null;
@@ -60,16 +60,17 @@ export class HelperCapture extends EventEmitter<CaptureEvents> implements AudioI
   constructor(opts: { source: AudioSourceMode; micDeviceUid?: string | null; aec?: boolean }) { super(); this.opts = opts; }
 
   async start(): Promise<void> {
+    this.stopping = false;
     const helper = findAudioHelper();
-    if (!helper) throw new Error('Audio helper not built. Run "npm run build:native" (see README).');
+    if (!helper) throw new Error(process.platform === 'win32' ? 'The audio component is missing. Reinstall Chumi to restore it.' : 'Audio helper not built. Run "npm run build:native" (see README).');
     const args = ['--source', this.opts.source];
     // Run from a terminal (npm start), the terminal app would own the privacy permissions, and most terminals can't
     // request System Audio Recording at all. Give the helper its own identity there; inside Chumi.app the app owns them.
-    if (!process.env.CHUMI_APP) args.push('--self-responsible');
+    if (process.platform === 'darwin' && !process.env.CHUMI_APP) args.push('--self-responsible');
     if (this.opts.micDeviceUid) args.push('--mic-device', this.opts.micDeviceUid);
     if (this.opts.source === 'both') args.push('--aec', this.opts.aec === false ? 'off' : 'on');
     log('audio', 'spawn', helper, args.join(' '));
-    const proc = spawn(helper, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawn(helper, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     this.proc = proc;
     const parser = new FrameParser((src, ts, samples) => this.emit('frames', src === 2 ? 'system' : 'mic', ts, samples));
     proc.stdout!.on('data', (d: Buffer) => parser.push(d));
@@ -96,13 +97,20 @@ export class HelperCapture extends EventEmitter<CaptureEvents> implements AudioI
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         cleanup();
-        this.emit('helper', { type: 'warning', code: 'helper_waiting', message: 'Audio capture is waiting for macOS. Look for a permission dialog from Chumi or chumi-audio (Documents folder, Microphone or System Audio Recording) and allow it.' });
-        resolve();
+        if (process.platform === 'win32') {
+          proc.stdin!.end();
+          reject(new Error('Audio capture did not start. Check your audio device and Windows microphone settings.'));
+        } else {
+          this.emit('helper', { type: 'warning', code: 'helper_waiting', message: 'Audio capture is waiting for macOS. Look for a permission dialog from Chumi or chumi-audio (Documents folder, Microphone or System Audio Recording) and allow it.' });
+          resolve();
+        }
       }, 8000);
       const onHelper = (ev: Record<string, unknown>) => { if (ev.type === 'ready') { cleanup(); resolve(); } };
       const onExit = (_code: number | null, reason: string) => { cleanup(); reject(new Error(`Audio capture failed to start: ${reason}`)); };
-      const cleanup = () => { clearTimeout(timer); this.off('helper', onHelper); this.off('exit', onExit); };
+      const onError = (error: Error) => { cleanup(); this.proc = null; reject(error); };
+      const cleanup = () => { clearTimeout(timer); this.off('helper', onHelper); this.off('exit', onExit); proc.off('error', onError); };
       this.on('helper', onHelper); this.on('exit', onExit);
+      proc.once('error', onError);
     });
   }
 
@@ -113,7 +121,7 @@ export class HelperCapture extends EventEmitter<CaptureEvents> implements AudioI
     await new Promise<void>((resolve) => {
       const t = setTimeout(() => { try { p.kill('SIGKILL'); } catch { /* ignore */ } resolve(); }, 3000);
       p.once('exit', () => { clearTimeout(t); resolve(); });
-      try { p.stdin?.end(); p.kill('SIGTERM'); } catch { resolve(); }
+      try { p.stdin?.end(); if (process.platform !== 'win32') p.kill('SIGTERM'); } catch { resolve(); }
     });
   }
 }
@@ -164,7 +172,7 @@ export class FileCapture extends EventEmitter<CaptureEvents> implements AudioInp
 export function listDevices(): Promise<unknown[]> {
   const helper = findAudioHelper();
   if (!helper) return Promise.resolve([]);
-  return new Promise((resolve) => execFile(helper, ['--list-devices'], { timeout: 5000 }, (err, out) => {
+  return new Promise((resolve) => execFile(helper, ['--list-devices'], { timeout: 5000, windowsHide: true }, (err, out) => {
     if (err) return resolve([]);
     try { resolve(JSON.parse(out)); } catch { resolve([]); }
   }));
@@ -173,7 +181,7 @@ export function listDevices(): Promise<unknown[]> {
 export function checkPermissions(): Promise<Record<string, string>> {
   const helper = findAudioHelper();
   if (!helper) return Promise.resolve({ microphone: 'unknown', systemAudio: 'unknown', helper: 'missing' });
-  return new Promise((resolve) => execFile(helper, ['--check-permissions'], { timeout: 5000 }, (err, out) => {
+  return new Promise((resolve) => execFile(helper, ['--check-permissions'], { timeout: 5000, windowsHide: true }, (err, out) => {
     if (err) return resolve({ microphone: 'unknown', systemAudio: 'unknown' });
     try { resolve(JSON.parse(out)); } catch { resolve({ microphone: 'unknown', systemAudio: 'unknown' }); }
   }));

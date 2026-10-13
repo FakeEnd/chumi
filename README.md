@@ -149,6 +149,8 @@ Analysis uses temporary local audio, deleted on completion, failure, cancellatio
 
 **You need** a Mac with Apple Silicon on macOS 14.4 or later, and a ChatGPT or Claude subscription. Without a subscription, a Mac with 16 GB of memory or more can run a free local model. Nothing else has to be installed first.
 
+**Windows (desktop preview):** an Electron window, microphone/computer-audio capture and hybrid meetings are implemented. The installer bundles Node, the speech engine and Codex; users need no .NET or build commands. First use offers an in-app model download and ChatGPT browser sign-in. The current x64 build has passed real capture, transcription, live assistance, summary and MCP handoff checks on Windows 11. Other Windows 10/11 machines still need release qualification. See [docs/windows.md](docs/windows.md).
+
 Open Terminal and paste:
 
 ```bash

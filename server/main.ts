@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { extname, isAbsolute, join, normalize, resolve } from 'node:path';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { Store, speakerFields } from './db.ts';
 import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool } from './paths.ts';
 import { deepMerge, log, uid } from './util.ts';
@@ -17,6 +17,7 @@ import { MybotContext } from './integrations/mybot-context.ts';
 import { HandoffError, HandoffService } from './projects/handoff.ts';
 import { AGENTS, AgentIntegration, type AgentId } from './projects/agents.ts';
 import { AGENT_BILLING, AGENT_NAMES } from '../shared/agents.ts';
+import { chooseFolder, notify, openExternalUrl, openPrivacySettings, preferredLanguage } from './platform.ts';
 import { chumiLink, SERVER_INFO, workspaceExists } from './projects/evidence.ts';
 import { exportSession } from './export.ts';
 import { checkPermissions, listDevices } from './audio/capture.ts';
@@ -27,6 +28,7 @@ import { localHardware } from './ai/local-hardware.ts';
 import { LocalModelDownloader } from './ai/local-model-download.ts';
 import { isCompatiblePreset, normalizeCompatibleUrl, validateCompatibleSettings, COMPATIBLE_PRESETS } from '../shared/compatible-provider.ts';
 import type { ClaudeCliProvider } from './ai/claude-cli.ts';
+import type { CodexProvider } from './ai/codex.ts';
 import { EFFORTS, SOURCE_NAMES, isProviderId, normalizeLanguage, type Depth, type Effort, type Profile, type Settings } from './settings.ts';
 import { SpeakerService } from './speakers/service.ts';
 import { speakerRuntime } from './speakers/runtime.ts';
@@ -34,6 +36,7 @@ import { discardSpeakerAudio, speakerAudioAvailable } from './speakers/audio.ts'
 import type { SpeakerCorrection } from '../shared/speakers.ts';
 import { loadMobileConfiguration } from './mobile-config.ts';
 import { startMobileServer } from './mobile/server.ts';
+import { DESKTOP } from './desktop.ts';
 
 ensureDirs();
 const PORT = Number(process.env.PORT || 4777);
@@ -58,6 +61,7 @@ localModelDownloader.restore();
 // ---------------------------------------------------------------- server-sent events
 const clients = new Set<ServerResponse>();
 function broadcast(event: string, data: unknown): void {
+  if (DESKTOP && event === 'live') process.send!({ type: 'desktop-state', status: (data as { status: string }).status });
   const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const c of clients) c.write(msg);
 }
@@ -103,9 +107,7 @@ hotkey.on('state', () => broadcast('hotkey', hotkeyState()));
 const hotkeyState = () => ({ state: hotkey.state, shortcut: hotkey.shortcut, message: hotkey.message });
 
 function macNotify(text: string): void {
-  if (!store.getSettings().quickStart.notify) return;
-  const esc = (x: string) => x.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  execFile('/usr/bin/osascript', ['-e', `display notification "${esc(text)}" with title "Chumi"`], () => {});
+  if (store.getSettings().quickStart.notify) notify(text);
 }
 
 async function quickStart(): Promise<void> {
@@ -137,11 +139,15 @@ async function onShortcut(): Promise<void> {
   }
 }
 hotkey.on('pressed', () => void onShortcut());
+if (DESKTOP) process.on('message', (message: any) => { if (message?.type === 'desktop-shortcut') void onShortcut(); });
 // Test servers (acceptance runs) must not grab the shortcut from the real app.
 if (!process.env.CHUMI_NO_HOTKEY) hotkey.configure(store.getSettings().quickStart.hotkey);
 registry.onStatus = (s) => broadcast('provider', s);
 whisper.on('state', (state, message) => broadcast('asr', { state, message }));
-downloader.on('progress', (d) => broadcast('asr-download', d));
+downloader.on('progress', (d) => {
+  broadcast('asr-download', d);
+  if (d.status === 'done' && d.id === store.getSettings().asr.model) void whisper.ensure().catch((e) => log('asr', (e as Error).message));
+});
 
 // ---------------------------------------------------------------- helpers
 class HttpError extends Error { status: number; constructor(status: number, msg: string) { super(msg); this.status = status; } }
@@ -198,11 +204,10 @@ function speakerUpdate(id: string) {
 }
 
 let sysLang: 'en' | 'zh' | null = null;
-/** macOS preferred language (WKWebView's navigator.language reflects the app bundle, not the user's choice). */
+/** The system's preferred language (WKWebView's navigator.language reflects the app bundle, not the user's choice). */
 function systemLanguage(): 'en' | 'zh' {
   if (sysLang) return sysLang;
-  let first = '';
-  try { first = execFileSync('/usr/bin/defaults', ['read', '-g', 'AppleLanguages'], { encoding: 'utf8', timeout: 2000 }).match(/"?([A-Za-z]{2,3}[-_A-Za-z]*)"?/)?.[1] ?? ''; } catch { /* not macOS or not set */ }
+  let first = preferredLanguage();
   if (!first) first = process.env.LANG ?? '';
   sysLang = first.toLowerCase().startsWith('zh') ? 'zh' : 'en';
   return sysLang;
@@ -272,21 +277,26 @@ function route(method: string, path: string, h: Handler): void {
 
 route('GET', '/api/health', () => ({ ok: true, app: 'chumi', version: '0.1.0' }));
 
-route('GET', '/api/state', async () => ({
+route('GET', '/api/state', async () => {
+  // Provider startup can take seconds. Read the live snapshot after it, so an early ASR-ready event isn't overwritten.
+  const provider = registry.cachedStatus() ?? await registry.status().catch(() => null);
+  return {
   settings: store.getSettings(),
   profile: store.getProfile(),
   live: manager.state(),
-  provider: registry.cachedStatus() ?? await registry.status().catch(() => null),
+  provider,
   autoExplainEpoch: assistant.autoExplainEpoch,
   devMode: DEV || store.getSettings().devMode,
   helperBuilt: !!findAudioHelper(),
+  platform: process.platform,
   hotkey: hotkeyState(),
-  screenToolBuilt: !!findScreenTool(),
+  screenToolBuilt: DESKTOP || !!findScreenTool(),
   appMode: !!process.env.CHUMI_APP,
   systemLanguage: systemLanguage(),
   dataDir: DATA_DIR,
   samples: (DEV || store.getSettings().devMode) ? samples() : [],
-}));
+  };
+});
 
 route('GET', '/api/events', (req, res) => {
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -454,8 +464,8 @@ route('PATCH', '/api/projects/:id', async (req, _res, p) => {
   return { project: projectPublic({ ...store.getProject(p.id)!, meeting_count: 0 }) };
 });
 route('POST', '/api/projects/choose-folder', async () => {
-  const out = await new Promise<string | null>((r) => execFile('/usr/bin/osascript', ['-e', 'POSIX path of (choose folder with prompt "Choose the project folder (where you run Claude Code or Codex)")'], { timeout: 600_000 }, (e, so) => r(e ? null : String(so).trim())));
-  return out ? { path: out.replace(/\/+$/, '') || '/' } : { cancelled: true };
+  const out = await chooseFolder('Choose the project folder (where you run your coding agent)');
+  return out ? { path: out } : { cancelled: true };
 });
 route('POST', '/api/sessions/:id/project', async (req, _res, p) => {
   if (!store.getSession(p.id)) throw new HttpError(404, 'Session not found');
@@ -572,6 +582,12 @@ route('GET', '/api/asr/models', () => {
     download: downloader.current,
   };
 });
+route('POST', '/api/asr/setup', () => {
+  const id = store.getSettings().asr.model;
+  if (isInstalled(id)) void whisper.ensure().catch((e) => log('asr', (e as Error).message));
+  else void downloader.start(id).catch((e) => log('asr', (e as Error).message));
+  return { id, download: downloader.current };
+});
 route('POST', '/api/asr/models/:id/download', (_req, _res, p) => {
   if (!MODEL_CATALOG.some((m) => m.id === p.id)) throw new HttpError(404, 'Unknown model');
   void downloader.start(p.id).catch((e) => log('asr', `download failed: ${(e as Error).message}`));
@@ -608,6 +624,11 @@ route('PUT', '/api/profile', async (req) => {
 });
 
 route('GET', '/api/provider/status', async (_req, _res, _p, url) => registry.status(url.searchParams.get('refresh') === '1'));
+route('POST', '/api/provider/codex/login', async () => {
+  const result = await (registry.providers.codex as CodexProvider).beginLogin();
+  await openExternalUrl(result.authUrl);
+  return { started: true };
+});
 route('POST', '/api/provider/anthropic-key', async (req) => { const b = await readJson(req); await storeKey(String(b.key ?? '').trim()); return registry.status(true); });
 route('DELETE', '/api/provider/anthropic-key', async () => { await deleteKey(); return registry.status(true); });
 route('POST', '/api/provider/claude/clear-overage', async () => { (registry.providers['claude-cli'] as ClaudeCliProvider).clearOverageBlock(); return registry.status(true); });
@@ -677,12 +698,11 @@ route('GET', '/api/audio/permissions', async () => checkPermissions());
 route('POST', '/api/audio/request-mic', async () => {
   const helper = findAudioHelper();
   if (!helper) throw new HttpError(400, 'Audio helper not built');
-  return new Promise((r) => execFile(helper, ['--request-mic'], { timeout: 60000 }, (_e, out) => { try { r(JSON.parse(out)); } catch { r({ microphone: 'unknown' }); } }));
+  return new Promise((r) => execFile(helper, ['--request-mic'], { timeout: 60000, windowsHide: true }, (_e, out) => { try { r(JSON.parse(out)); } catch { r({ microphone: 'unknown' }); } }));
 });
 route('POST', '/api/audio/open-settings', async (req) => {
   const b = await readJson(req);
-  const anchor = b.pane === 'audio-capture' ? 'Privacy_AudioCapture' : b.pane === 'screen' ? 'Privacy_ScreenCapture' : 'Privacy_Microphone';
-  execFile('/usr/bin/open', [`x-apple.systempreferences:com.apple.preference.security?${anchor}`]);
+  openPrivacySettings(b.pane === 'audio-capture' || b.pane === 'screen' ? b.pane : 'microphone');
   return { ok: true };
 });
 
@@ -779,3 +799,10 @@ process.on('uncaughtException', (e) => {
 process.on('unhandledRejection', (e) => { log('server', `unhandled rejection: ${(e as Error)?.stack ?? e}`); });
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 process.on('SIGINT', () => void shutdown('SIGINT'));
+// A closed terminal or console window (on Windows, closing the console that runs Chumi) arrives as SIGHUP.
+process.on('SIGHUP', () => void shutdown('SIGHUP'));
+// Desktop shells keep stdin open while they live; EOF saves the meeting and shuts down gracefully.
+if (process.env.CHUMI_APP) {
+  process.stdin.resume();
+  process.stdin.on('end', () => void shutdown('desktop closed'));
+}

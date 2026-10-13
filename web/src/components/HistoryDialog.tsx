@@ -40,7 +40,7 @@ export function HistoryDialog() {
               <a className="btn small" href={exportUrl(s.id, 'md')} download>Markdown</a>
               <a className="btn small" href={exportUrl(s.id, 'txt')} download>{t('Text')}</a>
               {s.status === 'interrupted' && idle && <button className="btn small" onClick={() => void resumeSaved(s.id, settings?.audio.source ?? 'mic').then(() => setState({ dialog: null }))}>{t('Resume recording')}</button>}
-              <button className="btn small danger" disabled={live?.session?.id === s.id} onClick={() => { if (confirm(t('Delete “{title}” permanently? Transcript, AI answers and summary will be removed from this Mac.', { title: s.title }))) void deleteSession(s.id); }}>{t('Delete')}</button>
+              <button className="btn small danger" disabled={live?.session?.id === s.id} onClick={() => { if (confirm(t('Delete “{title}” permanently? Transcript, AI answers and summary will be removed from this computer.', { title: s.title }))) void deleteSession(s.id); }}>{t('Delete')}</button>
             </div>
           </li>
         ))}

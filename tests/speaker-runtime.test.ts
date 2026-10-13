@@ -5,15 +5,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runDiarization, speakerRuntime } from '../server/speakers/runtime.ts';
 
-function fixture(t: TestContext, script: string) {
+function fixture(t: TestContext, code: string) {
   const directory = mkdtempSync(join(tmpdir(), 'chumi-speaker-runtime-'));
-  const python = join(directory, 'fake-python.mjs');
+  const script = join(directory, 'fake-python.mjs');
+  // Windows cannot run a script with a shebang: a .cmd shim starts it, as it would a CLI installed by npm.
+  const python = process.platform === 'win32' ? join(directory, 'fake-python.cmd') : script;
   const models = join(directory, 'models');
   mkdirSync(join(models, 'sherpa-onnx-pyannote-segmentation-3-0'), { recursive: true });
   writeFileSync(join(models, 'sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx'), 'test model');
   writeFileSync(join(models, '3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx'), 'test model');
-  writeFileSync(python, '#!/usr/bin/env node\n' + script);
-  chmodSync(python, 0o700);
+  writeFileSync(script, '#!/usr/bin/env node\n' + code);
+  chmodSync(script, 0o700);
+  if (python !== script) writeFileSync(python, `@"${process.execPath}" "${script}" %*\r\n`);
   const wav = join(directory, 'recording.wav');
   writeFileSync(wav, 'test audio; the fake worker checks only the protocol');
   const previous = { python: process.env.CHUMI_SPEAKER_PYTHON, models: process.env.CHUMI_SPEAKER_MODELS };
@@ -24,7 +27,7 @@ function fixture(t: TestContext, script: string) {
     if (previous.models === undefined) delete process.env.CHUMI_SPEAKER_MODELS; else process.env.CHUMI_SPEAKER_MODELS = previous.models;
     rmSync(directory, { recursive: true, force: true });
   });
-  return { directory, python, models, wav };
+  return { directory, python, script, models, wav };
 }
 
 const response = (value: unknown, exitCode = 0) => `process.stdin.resume(); process.stdin.on('end', () => { process.stdout.write(${JSON.stringify(JSON.stringify(value))}); process.exitCode = ${exitCode}; });`;
@@ -76,7 +79,7 @@ test('diarization reports fixed worker errors without echoing arbitrary details'
 test('diarization rejects truncated JSON and excessive output', { timeout: 3000 }, async (t) => {
   const f = fixture(t, "process.stdin.resume(); process.stdin.on('end', () => process.stdout.write('{'));");
   await assert.rejects(runDiarization(f.wav, { signal: new AbortController().signal }), /invalid output/);
-  writeFileSync(f.python, "#!/usr/bin/env node\nprocess.stdin.resume(); process.stdin.on('end', () => process.stdout.write('x'.repeat(5 * 1024 * 1024)));");
+  writeFileSync(f.script, "#!/usr/bin/env node\nprocess.stdin.resume(); process.stdin.on('end', () => process.stdout.write('x'.repeat(5 * 1024 * 1024)));");
   await assert.rejects(runDiarization(f.wav, { signal: new AbortController().signal }), /too much output/);
 });
 

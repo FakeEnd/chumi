@@ -10,7 +10,7 @@ export async function loadState(): Promise<void> {
   const s = await api('/api/state');
   setState({
     loaded: true, settings: s.settings, profile: s.profile, provider: s.provider, live: s.live, liveReceivedAt: Date.now(), partials: s.live?.partials ?? {},
-    devMode: s.devMode, helperBuilt: s.helperBuilt, screenToolBuilt: s.screenToolBuilt, hotkey: s.hotkey ?? null, appMode: s.appMode, dataDir: s.dataDir, samples: s.samples ?? [], systemLanguage: s.systemLanguage ?? '',
+    devMode: s.devMode, helperBuilt: s.helperBuilt, platform: s.platform ?? '', screenToolBuilt: s.screenToolBuilt, hotkey: s.hotkey ?? null, appMode: s.appMode, dataDir: s.dataDir, samples: s.samples ?? [], systemLanguage: s.systemLanguage ?? '',
   });
   // Deep links (?session=<id>&dialog=settings&tab=ai) open a view directly; used for scripted screenshots too.
   const q = new URLSearchParams(location.search);
@@ -83,7 +83,7 @@ export async function startSession(o: { title: string; type: string; source: str
   if (o.source === 'mic' || o.source === 'both') {
     const perm = await api<Record<string, string>>('/api/audio/permissions').catch(() => ({} as Record<string, string>));
     if (perm.microphone === 'denied' || perm.microphone === 'restricted') {
-      notify('error', t('Microphone access is blocked. Open System Settings → Privacy & Security → Microphone and enable Chumi (or the terminal app you launched it from), then try again.'), 'mic_permission_denied');
+      notify('error', getState().platform === 'win32' ? t('Microphone access is blocked. Allow desktop apps in Windows Settings → Privacy & security → Microphone, then try again.') : t('Microphone access is blocked. Open System Settings → Privacy & Security → Microphone and enable Chumi (or the terminal app you launched it from), then try again.'), 'mic_permission_denied');
       return false;
     }
   }

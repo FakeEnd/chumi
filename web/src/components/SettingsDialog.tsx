@@ -54,6 +54,7 @@ export function SettingsDialog() {
   const devMode = useStore((s) => s.devMode);
   const dataDir = useStore((s) => s.dataDir);
   const systemLanguage = useStore((s) => s.systemLanguage);
+  const windows = useStore((s) => s.platform) === 'win32';
   const compatibleProfile = settings.ai.compatible.profiles[settings.ai.compatible.preset];
   const [devices, setDevices] = useState<Array<{ uid: string; name: string; isDefault: boolean }>>([]);
   const [perm, setPerm] = useState<Record<string, string>>({});
@@ -92,7 +93,7 @@ export function SettingsDialog() {
         <section>
           <label className="field"><span>{t('Interface language')}</span>
             <select value={settings.ui.language} onChange={(e) => S({ ui: { language: e.target.value } })}>
-              <option value="auto">{t('Auto: follow macOS ({lang})', { lang: systemLanguage === 'zh' ? '中文' : 'English' })}</option>
+              <option value="auto">{t('Auto: follow the system ({lang})', { lang: systemLanguage === 'zh' ? '中文' : 'English' })}</option>
               <option value="en">English</option>
               <option value="zh">中文（简体）</option>
             </select>
@@ -133,16 +134,17 @@ export function SettingsDialog() {
               {devices.map((d) => <option key={d.uid} value={d.uid}>{d.name}{d.isDefault ? ` ${t('(default)')}` : ''}</option>)}
             </select>
           </label>
-          <label className="field check"><input type="checkbox" checked={settings.audio.aec} onChange={(e) => S({ audio: { aec: e.target.checked } })} /> {t('Echo cancellation on the microphone in “Both” mode (prevents duplicate text when using speakers)')}</label>
-          <label className="field check"><input type="checkbox" checked={settings.audio.saveRawAudio} onChange={(e) => S({ audio: { saveRawAudio: e.target.checked } })} /> {t('Save raw audio to disk (off by default; about 115 MB per hour per source, stored only on this Mac)')}</label>
+          {windows ? <p className="small muted">{t('Use headphones for hybrid meetings. Chumi filters duplicate microphone and computer-audio text.')}</p>
+            : <label className="field check"><input type="checkbox" checked={settings.audio.aec} onChange={(e) => S({ audio: { aec: e.target.checked } })} /> {t('Echo cancellation on the microphone in “Both” mode (prevents duplicate text when using speakers)')}</label>}
+          <label className="field check"><input type="checkbox" checked={settings.audio.saveRawAudio} onChange={(e) => S({ audio: { saveRawAudio: e.target.checked } })} /> {t('Save raw audio to disk (off by default; about 115 MB per hour per source, stored only on this computer)')}</label>
           <h3>{t('Permissions')}</h3>
-          <p className="small">{tn('Microphone: {state}.', { state: <b>{perm.microphone ? t(PERM[perm.microphone] ?? perm.microphone) : '…'}</b> })} {t('Computer audio: macOS gives apps no way to check this permission. If computer audio stays silent while something is playing, permission is missing.')}</p>
+          <p className="small">{tn('Microphone: {state}.', { state: <b>{perm.microphone ? t(PERM[perm.microphone] ?? perm.microphone) : '…'}</b> })} {windows ? t('Computer audio uses the current Windows output device and needs no extra recording permission.') : t('Computer audio: macOS gives apps no way to check this permission. If computer audio stays silent while something is playing, permission is missing.')}</p>
           <div className="btn-row">
             <button className="btn small" onClick={() => void api('/api/audio/request-mic', { body: {} }).then(setPerm)}>{t('Request microphone access')}</button>
             <button className="btn small" onClick={() => void api('/api/audio/open-settings', { body: { pane: 'microphone' } })}>{t('Open Microphone settings')}</button>
-            <button className="btn small" onClick={() => void api('/api/audio/open-settings', { body: { pane: 'audio-capture' } })}>{t('Open System Audio Recording settings')}</button>
+            {!windows && <button className="btn small" onClick={() => void api('/api/audio/open-settings', { body: { pane: 'audio-capture' } })}>{t('Open System Audio Recording settings')}</button>}
           </div>
-          <p className="muted small">{tn('Permissions belong to Chumi.app when launched as an app, or to your terminal app when run with {cmd}. After changing a permission, end and restart the session.', { cmd: <code>npm start</code> })}</p>
+          <p className="muted small">{windows ? t('Windows controls microphone access for desktop apps. After changing it, restart the session.') : tn('Permissions belong to Chumi.app when launched as an app, or to your terminal app when run with {cmd}. After changing a permission, end and restart the session.', { cmd: <code>npm start</code> })}</p>
         </section>
       )}
 
@@ -151,17 +153,25 @@ export function SettingsDialog() {
           <p className="small">{t('For a conversation that starts suddenly: one press starts listening at once, with an automatic title. Rename the session and set its type in the top bar afterwards.')}</p>
           <label className="field"><span>{t('Global shortcut: works from any app, even when Chumi is in the background')}</span>
             <select value={settings.quickStart.hotkey} onChange={(e) => S({ quickStart: { hotkey: e.target.value } })}>
-              <option value="ctrl+opt+cmd+L">⌃⌥⌘L (Control-Option-Command-L)</option>
-              <option value="opt+cmd+L">⌥⌘L (Option-Command-L)</option>
-              <option value="ctrl+opt+cmd+R">⌃⌥⌘R (Control-Option-Command-R)</option>
-              <option value="ctrl+shift+SPACE">⌃⇧Space (Control-Shift-Space)</option>
+              {windows ? <>
+                <option value="ctrl+alt+L">Ctrl+Alt+L</option>
+                <option value="ctrl+shift+L">Ctrl+Shift+L</option>
+                <option value="ctrl+alt+shift+L">Ctrl+Alt+Shift+L</option>
+                <option value="ctrl+shift+SPACE">Ctrl+Shift+Space</option>
+                {!['ctrl+alt+L', 'ctrl+shift+L', 'ctrl+alt+shift+L', 'ctrl+shift+SPACE', 'off'].includes(settings.quickStart.hotkey) && <option value={settings.quickStart.hotkey}>{hotkey?.shortcut || settings.quickStart.hotkey}</option>}
+              </> : <>
+                <option value="ctrl+opt+cmd+L">⌃⌥⌘L (Control-Option-Command-L)</option>
+                <option value="opt+cmd+L">⌥⌘L (Option-Command-L)</option>
+                <option value="ctrl+opt+cmd+R">⌃⌥⌘R (Control-Option-Command-R)</option>
+                <option value="ctrl+shift+SPACE">⌃⇧Space (Control-Shift-Space)</option>
+              </>}
               <option value="off">{t('Off')}</option>
             </select>
           </label>
           <p className="small">{t('Status:')} {hotkey?.state === 'ready' ? <b className="ok-text">{t('{key} is active', { key: hotkey.shortcut })}</b> : hotkey?.state === 'off' ? t('off') : <span className="warn-text">{hotkey?.message ? t(hotkey.message) : hotkey?.state ?? t('unknown')}</span>}</p>
           <ul className="small muted">
             <li>{t("First press starts listening. Pressing again pauses, and a third press resumes. End the session in Chumi when you're done.")}</li>
-            <li>{t('The shortcut needs no extra macOS permission. If another app already uses the combination, pick a different one.')}</li>
+            <li>{t('The shortcut needs no extra permission. If another app already uses the combination, pick a different one.')}</li>
           </ul>
           <label className="field"><span>{t('Audio source for quick start')}</span>
             <select value={settings.quickStart.source} onChange={(e) => S({ quickStart: { source: e.target.value } })}>
@@ -174,25 +184,25 @@ export function SettingsDialog() {
           <label className="field"><span>{t('Session type for quick start')}</span>
             <SessionTypeSelect value={settings.quickStart.type} onChange={(type) => void S({ quickStart: { type } })} />
           </label>
-          <label className="field check"><input type="checkbox" checked={settings.quickStart.notify} onChange={(e) => S({ quickStart: { notify: e.target.checked } })} /> {t('Show a macOS notification when the shortcut starts, pauses or resumes listening')}</label>
+          <label className="field check"><input type="checkbox" checked={settings.quickStart.notify} onChange={(e) => S({ quickStart: { notify: e.target.checked } })} /> {t('Show a system notification when the shortcut starts, pauses or resumes listening')}</label>
         </section>
       )}
 
       {tab === 'screen' && (
         <section>
           <p className="small">{tn('Window capture saves a picture of one chosen window (a Zoom/Teams screen share, a browser playing a lecture video, a slide deck) whenever it changes. Answers can then explain slides and figures instead of saying the visual is unavailable. Choose the window when starting a session, or with {btn} in the session toolbar.', { btn: <b>▣ {t('Capture window')}</b> })}</p>
-          <label className="field check"><input type="checkbox" checked={settings.screen.sendImagesToAI} onChange={(e) => S({ screen: { sendImagesToAI: e.target.checked } })} /> {t('Send screen captures to the AI provider with questions, catch-ups and the final summary. When off, captures stay on this Mac only.')}</label>
+          <label className="field check"><input type="checkbox" checked={settings.screen.sendImagesToAI} onChange={(e) => S({ screen: { sendImagesToAI: e.target.checked } })} /> {t('Send screen captures to the AI provider with questions, catch-ups and the final summary. When off, captures stay on this computer only.')}</label>
           <label className="field"><span>{t('Check the window for changes every')}</span>
             <select value={settings.screen.intervalSec} onChange={(e) => S({ screen: { intervalSec: Number(e.target.value) } })}>
               {[2, 3, 5, 10].map((x) => <option key={x} value={x}>{t('{n} seconds', { n: x })}</option>)}
             </select>
           </label>
-          <div className="btn-row">
+          {!windows && <div className="btn-row">
             <button className="btn small" onClick={() => void api('/api/screen/request', { body: {} })}>{t('Ask macOS for Screen Recording permission')}</button>
             <button className="btn small" onClick={() => void api('/api/audio/open-settings', { body: { pane: 'screen' } })}>{t('Open Screen Recording settings')}</button>
-          </div>
+          </div>}
           <ul className="small muted">
-            <li>{t('Needs Screen Recording permission for Chumi. macOS may ask you to confirm it again from time to time.')}</li>
+            {!windows && <li>{t('Needs Screen Recording permission for Chumi. macOS may ask you to confirm it again from time to time.')}</li>}
             <li>{t('Protected (DRM) video and minimized windows capture as black. Chumi warns you when that happens.')}</li>
             <li>{t('Only images are captured, never video. Typically one picture per slide, at about 150–300 KB each.')}</li>
             <li>{t('Image input depends on the selected provider and model. For other local or API models, enable image support in AI provider settings only if the model and endpoint accept images.')}</li>
@@ -239,6 +249,10 @@ export function SettingsDialog() {
           <p className="muted small">{t("Higher effort makes the model think longer before answering. Answers usually get better on hard questions, but they take longer and use more of your plan's limit. If the model doesn't support a level, Chumi uses the closest lower one it does support. Claude Haiku has no effort setting.")}</p>
           </>}
           {provider && <><h3>{t('Status: {name}', { name: t(provider.label) })} <button className="btn small" onClick={() => void refreshProvider()}>{t('Refresh')}</button></h3><QuotaView p={provider} /></>}
+          {windows && settings.ai.provider === 'codex' && provider?.state === 'signed_out' && <div className="btn-row">
+            <button className="btn primary" onClick={() => void api('/api/provider/codex/login', { body: {} })}>{t('Sign in with ChatGPT')}</button>
+            <span className="muted small">{t('Sign-in opens in your browser. Return here when it is complete.')}</span>
+          </div>}
           {settings.ai.provider === 'codex' && (
             <>
               {provider?.models?.length ? (
@@ -262,7 +276,7 @@ export function SettingsDialog() {
           <label className="field check"><input type="checkbox" checked={settings.ai.anthropicApi.enabled} onChange={(e) => { if (!e.target.checked || confirm(t('Enable paid Anthropic API access? Requests made with this provider are billed per token to your API account.'))) void S({ ai: { anthropicApi: { enabled: e.target.checked }, ...(e.target.checked ? {} : { provider: settings.ai.provider === 'anthropic-api' ? 'codex' : settings.ai.provider }) } }); }} /> {t('Enable the Anthropic API key provider (billed per request)')}</label>
           {settings.ai.anthropicApi.enabled && (
             <div className="field-row">
-              <input type="password" placeholder={t('sk-ant-… (stored in macOS Keychain)')} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
+              <input type="password" placeholder={windows ? t('sk-ant-… (encrypted for your Windows account)') : t('sk-ant-… (stored in macOS Keychain)')} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
               <button className="btn small" onClick={() => void api('/api/provider/anthropic-key', { body: { key: apiKey } }).then(() => setApiKey(''))}>{t('Save key')}</button>
               <button className="btn small" onClick={() => void api('/api/provider/anthropic-key', { method: 'DELETE' })}>{t('Remove key')}</button>
             </div>
@@ -315,20 +329,20 @@ export function SettingsDialog() {
 
       {tab === 'privacy' && (
         <section className="prose small">
-          <h3>{t('What stays on this Mac')}</h3>
+          <h3>{t('What stays on this computer')}</h3>
           <ul>
             <li>{t('Audio is captured and transcribed locally by whisper.cpp. Audio is never uploaded.')}</li>
             <li>{tn('Sessions, transcripts, AI answers, your profile and settings live in a local SQLite database: {dir}.', { dir: <code>{dataDir}</code> })}</li>
             <li>{t('Raw audio is retained only when “Save raw audio” is on. Optional speaker labeling also writes temporary local audio, which is deleted after analysis, failure or cancellation unless raw audio retention is enabled.')}</li>
             <li>{t('Window captures (if you choose a window) are stored as JPEG images in the same folder.')}</li>
-            <li>{t('If you enable the mybot integration, finished sessions are also written as JSONL files to the export folder you choose. They stay on this Mac.')}</li>
-            <li>{t('Credentials: Codex and Claude Code keep their own sign-in and Chumi never reads it. An optional API key is stored in the macOS Keychain.')}</li>
+            <li>{t('If you enable the mybot integration, finished sessions are also written as JSONL files to the export folder you choose. They stay on this computer.')}</li>
+            <li>{windows ? t('Credentials: Codex and Claude Code manage their own sign-in. API keys are encrypted for your Windows account.') : t('Credentials: Codex and Claude Code keep their own sign-in and Chumi never reads it. An optional API key is stored in the macOS Keychain.')}</li>
           </ul>
           <h3>{t('What is sent to the AI provider')}</h3>
           <ul>
             <li>{t('Only when you ask a question, request a catch-up or summary, or have auto-overview or auto-explain turned on.')}</li>
             <li>{t('Each request contains transcript excerpts: recent lines, your selected passage, a few keyword-matched earlier lines, and short AI-written notes on older parts. It also contains your knowledge profile and your question.')}</li>
-            <li>{t('Speaker labels and names you enter accompany transcript excerpts used in new answers, summaries and handoffs. Speaker audio analysis stays on this Mac.')}</li>
+            <li>{t('Speaker labels and names you enter accompany transcript excerpts used in new answers, summaries and handoffs. Speaker audio analysis stays on this computer.')}</li>
             <li>{t('If you capture a window, “Send screen captures” is on, and your model supports images, up to 2 recent captures go with questions and catch-ups, and up to 6 with the final summary. Overview and auto-explain never send images.')}</li>
             <li>{t('Long sessions are summarized into rolling notes, so the full transcript is not sent again with every request.')}</li>
             <li>{t('Requests go to the provider you select: OpenAI, Anthropic, or your configured model server. Remote services process them under your provider account’s terms. A local server may itself forward requests externally; check its routing settings.')}</li>

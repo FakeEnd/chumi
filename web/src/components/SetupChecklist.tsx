@@ -17,6 +17,8 @@ export function SetupChecklist() {
   const asr = useStore((s) => s.live?.asr);
   const provider = useStore((s) => s.provider);
   const profile = useStore((s) => s.profile);
+  const windows = useStore((s) => s.platform) === 'win32';
+  const download = useStore((s) => s.asrDownload);
   const [mic, setMic] = useState<Mic | null>(null);
   const [helper, setHelper] = useState(true);
   const [checking, setChecking] = useState(false);
@@ -27,7 +29,7 @@ export function SetupChecklist() {
   useEffect(() => {
     loadMic();
     // Permissions change in System Settings, outside the app: check again when the window comes back.
-    const onFocus = () => loadMic();
+    const onFocus = () => { loadMic(); void refreshProvider(); };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, []);
@@ -37,9 +39,13 @@ export function SetupChecklist() {
   const steps: Step[] = [
     {
       id: 'speech', done: asr?.state === 'ready',
-      title: t('Speech recognition on this Mac'),
-      detail: asr?.state === 'ready' ? t('Ready. Audio never leaves your Mac.') : asr?.message ?? t('The speech model is not ready yet.'),
-      action: asr?.state === 'ready' ? undefined : { label: t('Open Transcription settings'), run: () => setState({ dialog: 'settings', settingsTab: 'asr' }) },
+      title: t('Speech recognition on this computer'),
+      detail: asr?.state === 'ready' ? t('Ready. Audio never leaves your computer.')
+        : download?.status === 'downloading' ? t('Downloading speech model: {progress}', { progress: download.total ? `${Math.round(download.received / download.total * 100)}%` : `${Math.round(download.received / 1048576)} MB` })
+          : asr?.state === 'missing_model' ? t('Download the speech model once. Meetings are then transcribed locally.') : asr?.message ?? t('The speech model is not ready yet.'),
+      action: asr?.state === 'ready' || download?.status === 'downloading' || asr?.state === 'starting' ? undefined
+        : asr?.state === 'missing_model' ? { label: t('Download speech model'), run: () => void api('/api/asr/setup', { body: {} }) }
+          : { label: t('Open Transcription settings'), run: () => setState({ dialog: 'settings', settingsTab: 'asr' }) },
     },
     {
       id: 'ai', done: provider?.state === 'ready',
@@ -47,8 +53,10 @@ export function SetupChecklist() {
       detail: provider?.state === 'ready'
         ? t('{provider} is connected.', { provider: providerShort(provider.label) })
         : provider?.message ? t(provider.message) : t('Use your ChatGPT or Claude subscription, or a local model.'),
-      code: provider?.state === 'ready' ? undefined : provider?.setupHint?.match(/(codex login|claude auth login|brew install [\w-]+|npm install -g [\w@/-]+)/)?.[1],
-      action: provider?.state === 'ready' ? undefined : { label: t('Choose AI'), run: () => setState({ dialog: 'settings', settingsTab: 'ai' }) },
+      code: provider?.state === 'ready' || windows ? undefined : provider?.setupHint?.match(/(codex login|claude auth login|brew install [\w-]+|npm install -g [\w@/-]+)/)?.[1],
+      action: provider?.state === 'ready' ? undefined
+        : windows && settings.ai.provider === 'codex' ? { label: t('Sign in with ChatGPT'), run: () => void api('/api/provider/codex/login', { body: {} }) }
+          : { label: t('Choose AI'), run: () => setState({ dialog: 'settings', settingsTab: 'ai' }) },
     },
     {
       id: 'profile', done: described,
@@ -60,11 +68,13 @@ export function SetupChecklist() {
     {
       id: 'mic', done: mic === 'granted',
       title: t('Allow the microphone'),
-      detail: !helper ? t('The audio helper is not built yet. Run bash scripts/setup.sh in the Chumi folder.')
-        : mic === 'granted' ? t('Allowed. macOS asks separately the first time you record computer audio.')
+      detail: !helper ? windows ? t('The audio component is missing. Reinstall Chumi to restore it.') : t('The audio helper is not built yet. Run bash scripts/setup.sh in the Chumi folder.')
+        : mic === 'granted' ? windows ? t('Microphone ready. Computer audio needs no additional permission.') : t('Allowed. macOS asks separately the first time you record computer audio.')
+          : windows ? t('Allow desktop apps to access the microphone in Windows Settings → Privacy & security → Microphone.')
           : mic === 'denied' || mic === 'restricted' ? t('Microphone access is turned off for Chumi. Turn it on in System Settings → Privacy & Security → Microphone.')
             : t('macOS asks once. Allow it so Chumi can hear the room.'),
       action: !helper || mic === 'granted' ? undefined
+        : windows ? { label: t('Open Microphone settings'), run: () => void api('/api/audio/open-settings', { body: { pane: 'microphone' } }) }
         : mic === 'denied' || mic === 'restricted' ? { label: t('Open System Settings'), run: () => void api('/api/audio/open-settings', { body: { pane: 'microphone' } }) }
           : { label: t('Allow microphone'), run: () => void api('/api/audio/request-mic', { body: {} }).finally(loadMic) },
     },

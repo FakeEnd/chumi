@@ -1,0 +1,8 @@
+{
+  "name": "chumi-desktop",
+  "version": "0.1.0",
+  "description": "Chumi meeting companion",
+  "author": "Chumi contributors",
+  "license": "MIT",
+  "main": "main.cjs"
+}

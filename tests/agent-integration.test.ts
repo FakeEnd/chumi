@@ -11,14 +11,22 @@ const { Store } = await import('../server/db.ts');
 const { AgentIntegration, MCP_SCRIPT, parseJsonc } = await import('../server/projects/agents.ts');
 test.after(() => rmSync(DATA, { recursive: true, force: true }));
 
+const WIN = process.platform === 'win32';
+/** An executable stand-in CLI: a script with a shebang, or on Windows a .cmd shim like the ones npm installs. */
+function cliFile(name: string, js: string): string {
+  const path = join(DATA, WIN ? `${name}.js` : name);
+  writeFileSync(path, WIN ? js : `#!${process.execPath}\n${js}`, { mode: 0o755 });
+  if (!WIN) return path;
+  writeFileSync(join(DATA, `${name}.cmd`), `@"${process.execPath}" "%~dp0${name}.js" %*\r\n`);
+  return join(DATA, `${name}.cmd`);
+}
+
 // Like Codex exec with piped stdin, this CLI waits for EOF even when given a prompt argument.
 // It answers the way each agent's command would, records the read under that agent's MCP client name,
 // and refuses to record it when an API key reaches a plan agent (or is missing for an API-key agent).
 // It uses only a temporary database; no installed agent, credentials or model requests are involved.
 function fixtureCli(name: string, recordRead: boolean): string {
-  const path = join(DATA, name);
-  writeFileSync(path, `#!${process.execPath}
-const args = process.argv.slice(2);
+  return cliFile(name, `const args = process.argv.slice(2);
 if (args[0] === 'mcp' && args[1] === 'list') { console.log('●  ✓ chumi connected'); process.exit(0); }
 const timer = setTimeout(() => {
   console.error('Reading additional input from stdin... (stdin was left open)');
@@ -45,8 +53,7 @@ process.stdin.on('end', async () => {
   }
   console.log('OK');
 });
-`, { mode: 0o755 });
-  return path;
+`);
 }
 
 test('agent read checks close stdin, keep plan agents away from API keys, and match each client', async () => {
@@ -135,10 +142,11 @@ test('opencode.json is only rewritten when it is plain JSON; the rewrite keeps i
     }
     writeFileSync(file, '{"model": "x/y"}');
     chmodSync(file, 0o600);
+    const mode = statSync(file).mode & 0o777;
     await integration.connect('opencode');
-    assert.equal(statSync(file).mode & 0o777, 0o600, 'the file may hold API keys: its mode is kept');
+    assert.equal(statSync(file).mode & 0o777, mode, 'the file may hold API keys: its mode is kept');
     assert.equal(readFileSync(`${file}.bak`, 'utf8'), '{"model": "x/y"}');
-    assert.equal(statSync(`${file}.bak`).mode & 0o777, 0o600, 'and so is the backup');
+    assert.equal(statSync(`${file}.bak`).mode & 0o777, mode, 'and so is the backup');
     assert.equal(JSON.parse(readFileSync(file, 'utf8')).model, 'x/y');
   } finally {
     store.close();
@@ -152,21 +160,23 @@ test('continuing starts each agent in the project folder with the whole handoff 
   const workspace = mkdtempSync(join(DATA, 'project with spaces '));
   const log = join(DATA, 'launch.json');
   // Records how the agent was started instead of starting it.
-  const recorder = join(DATA, 'recorder');
-  writeFileSync(recorder, `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(log)}, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2) }));\n`, { mode: 0o755 });
+  const recorder = cliFile('recorder', `require('node:fs').writeFileSync(${JSON.stringify(log)}, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2) }));\n`);
   const prompt = 'Continue work from a meeting.\n\n1. Rerun with the "held-out" split; don\'t touch $HOME or `backticks`.';
   try {
     const integration = new AgentIntegration(store);
     integration.cli = () => recorder;
-    const expected: Record<string, (ws: string) => string[]> = {
-      'claude-code': () => [prompt], codex: (ws) => ['-C', ws, prompt], opencode: (ws) => [ws, '--prompt', prompt], 'qwen-code': () => ['-i', prompt],
+    // cmd.exe cannot pass a multi-line argument: on Windows the agent is pointed at the handoff file instead.
+    const message = (agent: string) => (WIN ? `Read the file ${join(DATA, 'handoffs', `hnd_test-${agent}.md`)} and follow the instructions in it.` : prompt);
+    const expected: Record<string, (ws: string, m: string) => string[]> = {
+      'claude-code': (_ws, m) => [m], codex: (ws, m) => ['-C', ws, m], opencode: (ws, m) => [ws, '--prompt', m], 'qwen-code': (_ws, m) => ['-i', m],
     };
     for (const [agent, args] of Object.entries(expected)) {
       const script = integration.launchScript(agent as 'codex', 'hnd_test', workspace, prompt);
-      execFileSync('/bin/zsh', [script]);
+      if (WIN) execFileSync('cmd.exe', ['/d', '/c', script]); else execFileSync('/bin/zsh', [script]);
+      assert.equal(readFileSync(join(DATA, 'handoffs', `hnd_test-${agent}.md`), 'utf8'), prompt);
       const got = JSON.parse(readFileSync(log, 'utf8')) as { cwd: string; args: string[] };
       assert.equal(realpathSync(got.cwd), realpathSync(workspace), `${agent} starts in the project folder`);
-      assert.deepEqual(got.args, args(workspace), `${agent} receives the handoff unchanged`);
+      assert.deepEqual(got.args, args(workspace, message(agent)), `${agent} receives the handoff unchanged`);
     }
   } finally {
     store.close();
