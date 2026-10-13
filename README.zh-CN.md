@@ -145,6 +145,8 @@ flowchart LR
 
 ## 快速开始
 
+**iPhone 开发原型：** 原生 SwiftUI 工程在 [`ios/Chumi.xcodeproj`](ios/Chumi.xcodeproj)，支持手机录音、本地 Apple Speech 转写，以及配对 Mac 后的会议问答。需要完整 Xcode；首次实现尚未完成 iOS 编译和真机验证。安装、配对、调试权限及当前限制见 [iPhone 开发指南](ios/README.zh-CN.md)。
+
 **你需要**一台 Apple Silicon 芯片的 Mac（macOS 14.4 或更高版本），以及 ChatGPT 或 Claude 订阅。没有订阅的话，16 GB 及以上内存的 Mac 也可以运行免费的本地模型。不需要事先安装其他东西。
 
 打开终端，粘贴：

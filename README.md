@@ -121,6 +121,8 @@ flowchart LR
 
 ## Set up the agent loop
 
+**iPhone prototype:** a native SwiftUI project is available at [`ios/Chumi.xcodeproj`](ios/Chumi.xcodeproj), with local recording, on-device Apple Speech transcription, and paired Mac AI assistance. Full Xcode is required; iOS compilation and device validation are pending. See the [iPhone development guide](ios/README.md) for setup, pairing, and limitations.
+
 1. **Projects.** Assign a meeting to a project: the folder you work in. Pick it when you start, or later in the top bar. Nothing is assigned automatically.
 2. **Coding agents.** Connect each agent once in **Settings → Coding agents**. Chumi registers its read-only MCP server with the agent, and **Test a real agent read** confirms the agent can reach Chumi. Claude Code and Codex have their own **Continue** buttons; opencode and Qwen Code are in the **Continue in another agent…** menu.
 3. **Project context (optional).** Run [mybot](https://github.com/jzhoulab/mybot) locally and check its address in **Settings → Integrations** (default `http://127.0.0.1:8788`). Nothing is searched until you turn **Project context** on for a meeting.

@@ -91,6 +91,8 @@ export class SessionManager {
   /** Mark sessions left open by a crash/quit as interrupted, with a recorded gap marker. */
   recoverOnBoot(): void {
     for (const s of this.store.openSessions()) {
+      // The iPhone owns these recordings. Restarting the Mac says nothing about its capture state.
+      if (s.audio_source === 'mobile') continue;
       const lastT = Math.max(this.store.lastSegment(s.id)?.t_end ?? 0, s.duration_ms, (s.last_activity_at ?? s.started_at ?? s.created_at) - (s.started_at ?? s.created_at));
       this.store.updateSession(s.id, { status: 'interrupted', duration_ms: Math.max(s.duration_ms, lastT) });
       this.store.addTimeline(s.id, lastT, 'interrupted', 'The app stopped while recording. Transcript saved up to this point.');
@@ -338,6 +340,7 @@ export class SessionManager {
     if (this.status !== 'idle') throw new Error('Another session is active.');
     const s = this.store.getSession(sessionId);
     if (!s) throw new Error('Session not found');
+    if (s.audio_source === 'mobile') throw new Error('Continue this recording on its iPhone.');
     this.invalidateDeferredSummary(sessionId);
     // Reserve the session before cancelling a worker or starting ASR; Quick Start/delete cannot race it.
     this.status = 'starting'; this.session = s; this.source = source; this.emitState();

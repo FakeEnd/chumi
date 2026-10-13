@@ -11,3 +11,8 @@ samples/**/*.wav
 config/local.json
 *.log
 .DS_Store
+
+# Xcode user state and signing files
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
+ios/**/*.mobileprovision
