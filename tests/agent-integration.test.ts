@@ -142,10 +142,11 @@ test('opencode.json is only rewritten when it is plain JSON; the rewrite keeps i
     }
     writeFileSync(file, '{"model": "x/y"}');
     chmodSync(file, 0o600);
+    const mode = statSync(file).mode & 0o777;
     await integration.connect('opencode');
-    assert.equal(statSync(file).mode & 0o777, 0o600, 'the file may hold API keys: its mode is kept');
+    assert.equal(statSync(file).mode & 0o777, mode, 'the file may hold API keys: its mode is kept');
     assert.equal(readFileSync(`${file}.bak`, 'utf8'), '{"model": "x/y"}');
-    assert.equal(statSync(`${file}.bak`).mode & 0o777, 0o600, 'and so is the backup');
+    assert.equal(statSync(`${file}.bak`).mode & 0o777, mode, 'and so is the backup');
     assert.equal(JSON.parse(readFileSync(file, 'utf8')).model, 'x/y');
   } finally {
     store.close();
