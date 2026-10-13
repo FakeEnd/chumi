@@ -1,6 +1,7 @@
 appId: org.chumi.desktop
 productName: Chumi
 electronVersion: 44.7.0
+afterPack: native/windows/after-pack.cjs
 directories:
   app: native/windows/desktop
   output: dist
@@ -9,6 +10,13 @@ files:
 extraResources:
   - from: build/windows/backend
     to: backend
+    filter:
+      - '**/*'
+      - '!node_modules/**/*'
+  - from: build/windows/backend/node_modules
+    to: backend/node_modules
+    filter:
+      - '**/*'
   - from: build/windows/runtime
     to: runtime
   - from: build/chumi-audio.exe

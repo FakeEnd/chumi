@@ -29,6 +29,8 @@ Development machine: Windows 11 build 26300, i9-12900H, RTX 3060 Laptop 6 GB, No
 
 Found and fixed: the initial state response could snapshot ASR as starting before waiting for provider startup, overwriting an ASR-ready event. The live snapshot is now read after that wait. Home's online/hybrid presets also wait for the audio-source setting before opening the start dialog.
 
+A repository-contained installation initially masked missing backend dependencies: Node found the checkout's parent `node_modules`. Installing under `%LOCALAPPDATA%\Programs\Chumi` exposed it. Backend dependencies now have an explicit resource mapping, and an `afterPack` check verifies their presence and loads the SDKs with bundled Node before an installer can be generated. The final launch check is performed outside the repository.
+
 Release qualification still needed: another Windows 10/11 machine, Bluetooth/USB device switching, microphone speech from a human participant and a fresh ChatGPT browser sign-in. No private real meeting was used in the sample run. The short synthetic meeting tested real ChatGPT answers; the full 20-minute acceptance run used the offline AI test provider.
 
 `scripts/windows-acceptance.py` operates an open desktop window and repeats the real system-audio → Whisper → live catch-up → pause/resume → summary checks. Use an isolated data directory and a public example WAV, as described in its docstring.
