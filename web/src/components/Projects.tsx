@@ -101,7 +101,7 @@ export function AgentsTab() {
       {info && (
         <>
           <div className={`agent-row ${info.local.ok ? '' : 'bad'}`}>
-            <b>{t('Chumi MCP server on this Mac')}</b>
+            <b>{t('Chumi MCP server on this computer')}</b>
             <span className={`pill ${info.local.ok ? 'ok' : 'warn'}`}><span className="dot" />{info.local.ok ? t('works') : t('failed')}</span>
             <span className="muted small">{t(info.local.detail)}</span>
           </div>

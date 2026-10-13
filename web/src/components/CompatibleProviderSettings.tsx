@@ -14,6 +14,7 @@ const PRESET_LABELS: Record<CompatiblePreset, string> = {
 };
 
 export function CompatibleProviderSettings() {
+  const windows = useStore((s) => s.platform) === 'win32';
   const saved = useStore((s) => s.settings!.ai.compatible);
   const savedJson = JSON.stringify(saved);
   const [draft, setDraft] = useState<CompatibleSettings>(() => structuredClone(saved));
@@ -82,7 +83,7 @@ export function CompatibleProviderSettings() {
       });
       setKey(''); setStored(!remove); setKeyError('');
       setDiscoveryRefresh((n) => n + 1);
-      setNotice(remove ? t('API key removed from Keychain.') : t('API key saved in Keychain for this preset and endpoint.'));
+      setNotice(windows ? remove ? t('API key removed.') : t('API key saved for this preset and endpoint.') : remove ? t('API key removed from Keychain.') : t('API key saved in Keychain for this preset and endpoint.'));
       await refreshIfActive();
     } catch (e) { setError(e instanceof Error ? e.message : t('Could not update the API key.')); }
     finally { setBusy(null); }
@@ -112,7 +113,7 @@ export function CompatibleProviderSettings() {
         {local && <LocalModelPicker preset={preset} baseUrl={profile.baseUrl} value={profile.model} refreshKey={discoveryRefresh}
           onChange={(model) => update({ model, supportsImages: false, structuredOutput: 'prompt' })} />}
         <p className="small muted">{local
-          ? t('Start the local model server and choose a model you have downloaded. A server on this Mac can still route requests to a cloud service; check its model and routing settings.')
+          ? t('Start the local model server and choose a model you have downloaded. A server on this computer can still route requests to a cloud service; check its model and routing settings.')
           : t('Requests use your provider account and its API billing or applicable plan. Check the provider’s terms and balance; a chat app subscription does not by itself confirm API access.')}</p>
         <label className="field check"><input type="checkbox" checked={profile.enabled} onChange={(e) => update({ enabled: e.target.checked })} />{local
           ? t('Allow Chumi to use this local model for answers')
@@ -151,11 +152,11 @@ export function CompatibleProviderSettings() {
       </fieldset>
       <details className="model-connection" open={local ? undefined : true}>
       <summary>{t('API key for the saved endpoint')}</summary>
-      <p className="small muted">{t('Keys are stored in macOS Keychain, separately from settings. Local servers usually do not need a key.')}</p>
+      <p className="small muted">{windows ? t('Keys are encrypted for your Windows account and never written to settings.') : t('Keys are stored in macOS Keychain, separately from settings. Local servers usually do not need a key.')}</p>
       {dirty && <p className="small warn-text">{t('Save or discard changes before checking the connection or changing its API key.')}</p>}
       {!dirty && savedProfile.baseUrl && <p className="small muted">{t('Saved endpoint: {url}', { url: savedProfile.baseUrl })}</p>}
       <div className="field-row">
-        <input type="password" aria-label={t('API key for the saved endpoint')} placeholder={t('API key (stored in macOS Keychain)')} value={key} onChange={(e) => setKey(e.target.value)} disabled={actionsDisabled} autoComplete="off" />
+        <input type="password" aria-label={t('API key for the saved endpoint')} placeholder={windows ? t('API key for the saved endpoint') : t('API key (stored in macOS Keychain)')} value={key} onChange={(e) => setKey(e.target.value)} disabled={actionsDisabled} autoComplete="off" />
         <button type="button" className="btn small" disabled={actionsDisabled || !key.trim()} onClick={() => void keyAction(false)}>{busy === 'key' ? t('Saving…') : t('Save key')}</button>
         <button type="button" className="btn small" disabled={actionsDisabled || stored !== true} onClick={() => void keyAction(true)}>{busy === 'remove' ? t('Removing…') : t('Remove key')}</button>
       </div>

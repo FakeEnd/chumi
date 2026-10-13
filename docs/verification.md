@@ -1,5 +1,24 @@
 # Verification log
 
+## Windows desktop — 2026-10-13 (in progress)
+
+Development machine: Windows 11 build 26300, i9-12900H, RTX 3060 Laptop 6 GB, Node 24.21.0, whisper.cpp b5454 CUDA 12.4, Electron 44.7.0.
+
+| Check | Result |
+|---|---|
+| TypeScript and unit tests | Both TypeScript projects pass; 137/137 tests. |
+| Native helper dependencies | Static MinGW-w64 build imports only `KERNEL32.dll`, `msvcrt.dll` and `ole32.dll`; no .NET or external C++ runtime. |
+| WASAPI computer audio | Real Windows playback, about −24.4 dBFS; valid 16 kHz PCM frames with no backward timestamps. |
+| WASAPI microphone and both | The default Redmi input provides frames. During mixed playback its microphone signal is −46.4 dBFS, and system signal is −24.4 dBFS. A quiet microphone-only run is −75.5 dBFS; human speech recognition on that input remains a separate check. |
+| Packaged Electron window | Opens the production UI, moves and resizes through Windows controls, and reports the speech engine ready. Native settings and start controls operate. |
+| Real capture → transcription → AI | An 85-second fictional lab-meeting clip played through Windows output and captured by WASAPI produced 10 transcript segments using real Whisper. Real ChatGPT catch-up: 5 citations, none unsupported. Final summary: 32 citations, none unsupported. |
+| Pause/resume/end | Operated through the actual Electron page; capture stopped/restarted and the final summary completed. |
+| Window chooser | Electron enumerated 8 Windows windows through the existing screen API. |
+
+Found and fixed: the initial state response could snapshot ASR as starting before waiting for provider startup, overwriting an ASR-ready event. The live snapshot is now read after that wait. Home's online/hybrid presets also wait for the audio-source setting before opening the start dialog.
+
+Still being checked in this pass: installer installation, a clean first-use download, screenshot delivery, agent handoff, shutdown recovery, CPU-only transcription and Windows 10. No private real meeting was used in the sample run.
+
 Results from the development Mac: Apple M5 Max, macOS 26.5, Node 26.5, whisper.cpp 1.9.5 with large-v3-turbo q8_0.
 
 ## Windows preview — 2026-10-12

@@ -24,6 +24,7 @@ export function ensureDirs(): void {
 export function findAudioHelper(): string | null {
   const candidates = [
     process.env.CHUMI_AUDIO_HELPER,
+    ...(WIN ? [join(REPO_ROOT, 'build', 'chumi-audio.exe')] : []),
     join(REPO_ROOT, 'build', 'Chumi.app', 'Contents', 'MacOS', 'chumi-audio'),
     join(REPO_ROOT, 'build', 'chumi-audio'),
   ].filter((p): p is string => !!p);

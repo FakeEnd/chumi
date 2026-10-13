@@ -1,5 +1,7 @@
 # Chumi native (macOS)
 
+Windows uses the C++ helper in `windows/audio/` and the Electron shell in `windows/desktop/`. Build with `python scripts/build-windows.py`; installation and platform behaviour are documented in [docs/windows.md](../docs/windows.md). The audio frame and event protocol below is shared by both platforms.
+
 Two Swift programs, built with the Command Line Tools compiler (no Xcode project):
 
 | Output | What it is |

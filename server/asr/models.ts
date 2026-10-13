@@ -1,11 +1,11 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { DATA_DIR, MODELS_DIR } from '../paths.ts';
+import { DATA_DIR, MODELS_DIR, REPO_ROOT } from '../paths.ts';
 import { toSimplified } from './clean.ts';
 import { readWav } from '../audio/wav.ts';
 import type { WhisperServer } from './whisper.ts';
@@ -133,15 +133,17 @@ export async function benchmark(whisper: WhisperServer): Promise<BenchResult[]> 
   const dir = join(DATA_DIR, 'bench');
   mkdirSync(dir, { recursive: true });
   const out: BenchResult[] = [];
+  const windowsClips = join(REPO_ROOT, 'assets', 'bench');
+  const references = process.platform === 'win32' ? JSON.parse(readFileSync(join(windowsClips, 'references.json'), 'utf8')) as Record<string, string> : null;
   for (const lang of ['en', 'zh'] as const) {
-    const file = join(dir, `${lang}.wav`);
-    if (!existsSync(file)) await say(BENCH[lang].voice, BENCH[lang].text, file);
+    const file = references ? join(windowsClips, `${lang}.wav`) : join(dir, `${lang}.wav`);
+    if (!references && !existsSync(file)) await say(BENCH[lang].voice, BENCH[lang].text, file);
     const samples = readWav(file);
     const audioSec = samples.length / 16000;
     await whisper.transcribe(samples.subarray(0, 8000), { language: lang }); // warm-up
     const r = await whisper.transcribe(samples, { language: lang });
     const text = lang === 'zh' ? toSimplified(r.text) : r.text;
-    out.push({ lang, audioSec, ms: r.ms, realtimeFactor: audioSec / Math.max(0.001, r.ms / 1000), accuracy: Math.round(textAccuracy(text, BENCH[lang].text) * 100), text });
+    out.push({ lang, audioSec, ms: r.ms, realtimeFactor: audioSec / Math.max(0.001, r.ms / 1000), accuracy: Math.round(textAccuracy(text, references?.[lang] ?? BENCH[lang].text) * 100), text });
   }
   return out;
 }

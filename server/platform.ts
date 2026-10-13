@@ -1,10 +1,10 @@
 /**
  * What differs between macOS and Windows: starting command-line tools, notifications, the folder picker,
- * privacy settings, the system language and opening a terminal. macOS behaviour is unchanged; on Windows the
- * user opens Chumi in a browser and live capture is not available yet (docs/windows.md).
+ * privacy settings, the system language and opening an agent terminal.
  */
 import { execFile, execFileSync, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import crossSpawn from 'cross-spawn';
+import { DESKTOP, desktopRequest } from './desktop.ts';
 
 export const IS_WIN = process.platform === 'win32';
 
@@ -38,8 +38,9 @@ export function runCommand(bin: string, args: string[], o: { timeoutMs?: number;
   });
 }
 
-/** A system notification (quick start). Not shown on Windows yet. */
+/** A system notification when a meeting starts from the global shortcut. */
 export function notify(text: string): void {
+  if (DESKTOP) { void desktopRequest('notify', { text }).catch(() => {}); return; }
   if (IS_WIN) return;
   const esc = (x: string) => x.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   execFile('/usr/bin/osascript', ['-e', `display notification "${esc(text)}" with title "Chumi"`], () => {});
@@ -47,6 +48,7 @@ export function notify(text: string): void {
 
 /** The system folder picker. Resolves null when cancelled. */
 export function chooseFolder(prompt: string): Promise<string | null> {
+  if (DESKTOP) return desktopRequest<string | null>('choose-folder', { prompt });
   if (IS_WIN) {
     const script = `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = ${psString(prompt)}; $d.ShowNewFolderButton = $true; `
       + `$top = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true }; if ($d.ShowDialog($top) -eq 'OK') { [Console]::OutputEncoding = [Text.Encoding]::UTF8; $d.SelectedPath }`;
@@ -59,6 +61,11 @@ export function chooseFolder(prompt: string): Promise<string | null> {
 }
 const psString = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
+export function openExternalUrl(url: string): Promise<void> {
+  if (DESKTOP) return desktopRequest<void>('open-url', { url });
+  return new Promise((resolve, reject) => execFile(IS_WIN ? 'explorer.exe' : '/usr/bin/open', [url], { windowsHide: true }, (e) => e ? reject(e) : resolve()));
+}
+
 /** Opens the privacy settings for the microphone, computer audio or screen recording. */
 export function openPrivacySettings(pane: 'microphone' | 'audio-capture' | 'screen'): void {
   if (IS_WIN) { execFile('explorer.exe', [pane === 'microphone' ? 'ms-settings:privacy-microphone' : 'ms-settings:privacy'], () => {}); return; }
@@ -68,6 +75,7 @@ export function openPrivacySettings(pane: 'microphone' | 'audio-capture' | 'scre
 
 /** The user's preferred language tag, e.g. "zh-Hans-CN" or "en-US" ('' when unknown). */
 export function preferredLanguage(): string {
+  if (process.env.CHUMI_SYSTEM_LANGUAGE) return process.env.CHUMI_SYSTEM_LANGUAGE;
   if (IS_WIN) {
     try { return execFileSync('powershell.exe', ['-NoProfile', '-Command', '(Get-UICulture).Name'], { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim(); } catch { return Intl.DateTimeFormat().resolvedOptions().locale; }
   }

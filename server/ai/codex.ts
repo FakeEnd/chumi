@@ -96,6 +96,12 @@ export class CodexProvider implements AIProvider {
   private cfg: () => { model: string | null; allowCredits: boolean };
   constructor(cfg: () => { model: string | null; allowCredits: boolean }) { this.cfg = cfg; }
 
+  /** Codex owns the browser callback and credential storage; Chumi receives only the sign-in URL. */
+  async beginLogin(): Promise<{ loginId: string; authUrl: string }> {
+    await this.ensure();
+    return await this.request('account/login/start', { type: 'chatgpt' }) as unknown as { loginId: string; authUrl: string };
+  }
+
   // ------------------------------------------------------------------ process / JSON-RPC
   private ensure(): Promise<void> {
     if (this.proc && this.ready) return this.ready;

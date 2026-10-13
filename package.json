@@ -18,6 +18,9 @@
     "build:web": "vite build --config web/vite.config.ts",
     "build:native": "bash native/build.sh",
     "build:tools": "bash native/build.sh tools",
+    "build:windows": "python scripts/build-windows.py",
+    "app:windows": "electron native/windows/desktop",
+    "package:windows": "python scripts/build-windows.py --installer",
     "build": "npm run build:web && npm run build:native",
     "app": "open build/Chumi.app",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
@@ -27,6 +30,8 @@
     "acceptance": "node scripts/acceptance.ts"
   },
   "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",

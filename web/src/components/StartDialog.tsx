@@ -44,7 +44,7 @@ export function StartDialog() {
         <div className="radio-list">
           <label><input type="radio" checked={source === 'mic'} onChange={() => setSource('mic')} /> <b>{t('Microphone')}</b>: {t('in-person meetings and lectures')}</label>
           <label><input type="radio" checked={source === 'system'} onChange={() => setSource('system')} /> <b>{t('Computer audio')}</b>: {t('Zoom/Teams/recorded lectures, works with headphones')}</label>
-          <label><input type="radio" checked={source === 'both'} onChange={() => setSource('both')} /> <b>{t('Both')}</b>: {t('hybrid meetings (echo cancellation + duplicate filtering)')}</label>
+          <label><input type="radio" checked={source === 'both'} onChange={() => setSource('both')} /> <b>{t('Both')}</b>: {windows ? t('hybrid meetings (microphone + computer audio, with duplicate filtering)') : t('hybrid meetings (echo cancellation + duplicate filtering)')}</label>
           {devMode && <label><input type="radio" checked={source === 'file'} onChange={() => setSource('file')} /> <b>{t('Audio file')}</b>: {t('test/demo: stream a WAV through the live pipeline')}</label>}
         </div>
       </fieldset>
@@ -63,9 +63,9 @@ export function StartDialog() {
         {capture && <WindowPicker value={win} onChange={setWin} />}
       </fieldset>
       {source !== 'file' && !helperBuilt && (windows
-        ? <p className="error-text">{t('Live microphone and computer-audio capture are not available on Windows yet. Saved meetings, questions, summaries and handoffs work.')}</p>
+        ? <p className="error-text">{t('The audio component is missing. Reinstall Chumi to restore it.')}</p>
         : <p className="error-text">{tn("The native audio helper isn't built. Run {cmd} in the project folder.", { cmd: <code>npm run build:native</code> })}</p>)}
-      <p className="muted small">{t('Audio is transcribed on this Mac and is not uploaded.')} {settings?.audio.saveRawAudio ? t('Raw audio will be saved (Settings → Audio).') : t('Raw audio is not saved.')} {t('The first time, macOS asks for Microphone and/or System Audio Recording permission.')}</p>
+      <p className="muted small">{t('Audio is transcribed on this computer and is not uploaded.')} {settings?.audio.saveRawAudio ? t('Raw audio will be saved (Settings → Audio).') : t('Raw audio is not saved.')} {windows ? t('Allow desktop apps to access your microphone in Windows Settings. For hybrid meetings, headphones reduce speaker echo.') : t('The first time, macOS asks for Microphone and/or System Audio Recording permission.')}</p>
     </Dialog>
   );
 }

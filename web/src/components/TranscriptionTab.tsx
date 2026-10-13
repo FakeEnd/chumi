@@ -48,7 +48,7 @@ export function TranscriptionTab() {
 
   return (
     <section>
-      <p className="small">{t('Speech recognition runs on this Mac with whisper.cpp. It is free, needs no network, and keeps running when the AI provider is unavailable.')}</p>
+      <p className="small">{t('Speech recognition runs on this computer with whisper.cpp. It is free, needs no network, and keeps running when the AI provider is unavailable.')}</p>
 
       <SpeakerSettings />
 
@@ -70,7 +70,7 @@ export function TranscriptionTab() {
               <div className="model-main">
                 <div className="model-name">
                   <b>{m.name}</b>
-                  {m.id === list.recommended && <span className="tag">{t('Recommended for this Mac')}</span>}
+                  {m.id === list.recommended && <span className="tag">{t('Recommended for this computer')}</span>}
                   {m.active && <span className="tag tag-ok">{t('In use')}</span>}
                   {!m.active && m.installed && <span className="tag tag-muted">{t('Downloaded')}</span>}
                   {tooBig && <span className="tag tag-warn">{t('Needs {n} GB+ memory', { n: m.minRamGB })}</span>}
@@ -89,10 +89,10 @@ export function TranscriptionTab() {
               <div className="model-actions">
                 {m.installed && !m.active && <button className="btn small primary" disabled={busySession} title={busySession ? t('End the current session before switching the speech model.') : ''} onClick={() => void S({ asr: { model: m.id } })}>{t('Use')}</button>}
                 {!m.installed && !downloading && (
-                  <button className="btn small" disabled={!!dl} onClick={() => { if (confirm(t('Download {name} ({size}) from Hugging Face (ggerganov/whisper.cpp)? It is saved on this Mac.', { name: m.name, size: fmtSize(m.sizeMB) }))) void api(`/api/asr/models/${m.id}/download`, { body: {} }); }}>{t('Download')} · {fmtSize(m.sizeMB)}</button>
+                  <button className="btn small" disabled={!!dl} onClick={() => { if (confirm(t('Download {name} ({size}) from Hugging Face (ggerganov/whisper.cpp)? It is saved on this computer.', { name: m.name, size: fmtSize(m.sizeMB) }))) void api(`/api/asr/models/${m.id}/download`, { body: {} }); }}>{t('Download')} · {fmtSize(m.sizeMB)}</button>
                 )}
                 {downloading && <button className="btn small" onClick={() => void api(`/api/asr/models/${m.id}/cancel`, { body: {} })}>{t('Cancel')}</button>}
-                {m.installed && !m.active && <button className="btn small ghost" onClick={() => { if (confirm(t('Delete {name} from this Mac? You can download it again later.', { name: m.name }))) void api(`/api/asr/models/${m.id}`, { method: 'DELETE' }).then(load); }}>{t('Delete')}</button>}
+                {m.installed && !m.active && <button className="btn small ghost" onClick={() => { if (confirm(t('Delete {name} from this computer? You can download it again later.', { name: m.name }))) void api(`/api/asr/models/${m.id}`, { method: 'DELETE' }).then(load); }}>{t('Delete')}</button>}
               </div>
             </li>
           );
@@ -117,7 +117,7 @@ export function TranscriptionTab() {
               </tr>
             ))}
           </tbody>
-          <tfoot><tr><td colSpan={4} className="muted">{t('Clips are spoken by the macOS voices, so real meetings score lower. Speed should stay above about 2× real time for smooth live captions.')}</td></tr></tfoot>
+          <tfoot><tr><td colSpan={4} className="muted">{t('Clips are spoken by system voices, so real meetings score lower. Speed should stay above about 2× real time for smooth live captions.')}</td></tr></tfoot>
         </table>
       )}
 
@@ -141,7 +141,7 @@ export function TranscriptionTab() {
       <label className="field"><span>{t('Vocabulary hints (comma separated): improves spelling of technical terms and names')}</span>
         <textarea rows={3} value={glossary} onChange={(e) => setGlossary(e.target.value)} onBlur={() => S({ asr: { glossary: glossary.split(/[,，\n]+/).map((x) => x.trim()).filter(Boolean) } })} />
       </label>
-      <label className="field"><span>{t('CPU threads (more is faster up to the number of performance cores; {n} cores on this Mac)', { n: hw?.cores ?? '?' })}</span><input type="number" min={2} max={16} value={settings.asr.threads} onChange={(e) => S({ asr: { threads: Number(e.target.value) } })} /></label>
+      <label className="field"><span>{t('CPU threads (more is faster up to the number of performance cores; {n} cores on this computer)', { n: hw?.cores ?? '?' })}</span><input type="number" min={2} max={16} value={settings.asr.threads} onChange={(e) => S({ asr: { threads: Number(e.target.value) } })} /></label>
     </section>
   );
 }

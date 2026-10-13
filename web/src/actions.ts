@@ -82,7 +82,7 @@ export async function startSession(o: { title: string; type: string; source: str
   if (o.source === 'mic' || o.source === 'both') {
     const perm = await api<Record<string, string>>('/api/audio/permissions').catch(() => ({} as Record<string, string>));
     if (perm.microphone === 'denied' || perm.microphone === 'restricted') {
-      notify('error', t('Microphone access is blocked. Open System Settings → Privacy & Security → Microphone and enable Chumi (or the terminal app you launched it from), then try again.'), 'mic_permission_denied');
+      notify('error', getState().platform === 'win32' ? t('Microphone access is blocked. Allow desktop apps in Windows Settings → Privacy & security → Microphone, then try again.') : t('Microphone access is blocked. Open System Settings → Privacy & Security → Microphone and enable Chumi (or the terminal app you launched it from), then try again.'), 'mic_permission_denied');
       return false;
     }
   }

@@ -13,7 +13,7 @@ export interface AppState {
   partials: Record<string, { uttId: number; t: number; text: string }>;
   devMode: boolean;
   helperBuilt: boolean;
-  /** The server's process.platform: 'darwin', or 'win32' where live capture is not available yet. */
+  /** The server's process.platform, used for platform-specific permissions and controls. */
   platform: string;
   appMode: boolean;
   dataDir: string;
@@ -36,7 +36,7 @@ export interface AppState {
   /** Transcript passage the user attached to the next question. */
   attached: { fromT: number; toT: number; text: string } | null;
   askDraft: string;
-  /** macOS preferred language, used when the interface language is Auto. */
+  /** System language, used when the interface language is Auto. */
   systemLanguage: string;
   /** Speech-model download in progress (Settings → Transcription). */
   asrDownload: { id: string; received: number; total: number; status: string; error?: string } | null;

@@ -1,0 +1,35 @@
+appId: org.chumi.desktop
+productName: Chumi
+electronVersion: 44.7.0
+directories:
+  app: native/windows/desktop
+  output: dist
+files:
+  - '**/*'
+extraResources:
+  - from: build/windows/backend
+    to: backend
+  - from: build/windows/runtime
+    to: runtime
+  - from: build/chumi-audio.exe
+    to: chumi-audio.exe
+  - from: build/windows/vendor/json-LICENSE.txt
+    to: licenses/json-LICENSE.txt
+win:
+  icon: build/windows/chumi.ico
+  target:
+    - target: nsis
+      arch: x64
+  signExecutable: false
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+  artifactName: 'Chumi-Setup-${version}-x64.exe'
+  installerLanguages:
+    - en_US
+    - zh_CN

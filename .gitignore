@@ -3,6 +3,8 @@ node_modules/
 build/
 web/dist/
 /dist/
+native/windows/**/bin/
+native/windows/**/obj/
 
 # generated test audio (recreate with: npm run sample)
 samples/**/*.wav
