@@ -52,7 +52,7 @@ export function FrameViewer() {
       <button className="btn small primary" onClick={() => { ask(t('Explain what is shown on this slide/screen and how it relates to what the speakers are saying.'), null, depth, [f.id]); setState({ dialog: null }); }}>{t('Ask about this slide')}</button>
     </>}>
       <img className="frame-full" src={frameUrl(f.id)} alt={t('Screen capture at {t}', { t: fmtT(f.t) })} />
-      <p className="muted small">{f.kind === 'snapshot' ? t('Captured on demand for a question.') : t('Captured automatically when the window changed.')} {t('Stored only on this Mac. It is sent to the AI provider only with questions, catch-ups and summaries (Settings → Screen).')}</p>
+      <p className="muted small">{f.kind === 'snapshot' ? t('Captured on demand for a question.') : t('Captured automatically when the window changed.')} {t('Stored only on this computer. It is sent to the AI provider only with questions, catch-ups and summaries (Settings → Screen).')}</p>
     </Dialog>
   );
 }

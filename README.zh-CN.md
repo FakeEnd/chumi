@@ -147,6 +147,8 @@ flowchart LR
 
 **你需要**一台 Apple Silicon 芯片的 Mac（macOS 14.4 或更高版本），以及 ChatGPT 或 Claude 订阅。没有订阅的话，16 GB 及以上内存的 Mac 也可以运行免费的本地模型。不需要事先安装其他东西。
 
+**Windows（桌面预览版）：** 独立 Electron 窗口、麦克风、电脑声音和混合采集已实现，安装包自带 Node、语音引擎和 Codex，无需预装 .NET 或执行构建命令。首次打开可在应用内下载语音模型、登录 ChatGPT。当前提供 x64 本地构建，Windows 11 上已验证真实采集、转写、会中辅助、总结和 MCP 交接；其他 Windows 10/11 机器仍需发布验收。安装方式和验证范围见 [docs/windows.md](docs/windows.md)。
+
 打开终端，粘贴：
 
 ```bash

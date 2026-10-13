@@ -58,7 +58,7 @@ function AsrBadge() {
   const label = asr.state === 'ready' ? `${t('Speech')}${asr.latencyMs ? ` · ${(asr.latencyMs / 1000).toFixed(1)}s` : ''}${asr.backlogSec > 3 ? ` · ${t('{n}s behind', { n: asr.backlogSec })}` : ''}`
     : asr.state === 'starting' ? t('Speech: loading…') : asr.state === 'missing_model' || asr.state === 'missing_binary' ? t('Speech: not installed') : asr.state === 'error' ? t('Speech: restarting…') : t('Speech: idle');
   const cls = asr.state === 'ready' ? (asr.backlogSec > 10 ? 'badge warn' : 'badge ok') : asr.state === 'starting' || asr.state === 'stopped' ? 'badge muted' : 'badge bad';
-  return <span className={`${cls} speech-badge`} aria-label={label} title={asr.message ?? t('Local speech recognition (whisper.cpp). No audio leaves this Mac.')}><span className="dot" /><span className="badge-label">{label}</span></span>;
+  return <span className={`${cls} speech-badge`} aria-label={label} title={asr.message ?? t('Local speech recognition (whisper.cpp). No audio leaves this computer.')}><span className="dot" /><span className="badge-label">{label}</span></span>;
 }
 
 /** Tier 1: brand, session, recording controls, status, navigation. */

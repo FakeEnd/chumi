@@ -2,6 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { ProviderError, type AIProvider, type CompletionRequest, type CompletionResult, type ProviderStatus } from './provider.ts';
+import { DESKTOP, desktopRequest } from '../desktop.ts';
 
 /*
  * OPTIONAL paid access: Anthropic API key (billed per token by Anthropic).
@@ -14,6 +15,7 @@ const KC_SERVICE = 'Chumi Anthropic API key';
 const KC_ACCOUNT = 'default';
 
 export function readKey(): Promise<string | null> {
+  if (DESKTOP) return desktopRequest<string | null>('credential-read', { service: KC_SERVICE, account: KC_ACCOUNT });
   return new Promise((resolve) => execFile('/usr/bin/security', ['find-generic-password', '-s', KC_SERVICE, '-a', KC_ACCOUNT, '-w'], { timeout: 5000 },
     (err, out) => resolve(err ? null : out.trim() || null)));
 }
@@ -21,6 +23,7 @@ export function readKey(): Promise<string | null> {
 /** Store via `security -i` reading commands from stdin, so the key never appears in the process list. */
 export function storeKey(key: string): Promise<void> {
   if (!/^[A-Za-z0-9_\-]{20,300}$/.test(key)) return Promise.reject(new Error('That does not look like an API key.'));
+  if (DESKTOP) return desktopRequest<void>('credential-write', { service: KC_SERVICE, account: KC_ACCOUNT, key });
   return new Promise((resolve, reject) => {
     const p = spawn('/usr/bin/security', ['-i'], { stdio: ['pipe', 'ignore', 'pipe'] });
     let err = '';
@@ -31,6 +34,7 @@ export function storeKey(key: string): Promise<void> {
 }
 
 export function deleteKey(): Promise<void> {
+  if (DESKTOP) return desktopRequest<void>('credential-delete', { service: KC_SERVICE, account: KC_ACCOUNT });
   return new Promise((resolve) => execFile('/usr/bin/security', ['delete-generic-password', '-s', KC_SERVICE, '-a', KC_ACCOUNT], () => resolve()));
 }
 

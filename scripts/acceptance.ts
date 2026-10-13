@@ -7,7 +7,7 @@
  *
  * Starts its own server on a spare port with a throwaway data folder, streams the ~20-minute
  * sample lab meeting through the live pipeline (8× speed), and checks the acceptance criteria.
- * Live microphone / computer-audio capture is covered by scripts/check-audio.sh (needs macOS permissions).
+ * Live capture is covered by scripts/check-audio.ts; Windows desktop controls by scripts/windows-acceptance.py.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -60,6 +60,9 @@ async function main(): Promise<void> {
   console.log(`Data dir: ${DATA}\nProvider: ${PROVIDER}${REAL ? ' (REAL — uses your plan allowance)' : ' (offline test stub — no AI calls)'}\n`);
   await startServer();
   await api('/api/settings', { ai: { provider: PROVIDER }, assist: { autoOverview: true, autoExplain: false } }, 'PUT');
+  // Fresh installs now have an empty profile. The familiarity check needs an explicit fictional background.
+  const acceptanceProfile = await api('/api/profile');
+  await api('/api/profile', { ...acceptanceProfile, domains: [{ name: 'Wet-lab experimental techniques', level: 1 }] }, 'PUT');
   if (!REAL) await api('/api/dev/mock', { failMode: null, delayMs: 2500 });
   const prov = await api('/api/provider/status?refresh=1');
   if (REAL && !prov.ready) throw new Error(`Provider not ready: ${prov.state} — ${prov.message ?? ''}`);
@@ -245,7 +248,7 @@ async function main(): Promise<void> {
   record('R1', 'Restart keeps saved content and marks the recording gap', r2.session.status === 'interrupted' && r2.segments.length >= kept && r2.timeline.some((e: any) => e.kind === 'interrupted') && !!gap ? 'PASS' : 'FAIL',
     `after crash: status ${r2.session.status}, ${r2.segments.length}/${kept} segments kept; gap marker: "${gap?.detail ?? 'none'}"`);
 
-  record('C1', 'Microphone and computer-audio capture real audio', 'MANUAL', 'see scripts/check-audio.sh and the manual checklist in README (needs macOS permission prompts)');
+  record('C1', 'Microphone and computer-audio capture real audio', 'MANUAL', 'see scripts/check-audio.ts and scripts/windows-acceptance.py (real hardware and playback)');
 }
 
 main().catch((e) => { record('ERR', 'Acceptance run aborted', 'FAIL', (e as Error).message); }).finally(async () => {

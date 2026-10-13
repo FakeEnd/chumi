@@ -3,7 +3,6 @@
  * what is verified, run an explicit read check, and open a project session that starts from a confirmed handoff.
  * Nothing here runs an agent on its own: registration, the read check and continuation are user actions.
  */
-import { execFile } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -12,6 +11,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import type { Store } from '../db.ts';
 import { DATA_DIR, REPO_ROOT, which } from '../paths.ts';
 import { uid } from '../util.ts';
+import { IS_WIN, openInTerminal, runCommand as run } from '../platform.ts';
 import { AGENT_BILLING, AGENT_NAMES, AGENTS, type AgentId } from '../../shared/agents.ts';
 
 export { AGENTS, type AgentId };
@@ -30,16 +30,6 @@ function stableNode(): string {
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const ansi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
 
-function run(bin: string, args: string[], o: { timeoutMs?: number; cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<{ code: number; out: string; err: string }> {
-  return new Promise((resolve) => {
-    const child = execFile(bin, args, { timeout: o.timeoutMs ?? 30_000, cwd: o.cwd, env: o.env ?? process.env, maxBuffer: 4 * 1024 * 1024 }, (e, out, err) => {
-      resolve({ code: e ? (typeof (e as { code?: unknown }).code === 'number' ? (e as { code: number }).code : 1) : 0, out: String(out ?? ''), err: String(err ?? '') });
-    });
-    // These commands receive all input as arguments. Codex exec also reads piped stdin and waits
-    // for EOF even with a prompt argument, so leaving execFile's default pipe open hangs the check.
-    child.stdin?.end();
-  });
-}
 function childEnv(strip: string[], extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const env = { ...process.env, ...extra };
   for (const k of strip) delete env[k];
@@ -141,10 +131,12 @@ interface Adapter {
   disconnect(cli: string): Promise<void>;
   /** The read check: one non-interactive run, in an empty folder, asked to call only Chumi's check tool. */
   check(prompt: string, extraArgs: string[]): { args: string[]; env?: Record<string, string> };
-  /** Shell words that start an interactive session in the project folder with promptFile as the first message. */
-  start(cli: string, workspace: string, promptFile: string): string;
+  /** The command line that starts an interactive session in the project folder, with the handoff where MESSAGE is. */
+  start(cli: string, workspace: string): Array<string | typeof MESSAGE>;
 }
 
+/** Stands for the first message in Adapter.start. */
+const MESSAGE = Symbol('first message');
 const opencodeFile = (ext: 'json' | 'jsonc') => join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'opencode', `opencode.${ext}`);
 const qwenSettings = () => join(homedir(), '.qwen', 'settings.json');
 
@@ -166,7 +158,7 @@ const ADAPTERS: Record<AgentId, Adapter> = {
     },
     async disconnect(cli) { await run(cli, ['mcp', 'remove', NAME, '-s', 'user'], { env: childEnv(PLAN_STRIP_ENV) }); },
     check: (prompt, extra) => ({ args: ['-p', prompt, '--model', 'haiku', '--allowedTools', `mcp__${NAME}__chumi_connection_check`, '--output-format', 'text', ...extra] }),
-    start: (cli, _ws, file) => `${q(cli)} "$(cat ${q(file)})"`,
+    start: (cli) => [cli, MESSAGE],
   },
   codex: {
     bin: 'codex', client: 'codex', strip: PLAN_STRIP_ENV,
@@ -188,7 +180,7 @@ const ADAPTERS: Record<AgentId, Adapter> = {
     },
     async disconnect(cli) { await run(cli, ['mcp', 'remove', NAME], { env: childEnv(PLAN_STRIP_ENV) }); },
     check: (prompt, extra) => ({ args: ['exec', '--skip-git-repo-check', '-s', 'read-only', ...extra, prompt] }),
-    start: (cli, ws, file) => `${q(cli)} -C ${q(ws)} "$(cat ${q(file)})"`,
+    start: (cli, ws) => [cli, '-C', ws, MESSAGE],
   },
   // opencode has no command for adding a local MCP server, so Chumi edits ~/.config/opencode/opencode.json.
   // opencode merges it with opencode.jsonc, so a commented opencode.jsonc stays untouched.
@@ -221,7 +213,7 @@ const ADAPTERS: Record<AgentId, Adapter> = {
     },
     // For this run only: no tools except Chumi's, and no edits, shell or web access.
     check: (prompt, extra) => ({ args: ['run', ...extra, prompt], env: { OPENCODE_CONFIG_CONTENT: JSON.stringify({ tools: { '*': false, [`${NAME}_*`]: true }, permission: { edit: 'deny', bash: 'deny', webfetch: 'deny' } }) } }),
-    start: (cli, ws, file) => `${q(cli)} ${q(ws)} --prompt "$(cat ${q(file)})"`,
+    start: (cli, ws) => [cli, ws, '--prompt', MESSAGE],
   },
   'qwen-code': {
     bin: 'qwen', client: 'qwen', strip: [],
@@ -242,7 +234,7 @@ const ADAPTERS: Record<AgentId, Adapter> = {
     async disconnect(cli) { await run(cli, ['mcp', 'remove', '--scope', 'user', NAME]); },
     // The prompt goes first: the list options after it would otherwise swallow it.
     check: (prompt, extra) => ({ args: [prompt, ...extra, '--allowed-mcp-server-names', NAME, '--allowed-tools', `mcp__${NAME}__chumi_connection_check`] }),
-    start: (cli, _ws, file) => `${q(cli)} -i "$(cat ${q(file)})"`,
+    start: (cli) => [cli, '-i', MESSAGE],
   },
 };
 function opencodeEntry(m: McpServer) {
@@ -337,7 +329,7 @@ export class AgentIntegration {
    */
   launch(agent: AgentId, handoffId: string, workspace: string, prompt: string): { script: string } {
     const script = this.launchScript(agent, handoffId, workspace, prompt);
-    execFile('/usr/bin/open', [script]);
+    openInTerminal(script);
     return { script };
   }
 
@@ -349,9 +341,18 @@ export class AgentIntegration {
     const dir = join(DATA_DIR, 'handoffs');
     mkdirSync(dir, { recursive: true });
     const promptFile = join(dir, `${handoffId}-${agent}.md`);
-    const script = join(dir, `${handoffId}-${agent}.command`);
     writeFileSync(promptFile, prompt);
-    writeFileSync(script, `#!/bin/zsh\n# Opened by Chumi: continue a confirmed meeting handoff in ${AGENT_NAMES[agent]}.\ncd ${q(workspace)} || { echo ${q(`Project folder not found: ${workspace}`)}; read; exit 1; }\n${ADAPTERS[agent].start(cli, workspace, promptFile)}\n`);
+    const words = ADAPTERS[agent].start(cli, workspace);
+    if (IS_WIN) {
+      // cmd.exe cannot pass a multi-line argument, so the agent starts with a one-line pointer to the handoff file.
+      const message = `Read the file ${promptFile} and follow the instructions in it.`;
+      const cmd = (w: string) => `"${w.replace(/"/g, '')}"`;
+      const script = join(dir, `${handoffId}-${agent}.cmd`);
+      writeFileSync(script, `@echo off\r\nrem Opened by Chumi: continue a confirmed meeting handoff in ${AGENT_NAMES[agent]}.\r\nchcp 65001 >nul\r\ncd /d ${cmd(workspace)} || (echo Project folder not found: ${workspace.replace(/[\r\n"%]/g, '')} & pause & exit /b 1)\r\ncall ${words.map((w) => cmd(w === MESSAGE ? message : w)).join(' ')}\r\n`);
+      return script;
+    }
+    const script = join(dir, `${handoffId}-${agent}.command`);
+    writeFileSync(script, `#!/bin/zsh\n# Opened by Chumi: continue a confirmed meeting handoff in ${AGENT_NAMES[agent]}.\ncd ${q(workspace)} || { echo ${q(`Project folder not found: ${workspace}`)}; read; exit 1; }\n${words.map((w) => (w === MESSAGE ? `"$(cat ${q(promptFile)})"` : q(w))).join(' ')}\n`);
     chmodSync(script, 0o755);
     return script;
   }

@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process';
 import { accessSync, constants, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { SpeakerRuntime } from '../../shared/speakers.ts';
 import { REPO_ROOT } from '../paths.ts';
+import { spawnCommand, stopProcess } from '../platform.ts';
 
 const SEGMENTATION = 'sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx';
 const EMBEDDING = '3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx';
@@ -10,7 +10,7 @@ const TIMEOUT_MS = 30 * 60_000;
 const MAX_OUTPUT = 4 * 1024 * 1024;
 type Turn = { start_ms: number; end_ms: number; speaker: string };
 const paths = () => ({
-  python: resolve(process.env.CHUMI_SPEAKER_PYTHON || join(REPO_ROOT, 'build/speakers/venv/bin/python3')),
+  python: resolve(process.env.CHUMI_SPEAKER_PYTHON || join(REPO_ROOT, process.platform === 'win32' ? 'build/speakers/venv/Scripts/python.exe' : 'build/speakers/venv/bin/python3')),
   models: resolve(process.env.CHUMI_SPEAKER_MODELS || join(REPO_ROOT, 'build/speakers/models')),
   worker: join(REPO_ROOT, 'scripts/diarize.py'),
 });
@@ -61,7 +61,7 @@ export async function runDiarization(wavPath: string, options: { signal: AbortSi
   if (!nonemptyFile(wavPath)) throw new Error('The recording for speaker analysis is missing.');
   const p = paths();
   return new Promise((resolveResult, reject) => {
-    const child = spawn(p.python, ['-u', p.worker], { stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env, OMP_NUM_THREADS: '1', OPENBLAS_NUM_THREADS: '1' } });
+    const child = spawnCommand(p.python, ['-u', p.worker], { stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env, OMP_NUM_THREADS: '1', OPENBLAS_NUM_THREADS: '1' }, windowsHide: true });
     const chunks: Buffer[] = [];
     let bytes = 0;
     let failure: Error | null = null;
@@ -69,20 +69,20 @@ export async function runDiarization(wavPath: string, options: { signal: AbortSi
     const stop = (error: Error) => {
       if (failure) return;
       failure = error;
-      child.kill('SIGTERM');
-      killTimer = setTimeout(() => child.kill('SIGKILL'), 1000);
+      stopProcess(child);
+      killTimer = setTimeout(() => stopProcess(child, 'SIGKILL'), 1000);
     };
     const cancel = () => stop(aborted());
     const timer = setTimeout(() => stop(new Error('Local speaker analysis timed out.')), TIMEOUT_MS);
     const cleanup = () => { clearTimeout(timer); clearTimeout(killTimer); signal.removeEventListener('abort', cancel); };
     signal.addEventListener('abort', cancel, { once: true });
     if (signal.aborted) cancel();
-    child.stdout.on('data', (chunk: Buffer) => {
+    child.stdout!.on('data', (chunk: Buffer) => {
       bytes += chunk.length;
       if (bytes > MAX_OUTPUT) stop(new Error('The speaker worker returned too much output.'));
       else if (!failure) chunks.push(chunk);
     });
-    child.stdin.on('error', () => stop(new Error('Could not send the recording to the local speaker worker.')));
+    child.stdin!.on('error', () => stop(new Error('Could not send the recording to the local speaker worker.')));
     child.on('error', () => { cleanup(); reject(failure ?? new Error('Could not start the local speaker worker. Run the speaker setup command.')); });
     child.on('close', (code) => {
       cleanup();
@@ -93,6 +93,6 @@ export async function runDiarization(wavPath: string, options: { signal: AbortSi
         resolveResult(turns);
       } catch (error) { reject(error); }
     });
-    child.stdin.end(JSON.stringify({ v: 1, wav: resolve(wavPath), models: p.models }) + '\n');
+    child.stdin!.end(JSON.stringify({ v: 1, wav: resolve(wavPath), models: p.models }) + '\n');
   });
 }

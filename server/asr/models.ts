@@ -1,11 +1,11 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { DATA_DIR, MODELS_DIR } from '../paths.ts';
+import { DATA_DIR, MODELS_DIR, REPO_ROOT } from '../paths.ts';
 import { toSimplified } from './clean.ts';
 import { readWav } from '../audio/wav.ts';
 import type { WhisperServer } from './whisper.ts';
@@ -40,14 +40,28 @@ export const MODEL_CATALOG: ModelInfo[] = [
     note: { en: 'Full Large v3: slightly more robust on hard audio, but several times slower.', zh: '完整版 Large v3：嘈杂音频下略稳一些，但慢好几倍。' } },
 ];
 
-export interface Hardware { chip: string; appleSilicon: boolean; memoryGB: number; cores: number }
+export interface Hardware { chip: string; appleSilicon: boolean; memoryGB: number; cores: number; gpu?: { name: string; memoryGB: number } | null }
 
-export function hardware(): Hardware {
-  return { chip: os.cpus()[0]?.model ?? 'unknown', appleSilicon: os.arch() === 'arm64', memoryGB: Math.round(os.totalmem() / 2 ** 30), cores: os.cpus().length };
+let gpuCache: Hardware['gpu'] | undefined;
+/** An NVIDIA GPU for whisper.cpp's CUDA build (Windows and Linux; Macs use Metal). */
+function nvidiaGpu(): Hardware['gpu'] {
+  if (process.platform === 'darwin' || process.env.CHUMI_ASR_CPU === '1') return null;
+  if (gpuCache !== undefined) return gpuCache;
+  try {
+    const [name, mib] = execFileSync('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'], { encoding: 'utf8', timeout: 5000, windowsHide: true }).split('\n')[0].split(',');
+    gpuCache = name?.trim() ? { name: name.trim(), memoryGB: Math.round(Number(mib) / 1024) } : null;
+  } catch { gpuCache = null; }
+  return gpuCache;
 }
 
-/** Pick the most accurate model that this Mac runs comfortably in real time. */
+export function hardware(): Hardware {
+  return { chip: os.cpus()[0]?.model ?? 'unknown', appleSilicon: process.platform === 'darwin' && os.arch() === 'arm64', memoryGB: Math.round(os.totalmem() / 2 ** 30), cores: os.cpus().length, gpu: nvidiaGpu() };
+}
+
+/** Pick the most accurate model that this computer runs comfortably in real time. */
 export function recommendModel(hw: Hardware = hardware()): string {
+  // Large v3 Turbo q8_0 needs about 1.5 GB of GPU memory with the CUDA build.
+  if (!hw.appleSilicon && hw.gpu && hw.gpu.memoryGB >= 4) return 'ggml-large-v3-turbo-q8_0.bin';
   if (!hw.appleSilicon) return hw.memoryGB >= 16 ? 'ggml-small-q5_1.bin' : 'ggml-base-q5_1.bin';
   if (hw.memoryGB >= 16) return 'ggml-large-v3-turbo-q8_0.bin';
   if (hw.memoryGB >= 8) return 'ggml-large-v3-turbo-q5_0.bin';
@@ -119,15 +133,17 @@ export async function benchmark(whisper: WhisperServer): Promise<BenchResult[]> 
   const dir = join(DATA_DIR, 'bench');
   mkdirSync(dir, { recursive: true });
   const out: BenchResult[] = [];
+  const windowsClips = join(REPO_ROOT, 'assets', 'bench');
+  const references = process.platform === 'win32' ? JSON.parse(readFileSync(join(windowsClips, 'references.json'), 'utf8')) as Record<string, string> : null;
   for (const lang of ['en', 'zh'] as const) {
-    const file = join(dir, `${lang}.wav`);
-    if (!existsSync(file)) await say(BENCH[lang].voice, BENCH[lang].text, file);
+    const file = references ? join(windowsClips, `${lang}.wav`) : join(dir, `${lang}.wav`);
+    if (!references && !existsSync(file)) await say(BENCH[lang].voice, BENCH[lang].text, file);
     const samples = readWav(file);
     const audioSec = samples.length / 16000;
     await whisper.transcribe(samples.subarray(0, 8000), { language: lang }); // warm-up
     const r = await whisper.transcribe(samples, { language: lang });
     const text = lang === 'zh' ? toSimplified(r.text) : r.text;
-    out.push({ lang, audioSec, ms: r.ms, realtimeFactor: audioSec / Math.max(0.001, r.ms / 1000), accuracy: Math.round(textAccuracy(text, BENCH[lang].text) * 100), text });
+    out.push({ lang, audioSec, ms: r.ms, realtimeFactor: audioSec / Math.max(0.001, r.ms / 1000), accuracy: Math.round(textAccuracy(text, references?.[lang] ?? BENCH[lang].text) * 100), text });
   }
   return out;
 }

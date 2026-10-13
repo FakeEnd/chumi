@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { findHotkeyTool } from './paths.ts';
 import { log } from './util.ts';
+import { DESKTOP, desktopRequest } from './desktop.ts';
 
 /**
  * Runs the native chumi-hotkey helper, which registers a system-wide shortcut (Carbon hotkey,
@@ -19,7 +20,10 @@ export class HotkeyAgent extends EventEmitter<{ pressed: []; state: [] }> {
     if (spec === this.spec && (this.state === 'ready' || this.state === 'starting')) return;
     this.spec = spec;
     this.stopProc();
-    if (spec === 'off') { this.set('off', null); return; }
+    if (spec === 'off') {
+      if (DESKTOP) void desktopRequest('hotkey', { spec: 'off' }).catch(() => {});
+      this.set('off', null); return;
+    }
     this.startProc();
   }
 
@@ -29,6 +33,16 @@ export class HotkeyAgent extends EventEmitter<{ pressed: []; state: [] }> {
   }
 
   private startProc(): void {
+    if (DESKTOP) {
+      const spec = this.spec;
+      this.set('starting', null);
+      void desktopRequest<{ registered: boolean; shortcut: string }>('hotkey', { spec }).then((r) => {
+        if (this.spec !== spec) return;
+        this.shortcut = r.shortcut;
+        this.set(r.registered ? 'ready' : 'error', r.registered ? null : 'This shortcut is already used by another app. Choose a different one.');
+      }).catch((e) => this.set('error', (e as Error).message));
+      return;
+    }
     const tool = findHotkeyTool();
     if (!tool) { this.set('missing', 'Shortcut helper not built. Run: bash native/build.sh tools'); return; }
     this.set('starting', null);
@@ -67,5 +81,8 @@ export class HotkeyAgent extends EventEmitter<{ pressed: []; state: [] }> {
     if (p) { p.stdin?.end(); p.kill('SIGTERM'); }
   }
 
-  stop(): void { this.spec = 'off'; this.stopProc(); }
+  stop(): void {
+    this.spec = 'off'; this.stopProc();
+    if (DESKTOP) void desktopRequest('hotkey', { spec: 'off' }).catch(() => {});
+  }
 }

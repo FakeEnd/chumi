@@ -106,7 +106,7 @@ export const DEFAULT_SETTINGS: Settings = {
     autoOverview: true,
   },
   sessionTypes: DEFAULT_SESSION_TYPES,
-  quickStart: { hotkey: 'ctrl+opt+cmd+L', source: 'default', type: 'other', notify: true },
+  quickStart: { hotkey: process.platform === 'win32' ? 'ctrl+alt+L' : 'ctrl+opt+cmd+L', source: 'default', type: 'other', notify: true },
   integrations: { mybot: { enabled: false, exportDir: '~/Library/Application Support/Chumi/exports/mybot', shareWithTeam: false, serverUrl: 'http://127.0.0.1:8788' } },
   screen: { sendImagesToAI: true, intervalSec: 3 },
   ui: { language: 'auto', setupDismissed: false },

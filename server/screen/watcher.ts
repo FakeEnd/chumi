@@ -1,10 +1,11 @@
 import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FrameRow, Store } from '../db.ts';
 import { FRAMES_DIR, findScreenTool } from '../paths.ts';
 import { log } from '../util.ts';
+import { DESKTOP, desktopRequest } from '../desktop.ts';
 
 export interface WindowInfo { id: number; app: string; bundleId: string; pid: number; title: string; width: number; height: number; onScreen: boolean }
 interface CaptureResult { ok?: boolean; width?: number; height?: number; mean?: number; thumb?: string; title?: string; app?: string; error?: string; message?: string }
@@ -17,9 +18,10 @@ function runTool(args: string[], timeoutMs = 15000): Promise<any> {
   }));
 }
 
-export const screenPermission = async (): Promise<string> => ((await runTool(['--check'], 5000)).screen as string) ?? 'unknown';
-export const requestScreenPermission = async (): Promise<string> => ((await runTool(['--request'], 60000)).screen as string) ?? 'unknown';
+export const screenPermission = async (): Promise<string> => DESKTOP ? 'granted' : ((await runTool(['--check'], 5000)).screen as string) ?? 'unknown';
+export const requestScreenPermission = async (): Promise<string> => DESKTOP ? 'granted' : ((await runTool(['--request'], 60000)).screen as string) ?? 'unknown';
 export async function listWindows(): Promise<{ windows: WindowInfo[]; error?: string; message?: string }> {
+  if (DESKTOP) return { windows: await desktopRequest<WindowInfo[]>('screen-list') };
   const r = await runTool(['--list']);
   return Array.isArray(r) ? { windows: r as WindowInfo[] } : { windows: [], error: r.error, message: r.message };
 }
@@ -95,6 +97,11 @@ export class ScreenWatcher extends EventEmitter<{ frame: [FrameRow]; notice: ['i
   stop(): void { if (this.timer) clearInterval(this.timer); this.timer = null; this.status = 'stopped'; this.emit('state'); }
 
   private async capture(): Promise<CaptureResult> {
+    if (DESKTOP) {
+      const r = await desktopRequest<CaptureResult & { image?: string }>('screen-capture', { id: this.windowId });
+      if (r.image) writeFileSync(this.latestPath, Buffer.from(r.image, 'base64'));
+      return r;
+    }
     return runTool(['--capture', String(this.windowId), '--out', this.latestPath]);
   }
 
