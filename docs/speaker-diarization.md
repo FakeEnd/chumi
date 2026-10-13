@@ -13,7 +13,7 @@ This first version groups voices **after a meeting ends**. Live Whisper transcri
 
 ## Audio and identity rules
 
-- Opting in writes app-owned PCM copies locally. Temporary copies and packed worker files are removed after success, failure, cancellation, shutdown, and startup recovery. Keeping raw audio is a separate opt-in; retained takes can be analyzed again. Original imported files are never deleted.
+- Raw audio retention is on by default on every platform and can be disabled in Settings → Audio. With speaker labeling enabled, retained takes can be analyzed again. If retention is off, speaker labeling writes temporary PCM copies locally. Temporary copies and packed worker files are removed after success, failure, cancellation, shutdown, and startup recovery. Original imported files are never deleted.
 - Each take has a random filename and an explicit sample-to-session timestamp manifest. Pauses, capture gaps, and helper restarts retain their original session positions. Worker input packs all available takes for **one source** with short silence separators; output is mapped back through the manifest.
 - Microphone and computer audio are independent sources, not identities. Cross-source matching and cross-meeting voice recognition are outside this version.
 - Clustering integers never serve as permanent identities. Durable speaker IDs are matched to previous results only through overlapping audio. Resuming a meeting after its temporary audio was deleted can produce additional letters for the same person. Earlier labels are preserved, and manual corrections remain authoritative.

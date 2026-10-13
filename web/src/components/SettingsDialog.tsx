@@ -136,7 +136,7 @@ export function SettingsDialog() {
           </label>
           {windows ? <p className="small muted">{t('Use headphones for hybrid meetings. Chumi filters duplicate microphone and computer-audio text.')}</p>
             : <label className="field check"><input type="checkbox" checked={settings.audio.aec} onChange={(e) => S({ audio: { aec: e.target.checked } })} /> {t('Echo cancellation on the microphone in “Both” mode (prevents duplicate text when using speakers)')}</label>}
-          <label className="field check"><input type="checkbox" checked={settings.audio.saveRawAudio} onChange={(e) => S({ audio: { saveRawAudio: e.target.checked } })} /> {t('Save raw audio to disk (off by default; about 115 MB per hour per source, stored only on this computer)')}</label>
+          <label className="field check"><input type="checkbox" checked={settings.audio.saveRawAudio} onChange={(e) => S({ audio: { saveRawAudio: e.target.checked } })} /> {t('Save raw audio to disk (on by default; about 115 MB per hour per source, stored only on this computer)')}</label>
           <h3>{t('Permissions')}</h3>
           <p className="small">{tn('Microphone: {state}.', { state: <b>{perm.microphone ? t(PERM[perm.microphone] ?? perm.microphone) : '…'}</b> })} {windows ? t('Computer audio uses the current Windows output device and needs no extra recording permission.') : t('Computer audio: macOS gives apps no way to check this permission. If computer audio stays silent while something is playing, permission is missing.')}</p>
           <div className="btn-row">

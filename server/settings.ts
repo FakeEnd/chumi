@@ -81,7 +81,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  audio: { source: 'mic', micDeviceUid: null, aec: true, saveRawAudio: false },
+  audio: { source: 'mic', micDeviceUid: null, aec: true, saveRawAudio: true },
   asr: {
     model: recommendModel(), // Large v3 Turbo on Apple Silicon with 16 GB+, smaller models elsewhere
     language: 'auto',

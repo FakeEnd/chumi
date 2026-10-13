@@ -538,7 +538,7 @@ export const ZH: Record<string, string> = {
   "System default": "系统默认",
   "(default)": "（默认）",
   "Echo cancellation on the microphone in “Both” mode (prevents duplicate text when using speakers)": "在“两者”模式下为麦克风启用回声消除（使用扬声器时避免重复转写）",
-  "Save raw audio to disk (off by default; about 115 MB per hour per source, stored only on this computer)": "把原始音频保存到磁盘（默认关闭；每个来源每小时约 115 MB，仅存于本机）",
+  "Save raw audio to disk (on by default; about 115 MB per hour per source, stored only on this computer)": "把原始音频保存到磁盘（默认开启；每个来源每小时约 115 MB，仅存于本机）",
   "Permissions": "权限",
   "Microphone: {state}.": "麦克风：{state}。",
   "Computer audio: macOS gives apps no way to check this permission. If computer audio stays silent while something is playing, permission is missing.": "电脑音频：macOS 不允许 App 查询这项权限。如果播放内容时电脑音频一直没有声音，说明缺少权限。",

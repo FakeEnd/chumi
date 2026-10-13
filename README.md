@@ -141,7 +141,7 @@ Setup, the export format and the privacy model are in [docs/mybot.md](docs/mybot
 
 Run `npm run setup:speakers`, then enable **Settings → Transcription → Speaker labels** before recording. After the meeting ends, a local model groups voices as A/B/C. Open **Speakers** above the transcript to name them; click a line's label to correct it. Current labels accompany AI context, exports, and Claude Code/Codex evidence. Earlier summaries and reviewed handoffs are marked stale after corrections.
 
-Analysis uses temporary local audio, deleted on completion, failure, cancellation, or app restart. **Save raw audio** keeps the captured takes for reruns. Labels are estimates within a meeting and audio source; mixed speech remains uncertain. See [the workflow and testing notes](docs/speaker-diarization.md) and [model setup](docs/speaker-models.md).
+**Save raw audio** is on by default on every platform and keeps recordings locally, including the captured takes used for speaker analysis. You can turn it off in **Settings → Audio**; speaker analysis then uses temporary audio, deleted on completion, failure, cancellation, or app restart. Labels are estimates within a meeting and audio source; mixed speech remains uncertain. See [the workflow and testing notes](docs/speaker-diarization.md) and [model setup](docs/speaker-models.md).
 
 ## Quick start
 
