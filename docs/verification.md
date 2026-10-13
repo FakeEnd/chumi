@@ -1,6 +1,6 @@
 # Verification log
 
-## Windows desktop — 2026-10-13 (in progress)
+## Windows desktop — 2026-10-13
 
 Development machine: Windows 11 build 26300, i9-12900H, RTX 3060 Laptop 6 GB, Node 24.21.0, whisper.cpp b5454 CUDA 12.4, Electron 44.7.0.
 
@@ -14,10 +14,24 @@ Development machine: Windows 11 build 26300, i9-12900H, RTX 3060 Laptop 6 GB, No
 | Real capture → transcription → AI | An 85-second fictional lab-meeting clip played through Windows output and captured by WASAPI produced 10 transcript segments using real Whisper. Real ChatGPT catch-up: 5 citations, none unsupported. Final summary: 32 citations, none unsupported. |
 | Pause/resume/end | Operated through the actual Electron page; capture stopped/restarted and the final summary completed. |
 | Window chooser | Electron enumerated 8 Windows windows through the existing screen API. |
+| Real window screenshot | A fictional Notepad slide was captured and persisted at 1920 × 1144. |
+| Installer | NSIS installer built and installed in a path containing Chinese characters and spaces. Installed app starts with only Windows System32 on `PATH`; bundled Node, Codex and Whisper report ready. The installer is unsigned and not published. |
+| First-use model setup | An empty model directory shows the Download speech model button. A local HTTP mirror served the existing real 874 MB model; the app downloaded it and started Whisper automatically. This proves the application flow, not the public download network. The compact Small model was separately downloaded from official Hugging Face. |
+| GPU and CPU benchmarks | Bundled English/Mandarin clips: CUDA Large v3 Turbo, 97%/93% text accuracy and 40.1×/38.7× real time. Forced CPU with Small q5_1: 96%/90% and 2.75×/2.50×. Large on CPU is only 0.87×/0.78×; use the CPU recommendation. Synthetic-clip accuracy is not a real-meeting accuracy claim. |
+| Model switching | Switching to an installed Small model restarts Whisper and returns to ready. Absolute Windows model paths are resolved correctly. |
+| Handoff and real Codex read | Real ChatGPT drafted 10 items from the captured meeting. Reviewed/confirmed handoff was copied through Chumi; real Codex called `chumi_get_handoff` and `chumi_get_passages` through the installed MCP server, then returned a plan without changing project files. |
+| Close/reopen/resume | Closed a recording through the native confirmation dialog. The backend exited, the meeting reopened as interrupted with its saved screenshot and timeline marker, and resuming/ending worked. |
+| Folder chooser and credentials | Native folder dialog opens and cancels correctly. A dummy compatible key survived Windows account encryption/decryption and was deleted; plaintext was absent from its stored file. No paid API request was made. |
+| Global shortcut | Windows simulated virtual-key presses start, pause and resume. Setting the shortcut to Off prevents a recording from starting; Windows shortcut options display the selected value correctly. |
+| Repeated launch | The second process exits with status 0 and brings the first window forward. Fixed an early-exit path that called `globalShortcut` before Electron was ready. |
+| Continue button | The actual **Continue in Codex** button opened a console and a stand-in CLI in a project path containing Chinese characters and spaces, with the correct handoff-file argument. The separate real-Codex read above verifies MCP evidence delivery. |
+| Full sample acceptance | `scripts/acceptance.ts`: 16 pass, 0 fail, 2 manual with real Whisper and offline AI. The fixture now seeds its fictional familiarity profile because fresh installs intentionally start empty. |
 
 Found and fixed: the initial state response could snapshot ASR as starting before waiting for provider startup, overwriting an ASR-ready event. The live snapshot is now read after that wait. Home's online/hybrid presets also wait for the audio-source setting before opening the start dialog.
 
-Still being checked in this pass: installer installation, a clean first-use download, screenshot delivery, agent handoff, shutdown recovery, CPU-only transcription and Windows 10. No private real meeting was used in the sample run.
+Release qualification still needed: another Windows 10/11 machine, Bluetooth/USB device switching, microphone speech from a human participant and a fresh ChatGPT browser sign-in. No private real meeting was used in the sample run. The short synthetic meeting tested real ChatGPT answers; the full 20-minute acceptance run used the offline AI test provider.
+
+`scripts/windows-acceptance.py` operates an open desktop window and repeats the real system-audio → Whisper → live catch-up → pause/resume → summary checks. Use an isolated data directory and a public example WAV, as described in its docstring.
 
 Results from the development Mac: Apple M5 Max, macOS 26.5, Node 26.5, whisper.cpp 1.9.5 with large-v3-turbo q8_0.
 

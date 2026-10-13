@@ -153,17 +153,25 @@ export function SettingsDialog() {
           <p className="small">{t('For a conversation that starts suddenly: one press starts listening at once, with an automatic title. Rename the session and set its type in the top bar afterwards.')}</p>
           <label className="field"><span>{t('Global shortcut: works from any app, even when Chumi is in the background')}</span>
             <select value={settings.quickStart.hotkey} onChange={(e) => S({ quickStart: { hotkey: e.target.value } })}>
-              <option value="ctrl+opt+cmd+L">⌃⌥⌘L (Control-Option-Command-L)</option>
-              <option value="opt+cmd+L">⌥⌘L (Option-Command-L)</option>
-              <option value="ctrl+opt+cmd+R">⌃⌥⌘R (Control-Option-Command-R)</option>
-              <option value="ctrl+shift+SPACE">⌃⇧Space (Control-Shift-Space)</option>
+              {windows ? <>
+                <option value="ctrl+alt+L">Ctrl+Alt+L</option>
+                <option value="ctrl+shift+L">Ctrl+Shift+L</option>
+                <option value="ctrl+alt+shift+L">Ctrl+Alt+Shift+L</option>
+                <option value="ctrl+shift+SPACE">Ctrl+Shift+Space</option>
+                {!['ctrl+alt+L', 'ctrl+shift+L', 'ctrl+alt+shift+L', 'ctrl+shift+SPACE', 'off'].includes(settings.quickStart.hotkey) && <option value={settings.quickStart.hotkey}>{hotkey?.shortcut || settings.quickStart.hotkey}</option>}
+              </> : <>
+                <option value="ctrl+opt+cmd+L">⌃⌥⌘L (Control-Option-Command-L)</option>
+                <option value="opt+cmd+L">⌥⌘L (Option-Command-L)</option>
+                <option value="ctrl+opt+cmd+R">⌃⌥⌘R (Control-Option-Command-R)</option>
+                <option value="ctrl+shift+SPACE">⌃⇧Space (Control-Shift-Space)</option>
+              </>}
               <option value="off">{t('Off')}</option>
             </select>
           </label>
           <p className="small">{t('Status:')} {hotkey?.state === 'ready' ? <b className="ok-text">{t('{key} is active', { key: hotkey.shortcut })}</b> : hotkey?.state === 'off' ? t('off') : <span className="warn-text">{hotkey?.message ? t(hotkey.message) : hotkey?.state ?? t('unknown')}</span>}</p>
           <ul className="small muted">
             <li>{t("First press starts listening. Pressing again pauses, and a third press resumes. End the session in Chumi when you're done.")}</li>
-            <li>{t('The shortcut needs no extra macOS permission. If another app already uses the combination, pick a different one.')}</li>
+            <li>{t('The shortcut needs no extra permission. If another app already uses the combination, pick a different one.')}</li>
           </ul>
           <label className="field"><span>{t('Audio source for quick start')}</span>
             <select value={settings.quickStart.source} onChange={(e) => S({ quickStart: { source: e.target.value } })}>

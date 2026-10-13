@@ -20,7 +20,10 @@ export class HotkeyAgent extends EventEmitter<{ pressed: []; state: [] }> {
     if (spec === this.spec && (this.state === 'ready' || this.state === 'starting')) return;
     this.spec = spec;
     this.stopProc();
-    if (spec === 'off') { this.set('off', null); return; }
+    if (spec === 'off') {
+      if (DESKTOP) void desktopRequest('hotkey', { spec: 'off' }).catch(() => {});
+      this.set('off', null); return;
+    }
     this.startProc();
   }
 

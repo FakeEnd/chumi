@@ -1,6 +1,7 @@
 // Chinese (Simplified) interface strings, keyed by the English text used in the components.
 // Keep placeholders like {n} identical. tests/i18n.test.ts checks that every UI string is covered.
 export const ZH: Record<string, string> = {
+  'The shortcut needs no extra permission. If another app already uses the combination, pick a different one.': '快捷键无需额外授权。如果组合已被其他应用占用，请选择另一个。',
   'API key removed.': 'API 密钥已移除。',
   'API key saved for this preset and endpoint.': 'API 密钥已为这个预设和服务地址保存。',
   "The room plus remote speakers, with microphone and computer audio": "现场加远程发言人，同时采集麦克风和电脑声音",

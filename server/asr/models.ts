@@ -45,7 +45,7 @@ export interface Hardware { chip: string; appleSilicon: boolean; memoryGB: numbe
 let gpuCache: Hardware['gpu'] | undefined;
 /** An NVIDIA GPU for whisper.cpp's CUDA build (Windows and Linux; Macs use Metal). */
 function nvidiaGpu(): Hardware['gpu'] {
-  if (process.platform === 'darwin') return null;
+  if (process.platform === 'darwin' || process.env.CHUMI_ASR_CPU === '1') return null;
   if (gpuCache !== undefined) return gpuCache;
   try {
     const [name, mib] = execFileSync('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'], { encoding: 'utf8', timeout: 5000, windowsHide: true }).split('\n')[0].split(',');

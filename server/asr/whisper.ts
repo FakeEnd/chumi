@@ -1,6 +1,6 @@
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { createServer } from 'node:net';
 import { EventEmitter } from 'node:events';
 import { DATA_DIR, MODELS_DIR, which } from '../paths.ts';
@@ -56,7 +56,7 @@ export class WhisperServer extends EventEmitter<{ state: [AsrState, string | nul
   private opts: { model: string; threads: number };
   constructor(opts: { model: string; threads: number }) { super(); this.opts = opts; }
 
-  get modelPath(): string { return this.opts.model.includes('/') ? this.opts.model : join(MODELS_DIR, this.opts.model); }
+  get modelPath(): string { return isAbsolute(this.opts.model) ? this.opts.model : join(MODELS_DIR, this.opts.model); }
 
   private setState(s: AsrState, msg: string | null = null): void {
     this.state = s; this.message = msg;
@@ -66,7 +66,9 @@ export class WhisperServer extends EventEmitter<{ state: [AsrState, string | nul
   configure(opts: { model: string; threads: number }): void {
     const changed = opts.model !== this.opts.model || opts.threads !== this.opts.threads;
     this.opts = opts;
-    if (changed && this.proc) { void this.stop().then(() => this.ensure()); }
+    if (changed && this.wanted) {
+      void (this.proc ? this.stop() : Promise.resolve()).then(() => this.ensure()).catch((e) => log('asr', (e as Error).message));
+    }
   }
 
   ensure(): Promise<void> {
@@ -78,12 +80,13 @@ export class WhisperServer extends EventEmitter<{ state: [AsrState, string | nul
 
   private async start(): Promise<void> {
     const bin = which('whisper-server');
-    if (!bin) { this.setState('missing_binary', process.platform === 'win32' ? 'whisper.cpp is not installed. Run: powershell -File scripts\\setup.ps1' : 'whisper.cpp is not installed. Run: brew install whisper-cpp'); throw new Error(this.message!); }
-    if (!existsSync(this.modelPath)) { this.setState('missing_model', `Speech model not found at ${this.modelPath}. Run: npm run setup`); throw new Error(this.message!); }
+    if (!bin) { this.setState('missing_binary', process.platform === 'win32' ? 'The speech engine is missing. Reinstall Chumi to restore it.' : 'whisper.cpp is not installed. Run: brew install whisper-cpp'); throw new Error(this.message!); }
+    if (!existsSync(this.modelPath)) { this.setState('missing_model', process.platform === 'win32' ? 'Download the speech model from Home or Transcription settings.' : `Speech model not found at ${this.modelPath}. Run: npm run setup`); throw new Error(this.message!); }
     this.setState('starting', 'Loading speech model…');
     killStale();
     this.port = await freePort(8178);
     const args = ['-m', this.modelPath, '--host', '127.0.0.1', '--port', String(this.port), '-l', 'auto', '-t', String(this.opts.threads), '-nth', '0.6'];
+    if (process.env.CHUMI_ASR_CPU === '1') args.push('--no-gpu');
     log('asr', 'starting whisper-server', args.join(' '));
     const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     this.proc = proc;

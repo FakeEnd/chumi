@@ -56,10 +56,12 @@ def stage_backend(node):
     for folder in ['server', 'shared', 'assets/bench']:
         target = backend / folder
         if target.exists():
+            assert target.resolve().is_relative_to(BUILD.resolve())
             shutil.rmtree(target)
         shutil.copytree(ROOT / folder, target)
     web = backend / 'web' / 'dist'
     if web.exists():
+        assert web.resolve().is_relative_to(BUILD.resolve())
         shutil.rmtree(web)
     shutil.copytree(ROOT / 'web' / 'dist', web)
     for name in ['package.json', 'package-lock.json', 'LICENSE']:

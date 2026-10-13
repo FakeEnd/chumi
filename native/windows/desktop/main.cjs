@@ -145,7 +145,7 @@ async function onServerMessage(message) {
 }
 
 async function stopServer() {
-  if (!server || server.exitCode !== null) return;
+  if (!server?.pid || server.exitCode !== null) return;
   const exited = once(server, 'exit');
   server.stdin.end();
   const killTimer = setTimeout(() => execFile('taskkill.exe', ['/PID', String(server.pid), '/T', '/F'], { windowsHide: true }, () => {}), 12000);
@@ -210,7 +210,9 @@ function makeWindow() {
 
 app.on('before-quit', (e) => {
   if (quitting) return;
-  e.preventDefault(); quitting = true;
+  quitting = true;
+  if (!server?.pid) return; // A second launch can quit synchronously, before Electron is ready.
+  e.preventDefault();
   globalShortcut.unregisterAll(); setRecording(false);
   void stopServer().finally(() => app.quit());
 });
