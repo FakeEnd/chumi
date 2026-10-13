@@ -114,6 +114,7 @@ export function SettingsDialog() {
             <li>{t('The interface language changes the buttons and menus only. AI answers follow the AI answer language, which you can also switch in the session toolbar.')}</li>
             <li>{t('The language people speak in a meeting is set in Transcription. Mixed English and Mandarin works by default.')}</li>
           </ul>
+          <label className="field check"><input type="checkbox" checked={!settings.ui.setupDismissed} onChange={(e) => void S({ ui: { setupDismissed: !e.target.checked } })} /> {t('Show the Get Chumi ready checklist on Home until everything is set up')}</label>
         </section>
       )}
 

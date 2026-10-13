@@ -12,7 +12,8 @@ import { log } from '../util.ts';
 
 export const DEFAULT_MYBOT_URL = 'http://127.0.0.1:8788';
 
-const SEARCH_TIMEOUT_MS = 15_000;
+/** mybot's own search budget is 25 s; a busy index (refreshing after new sessions) can need most of it. */
+const SEARCH_TIMEOUT_MS = 25_000;
 const READ_TIMEOUT_MS = 6_000;
 const HEALTH_TIMEOUT_MS = 2_500;
 const MAX_SOURCES = 4;

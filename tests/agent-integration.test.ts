@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -35,6 +35,7 @@ const timer = setTimeout(() => {
 process.stdin.resume();
 process.stdin.on('end', async () => {
   clearTimeout(timer);
+  if ((await import('node:fs')).readdirSync(process.cwd()).length) { console.log('the read check ran in a folder with files in it'); return; }
   const prompt = args.find(arg => arg.startsWith('Call the MCP tool '));
   const token = prompt?.match(/with token "([^"]+)"/)?.[1];
   if (!token) throw new Error('Missing verification prompt');
@@ -122,6 +123,33 @@ test('opencode: connecting edits opencode.json only, keeps other settings, and l
 test('JSONC: comments and trailing commas are ignored, comment markers inside strings are kept', () => {
   assert.deepEqual(parseJsonc('// a\n{ "u": "http://x/*y*/", /* b */ "n": [1, 2,], }'), { u: 'http://x/*y*/', n: [1, 2] });
   assert.deepEqual(parseJsonc('{"s": "quote \\" // not a comment"}'), { s: 'quote " // not a comment' });
+  assert.deepEqual(parseJsonc('{"i": "use {a, }", "j": "[1, ]", "k": [1, // last\n], }'), { i: 'use {a, }', j: '[1, ]', k: [1] }, 'commas inside strings are text');
+});
+
+test('opencode.json is only rewritten when it is plain JSON; the rewrite keeps its mode and a backup', async () => {
+  const store = new Store();
+  const dir = join(DATA, 'config', 'opencode');
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, 'opencode.json');
+  rmSync(join(dir, 'opencode.jsonc'), { force: true });
+  try {
+    const integration = new AgentIntegration(store);
+    integration.cli = () => fixtureCli('opencode-strict', false);
+    for (const text of ['{\n  // my provider\n  "model": "x/y",\n}\n', '[]\n']) {
+      writeFileSync(file, text);
+      await assert.rejects(integration.connect('opencode'), /did not change/);
+      assert.equal(readFileSync(file, 'utf8'), text, 'a commented or unexpected file is left byte for byte');
+    }
+    writeFileSync(file, '{"model": "x/y"}');
+    chmodSync(file, 0o600);
+    await integration.connect('opencode');
+    assert.equal(statSync(file).mode & 0o777, 0o600, 'the file may hold API keys: its mode is kept');
+    assert.equal(readFileSync(`${file}.bak`, 'utf8'), '{"model": "x/y"}');
+    assert.equal(statSync(`${file}.bak`).mode & 0o777, 0o600, 'and so is the backup');
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).model, 'x/y');
+  } finally {
+    store.close();
+  }
 });
 
 test('continuing starts each agent in the project folder with the whole handoff as its first message', async () => {

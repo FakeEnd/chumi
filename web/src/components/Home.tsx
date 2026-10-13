@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { setState, useStore } from '../store.ts';
 import { api } from '../api.ts';
 import { openSession, quickStart } from '../actions.ts';
-import { fmtDate, fmtT, sourceLabel, typeLabel } from '../util.ts';
-import { getLang, msg, plural, t, tn } from '../i18n.ts';
+import { sourceLabel } from '../util.ts';
+import { getLang, msg, t, tn } from '../i18n.ts';
 import type { Session } from '../types.ts';
 import { billingWord, DEPTH_LABEL, providerShort } from './TopBar.tsx';
+import { SessionMeta, SessionTitle } from './SessionLabel.tsx';
+import { SetupChecklist } from './SetupChecklist.tsx';
 import { IconArrow, IconBolt, IconBoth, IconMic, IconMonitor, IconShield, IconSpark, IconText, IconWindow } from './icons.tsx';
 
 const LEVELS = [msg('new'), msg('intro'), msg('working'), msg('strong'), msg('expert')];
@@ -24,9 +26,9 @@ export function Home() {
   const asr = useStore((s) => s.live?.asr);
   const live = useStore((s) => s.live);
   const hotkey = useStore((s) => s.hotkey);
-  const projects = useStore((s) => s.projects);
   const [recent, setRecent] = useState<Session[] | null>(null);
-  useEffect(() => { void api<{ sessions: Session[] }>('/api/sessions').then((r) => setRecent(r.sessions.slice(0, 6))).catch(() => setRecent([])); }, [live?.status]);
+  const sessionsRev = useStore((s) => s.sessionsRev);
+  useEffect(() => { void api<{ sessions: Session[] }>('/api/sessions').then((r) => setRecent(r.sessions.slice(0, 6))).catch(() => setRecent([])); }, [live?.status, sessionsRev]);
 
   const liveSession = live?.session && live.status !== 'idle' ? live.session : null;
   const startWith = (source: string) => {
@@ -61,6 +63,7 @@ export function Home() {
 
       <div className="home-grid">
         <div className="home-main">
+          <SetupChecklist />
           <section className="start-row">
             <button className="start-card quick" onClick={() => void quickStart()} disabled={!!liveSession}>
               <span className="start-icon"><IconBolt /></span>
@@ -103,11 +106,9 @@ export function Home() {
                   <button onClick={() => void openSession(s.id)}>
                     <span className={`type-dot t-${s.type}`} />
                     <span className="recent-main">
-                      <span className="recent-title">{s.title}{projects.find((p) => p.id === s.project_id) ? <span className="tag project-tag">{projects.find((p) => p.id === s.project_id)!.name}</span> : null}</span>
-                      <span className="muted small">{typeLabel(s.type)} · {fmtDate(s.started_at ?? s.created_at)} · {fmtT(s.duration_ms)} · {plural(s.segment_count ?? 0, '{n} line', '{n} lines')}</span>
+                      <span className="recent-title session-title"><SessionTitle s={s} /></span>
+                      <span className="muted small"><SessionMeta s={s} /></span>
                     </span>
-                    {s.status === 'interrupted' && <span className="tag tag-warn">{t('interrupted')}</span>}
-                    {(s.status === 'recording' || s.status === 'paused') && <span className="tag tag-live">{t('live')}</span>}
                     <IconArrow width={14} height={14} className="recent-arrow" />
                   </button>
                 </li>

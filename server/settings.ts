@@ -74,8 +74,9 @@ export interface Settings {
     /** How often the selected window is checked for changes. */
     intervalSec: number;
   };
-  /** Interface language ('auto' follows the system). Explanation language is separate (profile). */
-  ui: { language: 'auto' | 'en' | 'zh' };
+  /** Interface language ('auto' follows the system). Explanation language is separate (profile).
+   *  setupDismissed: the user hid the getting-started checklist on Home. */
+  ui: { language: 'auto' | 'en' | 'zh'; setupDismissed: boolean };
   devMode: boolean;
 }
 
@@ -108,7 +109,7 @@ export const DEFAULT_SETTINGS: Settings = {
   quickStart: { hotkey: 'ctrl+opt+cmd+L', source: 'default', type: 'other', notify: true },
   integrations: { mybot: { enabled: false, exportDir: '~/Library/Application Support/Chumi/exports/mybot', shareWithTeam: false, serverUrl: 'http://127.0.0.1:8788' } },
   screen: { sendImagesToAI: true, intervalSec: 3 },
-  ui: { language: 'auto' },
+  ui: { language: 'auto', setupDismissed: false },
   devMode: false,
 };
 
@@ -136,7 +137,17 @@ export function normalizeLanguage(v: unknown): string {
 
 export const LEVEL_LABELS = ['new to this', 'introductory', 'working knowledge', 'strong', 'expert'] as const;
 
+/**
+ * A new install starts with an empty profile: the setup checklist asks for the user's own background.
+ * (Until October 2026 the built-in profile below was the default; installs that never saved a profile keep it.)
+ */
 export const DEFAULT_PROFILE: Profile = {
+  background: '', researchInterests: '', domains: [], knownConcepts: [], needsBackground: [],
+  explanationLanguage: 'English', keepEnglishTerms: true, style: '',
+};
+
+/** The earlier built-in profile, kept for installs that have been using it without saving their own. */
+export const LEGACY_DEFAULT_PROFILE: Profile = {
   background:
     'Software engineering background (professional experience). Now a PhD student in computational biology.',
   researchInterests: 'Deep learning for genomics; gene regulation; regulatory sequence models.',

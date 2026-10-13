@@ -18,18 +18,57 @@
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
 <p align="center">
-  <a href="docs/assets/chumi-promo-zh-1.5x.mp4"><img src="docs/assets/chumi-promo-zh-poster.jpg" width="760" alt="观看 34 秒 Chumi 介绍视频：实时转写、帮我跟上、按你的水平解释、幻灯片截图、可信的总结和适配你电脑的语音模型"></a><br>
-  <sub>▶ <a href="docs/assets/chumi-promo-zh-1.5x.mp4">观看 34 秒介绍视频</a> · <a href="docs/assets/chumi-promo-zh-2x.mp4">25 秒快剪版</a> · <a href="docs/assets/chumi-promo-zh.mp4">完整 50 秒版</a> · <a href="docs/assets/chumi-promo-1.5x.mp4">English version</a></sub>
+  <a href="docs/assets/chumi-promo-zh-1.5x.mp4"><img src="docs/assets/chumi-promo-zh-poster.jpg" width="760" alt="观看 36 秒 Chumi 介绍视频：组会中帮我跟上和按你的水平解释、审核过的交接、Claude Code 通过 Chumi 的 MCP 服务接着干，以及下一个问题引用 agent 之前的会话"></a><br>
+  <sub>▶ <a href="docs/assets/chumi-promo-zh-1.5x.mp4">观看 36 秒介绍视频</a> · <a href="docs/assets/chumi-promo-zh-2x.mp4">27 秒快剪版</a> · <a href="docs/assets/chumi-promo-zh.mp4">完整 54 秒版</a> · <a href="docs/assets/chumi-promo-1.5x.mp4">English version</a></sub>
 </p>
 
 ---
 
-**Chumi 是为学术交流打造的听会助手。** 它在你的 Mac 上实时转写实验室组会、导师一对一、课堂和学术报告，英文、普通话、中英混杂都能听懂。讨论进行时，它随时告诉你讲到了哪里；走神时一键帮你跟上；遇到陌生的方法和术语，按你的背景来解释。每一个回答都能追溯到原话出现的时刻。
+**Chumi 是为学术交流打造的听会助手，还会把会上定下的事交给你的编程智能体接着做。** 它在你的 Mac 上实时转写实验室组会、导师一对一、课堂和学术报告，英文、普通话、中英混杂都能听懂。讨论进行时，它随时告诉你讲到了哪里；走神时一键帮你跟上；遇到陌生的方法和术语，按你的背景来解释。每一个回答都能追溯到原话出现的时刻。
 
-科研讨论节奏快，又经常跨领域：做深度学习的人去听湿实验组会，做生物的人去听统计报告，总会在这里漏掉一分钟、那里错过一个词。Chumi 帮你把线索接住。AI 部分可以使用你已有的 ChatGPT 或 Claude 订阅、本地模型服务或兼容 API，音频始终不离开你的电脑。
+会议结束时，Chumi 不止于一份纪要。你审核一份交接，Claude Code、Codex、opencode 或 Qwen Code 就在你的项目里接着干，并自己去读原始依据。下次开会时，Chumi 还能查到这些 agent 之前做过什么。AI 部分可以使用你已有的 ChatGPT 或 Claude 订阅、本地模型服务或兼容 API，音频始终不离开你的电脑。
+
+## Agent 闭环
+
+```mermaid
+flowchart LR
+  M["会议<br/>实时转写 · 帮我跟上<br/>按你的水平解释"] --> H["审核过的交接<br/>决定 · 行动项 · 待解决问题<br/>每条都有转写出处"]
+  H --> A["你的编程智能体<br/>Claude Code · Codex · opencode · Qwen Code<br/>通过 MCP 读取原始依据"]
+  A --> P["项目记忆<br/>agent 的会话记录<br/>由 mybot 检索"]
+  P -- "项目上下文" --> M
+```
+
+1. **听懂会议。** 会议进行中，Chumi 在本机转写，走神时帮你跟上，按你的水平解释术语。
+2. **审核交接。** 会后它起草决定、行动项和待解决问题，每条都标注转写出处，并标明是*会上商定*、*仅为建议*还是 *Chumi 提议*。你逐条编辑、确认或不采用，只有确认过的工作才会交出去。
+3. **agent 接着干。** 点 **在 Claude Code 中继续**（或 Codex、opencode、Qwen Code），Chumi 在项目文件夹中打开智能体，并带上已确认的工作。智能体通过 Chumi 的本地只读 MCP 服务读取交接、转写原文和截取的幻灯片，先提出计划，等你同意再动手。
+4. **下次开会记得之前的事。** 在提问框中打开 **项目上下文**，提问时会通过 [mybot](https://github.com/jzhoulab/mybot) 同时搜索这个项目之前的 Claude Code 和 Codex 会话。回答以 `[P1]`、`[P2]` 引用它们，让你在重新决定之前先知道 agent 已经试过什么。
+
+<p align="center">
+  <img src="docs/assets/screens/zh/handoff.png" width="900" alt="交接对话框：已确认的行动项标明是会上商定还是 Chumi 提议，每条都有理由、未决点、负责人、可能的检查方式和转写出处，以及“在 Claude Code 中继续”按钮">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screens/zh/project-context.png" width="900" alt="提问框中打开了项目上下文；回答引用这个项目之前的 Claude Code 和 Codex 会话（P1、P2），并与会上的原话放在一起">
+</p>
+
+<sub>两张图都来自示例会议的真实运行：真实的本地转写和真实的 Claude 回答。项目上下文引用的，是之前接手这个示例项目交接的 Claude Code 和 Codex 会话。</sub>
+
+## Chumi 和普通转写应用有什么不同
+
+| | 常见的会议转写应用 | Chumi |
+|---|---|---|
+| **会议进行中** | 一份可以翻看的实时转写 | 帮你跟上、按你的水平解释术语、能看懂屏幕上的幻灯片 |
+| **会议结束时** | 一份给人看的总结和待办 | 一份由你审核的交接，之后由编程智能体在项目里接着做 |
+| **依据** | 总结就是记录本身 | 每个结论都标注时刻；agent 自己去取原始转写和幻灯片 |
+| **AI 补充的内容** | 和纪要混在一起 | 分开写：讲者原话、Chumi 补充的背景、解读 |
+| **谁来决定** | AI 生成的待办就是结果 | 每条标明是会上商定、仅为建议还是 Chumi 提议；只有你确认的才算工作 |
+| **跨会议** | 每次会议一份纪要 | 会议和 agent 会话在同一个记忆库里，下次开会可以用上 |
+| **音频和费用** | 通常在厂商云端处理，需要单独订阅 | 语音在你的 Mac 上识别；AI 用你已有的 ChatGPT 或 Claude 订阅，或本地模型 |
 
 ## 亮点
 
+- **会议直接变成工作。** 审核过的交接会交给项目文件夹里的 Claude Code、Codex、opencode 或 Qwen Code，原始依据随时可查。不用粘贴转写，也不用从头给 agent 讲一遍。
+- **下次开会知道 agent 做过什么。** 打开 **项目上下文** 后，回答会引用这个项目之前的 agent 会话，和会上的原话放在一起看。
 - **一键跟上进度。** 走神了，或者讲者突然跳到下一个话题？点 **Catch me up（帮我跟上）**，Chumi 会告诉你现在在讨论什么、你错过了哪些要点、和前面的内容有什么联系、当前争论的问题是什么。每个回答都标明它覆盖的转写时间段，会议继续进行时它也不会被冲掉。
 - **按你的背景来解释。** 选中一个词或一段话，就能得到深浅合适的背景知识。Chumi 记录你在各个领域的熟悉程度：不会给做机器学习的你讲 transformer，也不会默认你懂某个湿实验技术。深度可选 **Quick / Standard / Deep**；支持的服务可选 **Low 到 Max** 思考力度，兼容模型使用服务端默认推理设置。
 - **讲者原话和 AI 补充分得清清楚楚。** 回答会把*讲者实际说了什么*、*Chumi 补充的背景*和*解读与不确定性*分开写。每个结论都带可点击的 `[m:ss]`，一点就跳到转写里对应的原话。讲者提到看不到的幻灯片时，它会直说"看不到"，而不是瞎猜。
@@ -80,9 +119,17 @@
 
 <sub>以上截图都来自真实运行：本地真实转写，加上 Claude 的真实回答，界面为中文。素材是 <code>samples/lab-meeting</code> 中的合成示例组会：按剧本编写、人物均为虚构、由 macOS 语音朗读，个人档案也是虚构的，没有使用任何真实会议内容。运行 <code>node scripts/demo-shoot.ts --lang zh</code> 可以重新生成。</sub>
 
+## 设置 Agent 闭环
+
+1. **项目。** 把会议分配给项目，也就是你工作的文件夹。可以在开始时选择，也可以之后在顶栏修改。Chumi 不会自动分配。
+2. **编程智能体。** 在 **设置 → 编程智能体** 中为每个智能体连接一次。Chumi 会把它的只读 MCP 服务注册到智能体里，**实际测试智能体读取** 可以确认智能体能访问 Chumi。Claude Code 和 Codex 有各自的 **继续** 按钮；opencode 和 Qwen Code 在 **在其他智能体中继续…** 菜单里。
+3. **项目上下文（可选）。** 在本机运行 [mybot](https://github.com/jzhoulab/mybot)，并在 **设置 → Integrations** 中确认它的地址（默认 `http://127.0.0.1:8788`）。只有你在某次会议中打开 **项目上下文** 后才会搜索。
+
+如果确认之后会议又有变化，例如重新生成了总结或继续了录音，Chumi 和智能体都会看到交接可能需要重新审核。智能体在它自己的权限提示下工作，Chumi 不会替你把工作标记为完成。设置方法、MCP 工具和隐私说明见 [docs/agents.md](docs/agents.md)；项目上下文见 [docs/mybot.md](docs/mybot.md#project-context-in-questions)。
+
 ## 与 mybot 联动
 
-[**mybot**](https://github.com/jzhoulab/mybot) 把你所有的 Claude Code 和 Codex 对话汇总成一个本地可搜索的记忆库。打开 Chumi 的导出功能后，**你的会议记录也会加入这个记忆库**。你可以问 mybot："上周导师让我重跑什么？"或者"我们什么时候定下每个变体 200 个 barcode，谁还有疑虑？"，它会给出日期，并链接到会议中原话出现的那一刻。
+[**mybot**](https://github.com/jzhoulab/mybot) 把你所有的 Claude Code 和 Codex 对话汇总成一个本地可搜索的记忆库。它和 Chumi 是双向的：开会时，**项目上下文** 会向 mybot 查询 agent 之前做过什么；打开 Chumi 的导出功能后，**你的会议记录也会加入这个记忆库**。你可以问 mybot："上周导师让我重跑什么？"或者"我们什么时候定下每个变体 200 个 barcode，谁还有疑虑？"，它会给出日期，并链接到会议中原话出现的那一刻。
 
 - 在 Chumi 中：**设置 → Integrations**，打开 *Export finished sessions for mybot*。
 - 在 mybot 中：运行一次 `bash integrations/mybot/install.sh ~/Code/mybot`，然后把 `chumi` 加入 `TRAJECTORY_SOURCES`。
@@ -90,18 +137,7 @@
 
 完整的设置步骤、导出格式和隐私说明见 [docs/mybot.md](docs/mybot.md)（英文）。
 
-## 在 Claude Code 或 Codex 中继续工作
-
-会议结束时常常留下要在项目里做的事：换一种数据划分重跑、加上 noise ceiling、修改一张图。Chumi 会把这些工作带进**你本来就在用 Claude Code 或 Codex 的那个项目**，并附上原始依据，你不用再向智能体从头讲一遍。
-
-1. **把会议分配给项目**：项目就是你工作的文件夹。可以在开始时选择，也可以之后在顶栏修改。Chumi 不会自动分配。
-2. **准备交接。** Chumi 起草会上的决定、行动项和待解决的问题，每一条都标注转写出处。只是提议的内容会标为“提议”，负责人和截止时间只有会上明确说过才会出现。
-3. **审核并确认。** 逐条编辑、确认或不采用。只有确认过的行动项才会交出去。
-4. **在 Claude Code 或 Codex 中继续。** Chumi 在项目文件夹中打开智能体，并带上已确认的工作。智能体通过 Chumi 的本地 MCP 服务读取交接、转写原文和截取的幻灯片，然后在它原有的权限提示下提出计划。
-
-opencode 和 Qwen Code 的用法相同，从 **在其他智能体中继续…** 菜单进入。在 **设置 → 编程智能体** 中为每个智能体连接一次即可。如果确认之后会议又有变化，例如重新生成了总结或继续了录音，Chumi 和智能体都会看到交接可能需要重新审核。设置方法、MCP 工具和隐私说明见 [docs/agents.md](docs/agents.md)。
-
-### 可选的说话人标注
+## 可选的说话人标注
 
 运行 `npm run setup:speakers`，然后在录音前开启 **设置 → 转写 → 说话人标签**。会议结束后，本地模型将声音分为 A/B/C。展开转写上方的 **说话人** 面板即可命名，点击某一行的标签可以纠正归属。当前标注会进入 AI 上下文、导出文件以及 Claude Code/Codex 读取的会议证据；修改后，旧摘要和已审核交接会提示需要重新检查。
 
@@ -109,43 +145,27 @@ opencode 和 Qwen Code 的用法相同，从 **在其他智能体中继续…** 
 
 ## 快速开始
 
-**环境要求：** Apple Silicon 芯片的 Mac，macOS 14.4 或更高版本；需要 [Homebrew](https://brew.sh)、Node.js 24 或更高版本，以及 Xcode Command Line Tools（`xcode-select --install`）。
+**你需要**一台 Apple Silicon 芯片的 Mac（macOS 14.4 或更高版本），以及 ChatGPT 或 Claude 订阅。没有订阅的话，16 GB 及以上内存的 Mac 也可以运行免费的本地模型。不需要事先安装其他东西。
 
 **Windows（预览版）：** 服务端、语音识别（有 NVIDIA 显卡时用 CUDA 加速）、AI、总结和交接已能在 Windows 10/11 上运行，实时采集还没有。安装方法和进展见 [docs/windows.md](docs/windows.md)（英文）。
 
-### 1. 安装
+打开终端，粘贴：
 
 ```bash
-git clone https://github.com/FakeEnd/chumi.git && cd chumi
+curl -fsSL https://raw.githubusercontent.com/FakeEnd/chumi/main/scripts/install.sh | bash
 ```
 
-```bash
-bash scripts/setup.sh
-```
+它会把 Chumi 下载到 `~/Chumi`，引导式安装约需 5–15 分钟：
 
-安装脚本会安装 whisper.cpp，按你的 Mac 下载合适的语音模型（16 GB 及以上内存的 Apple 芯片为 Large v3 Turbo，约 875 MB），安装 npm 依赖，并编译 App 和辅助工具。模型只下载一次，保存在 `~/Library/Application Support/Chumi/models/`。
+1. **检查你的 Mac**，缺少 Xcode Command Line Tools、Homebrew 或 Node.js 24 时，先问你再帮你安装。
+2. **安装本地语音识别：** whisper.cpp，以及适合你的 Mac 的语音模型（16 GB 及以上内存的 Apple 芯片为 Large v3 Turbo，约 875 MB）。
+3. **在你的 Mac 上构建 Chumi.app。**
+4. **帮你连接 AI：** 通过 Codex 使用 ChatGPT、通过 Claude Code 使用 Claude，或者使用本地模型。登录信息只留在官方工具里，Chumi 看不到。
+5. **全部检查一遍**，然后打开 Chumi。
 
-### 2. 连接你已有的 AI 订阅
+第一次打开时，首页的 **准备好 Chumi** 清单会带你完成剩下的步骤：AI 登录、你的背景（解释会按它调整深浅）和麦克风权限。然后点 **⚡ 快速开始**，或在任何应用里按 **⌃⌥⌘L**。你也可以在浏览器中使用：运行 `npm start`，然后打开 http://127.0.0.1:4777。
 
-使用订阅时二选一即可。账号信息由官方命令行工具保管，Chumi 不会接触。如果使用本地模型服务或兼容 API，请按下方的替代流程配置。
-
-```bash
-codex login
-```
-
-上面是 ChatGPT 的方式，登录时选 *Sign in with ChatGPT*。如果用 Claude 订阅，改用：
-
-```bash
-claude auth login
-```
-
-### 3. 开始收听
-
-```bash
-open build/Chumi.app
-```
-
-点击 **⚡ Quick start**，或在任何地方按 **⌃⌥⌘L**。第一次使用时，macOS 会询问麦克风和/或系统录音权限。你也可以运行 `npm start`，然后在浏览器打开 http://127.0.0.1:4777。
+想手动安装？运行 `git clone https://github.com/FakeEnd/chumi.git && cd chumi && bash scripts/setup.sh`。**[安装指南](docs/install.zh-CN.md)** 里有全部选项（包括在中国大陆加速下载的 `--mirror`）、权限说明、常见问题和卸载方法。`npm run doctor` 可以检查现有安装，并给出缺失部分的修复命令。
 
 ### 其他模型：本地或 API
 
@@ -180,6 +200,12 @@ open build/Chumi.app
 - 可选的自动背景卡片：有冷却时间和打扰次数上限，关闭后迟到的结果会直接丢弃。
 - 实时讨论概览和话题时间线，在停顿和换话题时自动更新。
 - 窗口截图（ScreenCaptureKit），每页幻灯片保留一张，支持"就这张幻灯片提问"。
+
+**接着工作**
+- 从转写起草交接：决定、行动项和待解决问题，每条都有出处，并标明会上商定、仅为建议或 Chumi 提议。交出去之前由你逐条审核。
+- **在 Claude Code、Codex、opencode 或 Qwen Code 中继续**：智能体在项目文件夹中打开并带上已确认的工作，通过 Chumi 的只读 MCP 服务读取交接、原始转写和幻灯片。
+- 时效检查：确认之后会议如有变化，你和智能体都会看到变化了什么。
+- 提问时的 **项目上下文**：通过 mybot 找到项目文件夹中之前的 agent 会话，并以 `[P1]` 引用。
 
 **记录**
 - 按会议类型生成结构化最终总结：带引用，保留不确定性和分歧，负责人和截止时间只在明确说过时才写。
@@ -240,7 +266,7 @@ node scripts/check-audio.ts system 6 --play
 node scripts/demo-shoot.ts
 ```
 
-重新生成英文 README 截图；加 `--lang zh` 生成 `docs/assets/screens/zh/` 中的中文截图。`bash scripts/make-banner.sh` 可以重新渲染横幅；`node scripts/make-video.ts`（加 `--lang zh` 生成中文版，加 `--speed 1.5` 或 `--speed 2` 生成快剪版）会根据 `docs/video/promo.html` 重新渲染介绍视频。
+重新生成英文 README 截图；加 `--lang zh` 生成 `docs/assets/screens/zh/` 中的中文截图。Agent 闭环的两张截图还需要 `--project-folder DIR`：一个已经由 Claude Code 或 Codex 接手过示例会议交接的项目文件夹，并且 mybot 正在运行（加 `--only agent` 只拍这两张）。`bash scripts/make-banner.sh` 可以重新渲染横幅；`node scripts/make-video.ts`（加 `--lang zh` 生成中文版，加 `--speed 1.5` 或 `--speed 2` 生成快剪版）会根据 `docs/video/promo.html` 重新渲染介绍视频。
 
 ```bash
 npm run build:tools
@@ -262,7 +288,7 @@ npm run build:tools
 
 | 项目 | 简介 |
 |---|---|
-| [mybot](https://github.com/jzhoulab/mybot) | 编程智能体的连接层：所有 Claude Code 和 Codex 对话汇成一个可搜索的记忆库，并可在团队内共享。Chumi 的会议记录可以作为它的数据源。 |
+| [mybot](https://github.com/jzhoulab/mybot) | 编程智能体的连接层：所有 Claude Code 和 Codex 对话汇成一个可搜索的记忆库，并可在团队内共享。Chumi 的会议记录可以作为它的数据源，Chumi 的项目上下文也从它读取。 |
 | [nebula-notebook](https://github.com/jzhoulab/nebula-notebook) | 为智能体而生的笔记本：你和 AI 在同一组 cell 里协作 |
 
 ## 现状与计划

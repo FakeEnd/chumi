@@ -7,7 +7,7 @@ This is the P0 scope of [project-integration-prd.md](project-integration-prd.md)
 ## Set up
 
 1. **Create a project.** Go to **Settings → Projects**, give it a name, and choose its folder: the directory where you run your agent (`claude`, `codex`, `opencode` or `qwen`). It does not need to be a Git repository; if it is, Chumi records the branch and remote.
-2. **Connect your agents.** In **Settings → Coding agents**, click **Connect** for each agent you use. This adds a server named `chumi` to the agent's user settings: `~/.claude.json`, `~/.codex/config.toml`, `~/.qwen/settings.json`, or the `mcp` section of `~/.config/opencode/opencode.json`. opencode has no command for adding a local server, so Chumi edits that file itself; opencode also reads `opencode.jsonc`, which Chumi never changes. **Disconnect** removes the entry. The same tab shows the commands (and opencode's entry) if you prefer to do it yourself:
+2. **Connect your agents.** In **Settings → Coding agents**, click **Connect** for each agent you use. This adds a server named `chumi` to the agent's user settings: `~/.claude.json`, `~/.codex/config.toml`, `~/.qwen/settings.json`, or the `mcp` section of `~/.config/opencode/opencode.json`. opencode has no command for adding a local server, so Chumi edits that file itself. It does so only when the file is plain JSON, writes atomically, keeps the file's permissions, and leaves the previous version as `opencode.json.bak`. If the file has comments, Chumi leaves it alone and shows the entry to add. opencode also reads `opencode.jsonc`, which Chumi never changes. **Disconnect** removes the entry. The same tab shows the commands (and opencode's entry) if you prefer to do it yourself:
 
    ```bash
    claude mcp add --scope user chumi -- /opt/homebrew/bin/node /path/to/Chumi/server/mcp/main.ts
@@ -27,7 +27,7 @@ This is the P0 scope of [project-integration-prd.md](project-integration-prd.md)
    - **Client health:** the agent's own server check (`claude mcp get`, `opencode mcp list`, `qwen mcp list`). Codex does not report one.
    - **Agent read:** **Test a real agent read** asks the agent to call Chumi's check tool, then confirms the MCP server recorded that exact read. It uses one small request:
      - Claude Code and Codex run it only within your plan's included usage, never on purchased credits or paid overage. API keys in the environment are removed for these two.
-     - opencode and Qwen Code use whatever model account you set up in them, which Chumi cannot check. Chumi asks before sending the request and keeps their keys. During the check opencode gets only Chumi's tools and cannot edit, run commands or browse. Qwen Code connects only to Chumi's server, and only the check tool is pre-approved; anything that would need your approval is refused in that non-interactive run.
+     - opencode and Qwen Code use whatever model account you set up in them, which Chumi cannot check. Chumi asks before sending the request and keeps their keys. Every read check runs in an empty folder, so an agent's own file tools see nothing of Chumi's data. During the check opencode gets only Chumi's tools and cannot edit, run commands or browse. Qwen Code connects only to Chumi's server, and only the check tool is pre-approved. Its built-in tools that need no approval, such as reading files, are not switched off, but the folder they would read is empty.
 
 If Chumi lives in `~/Documents`, macOS may ask once whether Terminal or the agent may access that folder. Allow it, or Chumi's server cannot start.
 

@@ -199,6 +199,8 @@ function systemLanguage(): 'en' | 'zh' {
   sysLang = first.toLowerCase().startsWith('zh') ? 'zh' : 'en';
   return sysLang;
 }
+// First run: a fresh install starts with an empty profile in the system language (the checklist on Home asks for it).
+store.ensureProfile(systemLanguage());
 
 function samples(): Array<{ name: string; path: string; sizeMb: number }> {
   const dir = join(REPO_ROOT, 'samples');
@@ -228,6 +230,7 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
     if (manager.status === 'recording' || manager.status === 'paused') throw new HttpError(409, 'End the current session before switching the speech model.');
   }
   if (!['auto', 'en', 'zh'].includes(next.ui.language)) throw new HttpError(400, 'Unknown interface language');
+  if (typeof next.ui.setupDismissed !== 'boolean') throw new HttpError(400, 'Invalid setup checklist setting');
   if (!/^https?:\/\/[^\s/]+(\/\S*)?$/.test(String(next.integrations.mybot.serverUrl))) throw new HttpError(400, 'The mybot address must start with http:// (for example http://127.0.0.1:8788).');
   if (!['simplified', 'original'].includes(next.asr.chineseScript)) throw new HttpError(400, 'Unknown Chinese script option');
   if (typeof next.asr.diarization !== 'boolean') throw new HttpError(400, 'Speaker labeling must be enabled or disabled.');
@@ -300,6 +303,7 @@ route('POST', '/api/session/start', async (req) => {
   const win = b.window && Number.isFinite(Number(b.window.id)) ? { id: Number(b.window.id), title: String(b.window.title ?? ''), app: String(b.window.app ?? '') } : null;
   const projectId = b.project_id ? String(b.project_id) : null;
   if (projectId && !store.getProject(projectId)) throw new HttpError(400, 'Unknown project');
+  if (manager.status !== 'idle') throw new HttpError(409, 'A session is already active. End it first.');
   const s = await manager.start({ title: String(b.title ?? '').slice(0, 200), type, source, filePath: b.filePath, speed: Math.min(16, Math.max(0.5, Number(b.speed ?? 1))), window: win, projectId });
   return { session: s };
 });
@@ -366,6 +370,7 @@ route('DELETE', '/api/sessions/:id', async (_req, _res, p) => {
   store.deleteSession(p.id);
   for (const dir of [join(FRAMES_DIR, p.id), join(AUDIO_DIR, p.id)]) rmSync(dir, { recursive: true, force: true });
   mybot.remove(p.id);
+  broadcast('session-deleted', { id: p.id });
   return { ok: true };
 });
 
