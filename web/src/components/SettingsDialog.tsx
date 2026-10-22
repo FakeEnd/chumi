@@ -136,7 +136,7 @@ export function SettingsDialog() {
           </label>
           {windows ? <p className="small muted">{t('Use headphones for hybrid meetings. Chumi filters duplicate microphone and computer-audio text.')}</p>
             : <label className="field check"><input type="checkbox" checked={settings.audio.aec} onChange={(e) => S({ audio: { aec: e.target.checked } })} /> {t('Echo cancellation on the microphone in “Both” mode (prevents duplicate text when using speakers)')}</label>}
-          <label className="field check"><input type="checkbox" checked={settings.audio.saveRawAudio} onChange={(e) => S({ audio: { saveRawAudio: e.target.checked } })} /> {t('Save raw audio to disk (off by default; about 115 MB per hour per source, stored only on this computer)')}</label>
+          <label className="field check"><input type="checkbox" checked={settings.audio.saveRawAudio} onChange={(e) => S({ audio: { saveRawAudio: e.target.checked } })} /> {t('Record audio by default (on unless you turn it off; about 115 MB per hour per source, stored only on this computer). You can still choose for each session when you start it.')}</label>
           <h3>{t('Permissions')}</h3>
           <p className="small">{tn('Microphone: {state}.', { state: <b>{perm.microphone ? t(PERM[perm.microphone] ?? perm.microphone) : '…'}</b> })} {windows ? t('Computer audio uses the current Windows output device and needs no extra recording permission.') : t('Computer audio: macOS gives apps no way to check this permission. If computer audio stays silent while something is playing, permission is missing.')}</p>
           <div className="btn-row">
@@ -333,7 +333,7 @@ export function SettingsDialog() {
           <ul>
             <li>{t('Audio is captured and transcribed locally by whisper.cpp. Audio is never uploaded.')}</li>
             <li>{tn('Sessions, transcripts, AI answers, your profile and settings live in a local SQLite database: {dir}.', { dir: <code>{dataDir}</code> })}</li>
-            <li>{t('Raw audio is retained only when “Save raw audio” is on. Optional speaker labeling also writes temporary local audio, which is deleted after analysis, failure or cancellation unless raw audio retention is enabled.')}</li>
+            <li>{t('Audio is kept only for sessions started with “Record audio” on; you can play it back and export it, and deleting the session deletes it. Optional speaker labeling also writes temporary local audio, which is deleted after analysis, failure or cancellation unless the session records audio.')}</li>
             <li>{t('Window captures (if you choose a window) are stored as JPEG images in the same folder.')}</li>
             <li>{t('If you enable the mybot integration, finished sessions are also written as JSONL files to the export folder you choose. They stay on this computer.')}</li>
             <li>{windows ? t('Credentials: Codex and Claude Code manage their own sign-in. API keys are encrypted for your Windows account.') : t('Credentials: Codex and Claude Code keep their own sign-in and Chumi never reads it. An optional API key is stored in the macOS Keychain.')}</li>

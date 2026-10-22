@@ -1,7 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { extname, isAbsolute, join, normalize, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { Store, speakerFields } from './db.ts';
 import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool, which } from './paths.ts';
 import { deepMerge, log, uid } from './util.ts';
@@ -12,6 +14,7 @@ import { MODEL_CATALOG, ModelDownloader, benchmark, hardware, isInstalled, recom
 import { ProviderRegistry } from './ai/registry.ts';
 import { Assistant, publicOutput, type CatchupScope, type Selection } from './ai/assistant.ts';
 import { SessionManager, publicFrame } from './session/manager.ts';
+import { exportRecording, playbackInfo, recordingBytes, sessionRecording, type Recording } from './session/recording.ts';
 import { listWindows, requestScreenPermission, screenPermission } from './screen/watcher.ts';
 import { HotkeyAgent } from './hotkey.ts';
 import { MybotExporter } from './integrations/mybot.ts';
@@ -21,7 +24,7 @@ import { AGENTS, AgentIntegration, type AgentId } from './projects/agents.ts';
 import { AGENT_BILLING, AGENT_NAMES } from '../shared/agents.ts';
 import { chooseFolder, notify, openExternalUrl, openPrivacySettings, preferredLanguage } from './platform.ts';
 import { chumiLink, SERVER_INFO, workspaceExists } from './projects/evidence.ts';
-import { exportSession } from './export.ts';
+import { exportName, exportSession } from './export.ts';
 import { checkPermissions, listDevices } from './audio/capture.ts';
 import { storeKey, deleteKey } from './ai/anthropic-api.ts';
 import { readCompatibleKey, storeCompatibleKey, deleteCompatibleKey } from './ai/compatible-credentials.ts';
@@ -34,7 +37,7 @@ import type { CodexProvider } from './ai/codex.ts';
 import { EFFORTS, SOURCE_NAMES, isProviderId, normalizeLanguage, type Depth, type Effort, type Profile, type Settings } from './settings.ts';
 import { SpeakerService } from './speakers/service.ts';
 import { speakerRuntime } from './speakers/runtime.ts';
-import { discardSpeakerAudio, speakerAudioAvailable } from './speakers/audio.ts';
+import { discardSpeakerAudio, hasRecordedAudio, speakerAudioAvailable } from './speakers/audio.ts';
 import type { SpeakerCorrection } from '../shared/speakers.ts';
 import { DESKTOP } from './desktop.ts';
 
@@ -193,6 +196,7 @@ function sessionDetail(id: string) {
     live: manager.session?.id === id,
     handoff: handoffs.view(id),
     speakerView: speakers.view(id),
+    hasAudio: hasRecordedAudio(id),
   };
 }
 
@@ -330,7 +334,8 @@ route('POST', '/api/session/start', async (req) => {
   const projectId = b.project_id ? String(b.project_id) : null;
   if (projectId && !store.getProject(projectId)) throw new HttpError(400, 'Unknown project');
   if (manager.status !== 'idle') throw new HttpError(409, 'A session is already active. End it first.');
-  const s = await manager.start({ title: String(b.title ?? '').slice(0, 200), type, source, filePath: b.filePath, speed: Math.min(16, Math.max(0.5, Number(b.speed ?? 1))), window: win, projectId });
+  const recordAudio = typeof b.record_audio === 'boolean' ? b.record_audio : undefined;
+  const s = await manager.start({ title: String(b.title ?? '').slice(0, 200), type, source, filePath: b.filePath, speed: Math.min(16, Math.max(0.5, Number(b.speed ?? 1))), window: win, projectId, recordAudio });
   return { session: s };
 });
 route('POST', '/api/session/quick-start', async () => {
@@ -372,7 +377,7 @@ route('POST', '/api/sessions/:id/resume', async (req, _res, p) => {
   return manager.state();
 });
 
-route('GET', '/api/sessions', (_req, _res, _p, url) => ({ sessions: store.listSessions(url.searchParams.get('q') ?? undefined, url.searchParams.get('project') || undefined) }));
+route('GET', '/api/sessions', (_req, _res, _p, url) => ({ sessions: store.listSessions(url.searchParams.get('q') ?? undefined, url.searchParams.get('project') || undefined).map((s) => ({ ...s, has_audio: hasRecordedAudio(s.id) })) }));
 route('GET', '/api/sessions/:id', (_req, _res, p) => sessionDetail(p.id));
 route('PATCH', '/api/sessions/:id', async (req, _res, p) => {
   const b = await readJson(req);
@@ -398,6 +403,45 @@ route('DELETE', '/api/sessions/:id', async (_req, _res, p) => {
   mybot.remove(p.id);
   broadcast('session-deleted', { id: p.id });
   return { ok: true };
+});
+
+// ---------------------------------------------------------------- recorded audio
+function recordingOf(id: string): Recording {
+  if (!store.getSession(id)) throw new HttpError(404, 'Session not found');
+  if (manager.session?.id === id) throw new HttpError(409, 'End the session to play or export its audio.');
+  let rec: Recording | null;
+  try { rec = sessionRecording(id); }
+  catch (error) { throw new HttpError(500, `The audio recording cannot be read: ${(error as Error).message}`); }
+  if (!rec) throw new HttpError(404, 'This session has no audio recording.');
+  return rec;
+}
+/** The recording as a WAV, mixed on the fly; byte ranges let the player seek. */
+async function sendRecording(req: IncomingMessage, res: ServerResponse, rec: Recording, headers: Record<string, string>): Promise<void> {
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+  const partial = !!range && !!(range[1] || range[2]);
+  let from = 0, to = rec.bytes;
+  if (partial) {
+    if (range[1]) { from = Number(range[1]); if (range[2]) to = Math.min(rec.bytes, Number(range[2]) + 1); }
+    else from = Math.max(0, rec.bytes - Number(range[2]));
+    if (from >= to) { res.writeHead(416, { 'content-range': `bytes */${rec.bytes}` }); res.end(); return; }
+  }
+  res.writeHead(partial ? 206 : 200, { 'content-type': 'audio/wav', 'accept-ranges': 'bytes', 'content-length': String(to - from), ...(partial ? { 'content-range': `bytes ${from}-${to - 1}/${rec.bytes}` } : {}), ...headers });
+  // The player routinely stops reading partway through a range.
+  await pipeline(Readable.from(recordingBytes(rec, from, to)), res).catch(() => {});
+}
+route('GET', '/api/sessions/:id/audio/info', (_req, _res, p) => playbackInfo(recordingOf(p.id)));
+// The URL carries the recording's version, so a resumed meeting's longer recording is never served from cache.
+route('GET', '/api/sessions/:id/audio', async (req, res, p) => { await sendRecording(req, res, recordingOf(p.id), { 'cache-control': 'private, max-age=86400' }); return undefined; });
+/** Prepares the download (AAC encoding can take a few seconds for a long meeting) so the UI can show progress. */
+route('POST', '/api/sessions/:id/audio/export', async (_req, _res, p) => ({ ext: (await exportRecording(p.id, recordingOf(p.id))).ext }));
+route('GET', '/api/sessions/:id/audio/export', async (req, res, p) => {
+  const rec = recordingOf(p.id);
+  const file = await exportRecording(p.id, rec);
+  const headers = { 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`${exportName(store.getSession(p.id)!)}.${file.ext}`)}`, 'cache-control': 'no-store' };
+  if (!file.path) { await sendRecording(req, res, rec, headers); return undefined; }
+  res.writeHead(200, { 'content-type': 'audio/mp4', 'content-length': String(statSync(file.path).size), ...headers });
+  await pipeline(createReadStream(file.path), res).catch(() => {});
+  return undefined;
 });
 
 route('GET', '/api/speakers/runtime', () => speakerRuntime());

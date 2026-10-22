@@ -1,9 +1,15 @@
-import type { Store } from './db.ts';
+import type { SessionRow, Store } from './db.ts';
 import { fmtT } from './util.ts';
 import { sessionTypeName } from '../shared/session-types.ts';
 import { formatSeg } from './ai/context.ts';
 
 const KIND_LABEL: Record<string, string> = { catchup: 'Catch-up', answer: 'Question', explain: 'Explanation', auto_explain: 'Background card (automatic)' };
+
+/** "2026-10-21 Lab meeting": the file name, without extension, of every export of one session. */
+export function exportName(s: SessionRow): string {
+  const safe = s.title.replace(/[^\p{L}\p{N}\- _]+/gu, '').trim().slice(0, 60) || 'session';
+  return `${new Date(s.started_at ?? s.created_at).toISOString().slice(0, 10)} ${safe}`;
+}
 
 export function exportSession(store: Store, id: string, format: 'md' | 'txt'): { filename: string; body: string; mime: string } {
   const s = store.getSession(id);
@@ -49,8 +55,6 @@ export function exportSession(store: Store, id: string, format: 'md' | 'txt'): {
   }
   while (ei < events.length) { const e = events[ei++]; L.push(`*— ${e.kind}${e.detail ? `: ${e.detail}` : ''} [${fmtT(e.t)}] —*`, ''); }
   let body = L.join('\n');
-  const safe = s.title.replace(/[^\p{L}\p{N}\- _]+/gu, '').trim().slice(0, 60) || 'session';
-  const stamp = date.toISOString().slice(0, 10);
   if (format === 'txt') {
     body = body
       .replace(/^#{1,6}\s+/gm, '')
@@ -58,7 +62,7 @@ export function exportSession(store: Store, id: string, format: 'md' | 'txt'): {
       .replace(/(^|\s)\*(.+?)\*(?=\s|$)/g, '$1$2')
       .replace(/^>\s?/gm, '')
       .replace(/`([^`]+)`/g, '$1');
-    return { filename: `${stamp} ${safe}.txt`, body, mime: 'text/plain; charset=utf-8' };
+    return { filename: `${exportName(s)}.txt`, body, mime: 'text/plain; charset=utf-8' };
   }
-  return { filename: `${stamp} ${safe}.md`, body, mime: 'text/markdown; charset=utf-8' };
+  return { filename: `${exportName(s)}.md`, body, mime: 'text/markdown; charset=utf-8' };
 }

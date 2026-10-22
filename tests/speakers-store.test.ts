@@ -30,7 +30,7 @@ test('speaker migration upgrades an existing v1 database and keeps transcript ID
   let store = new Store(file);
   try {
     meeting(store); const original = segment(store, 0, 2000); store.setKV('preserved', { enabled: true });
-    store.db.exec('DROP TABLE segment_speakers; DROP TABLE speaker_turns; DROP TABLE speaker_analyses; DROP TABLE session_speakers; ALTER TABLE ai_outputs DROP COLUMN stale_reason; PRAGMA user_version = 1');
+    store.db.exec('DROP TABLE segment_speakers; DROP TABLE speaker_turns; DROP TABLE speaker_analyses; DROP TABLE session_speakers; ALTER TABLE ai_outputs DROP COLUMN stale_reason; ALTER TABLE sessions DROP COLUMN record_audio; PRAGMA user_version = 1');
     store.close(); store = new Store(file);
     assert.equal(store.schemaVersion(), SCHEMA_VERSION);
     assert.equal(store.segments('meeting')[0].id, original.id);

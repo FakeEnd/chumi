@@ -20,7 +20,7 @@ export interface Settings {
     micDeviceUid: string | null;
     /** Echo cancellation on the mic when capturing both sources (avoids duplicate text when using speakers). */
     aec: boolean;
-    /** Off by default: raw audio is only written to disk when the user turns this on. */
+    /** Whether new sessions record audio (on by default; each session can still opt out when it starts). */
     saveRawAudio: boolean;
   };
   asr: {
@@ -89,7 +89,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  audio: { source: 'mic', micDeviceUid: null, aec: true, saveRawAudio: false },
+  audio: { source: 'mic', micDeviceUid: null, aec: true, saveRawAudio: true },
   asr: {
     engine: 'whisper',
     qwenCloud: { baseUrl: QWEN_CLOUD_REGIONS.singapore, model: QWEN_CLOUD_MODEL },
