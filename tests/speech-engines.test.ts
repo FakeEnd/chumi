@@ -4,9 +4,10 @@ import { EventEmitter } from 'node:events';
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
-  keyterms, normalizeLocalAsrUrl, normalizeQwenCloudUrl, parseElevenLabs, parseQwen, qwenBody, transcribeRemote,
+  keyterms, normalizeLocalAsrUrl, normalizeQwenCloudUrl, parseElevenLabs, parseQwen, qwenBody, transcribeRemote, type RemoteOptions,
 } from '../server/asr/engines.ts';
 import { SpeechService, type SecretStore, type SpeechSettings } from '../server/asr/speech.ts';
+import { Transcriber } from '../server/asr/transcriber.ts';
 import type { WhisperResult, WhisperServer } from '../server/asr/whisper.ts';
 
 const audio = new Int16Array(16_000);
@@ -118,11 +119,11 @@ test('a rejected key is reported without echoing it', async () => {
 
 // ---------------------------------------------------------------- SpeechService
 const whisperResult: WhisperResult = { text: 'local', language: 'en', langProbs: {}, segments: [], ms: 5 };
-function makeService(engine: SpeechSettings['engine'], opts: { fallback: boolean; keys?: Record<string, string> }) {
+function makeService(engine: SpeechSettings['engine'], opts: { fallback: boolean; keys?: Record<string, string>; local?: (o: RemoteOptions) => WhisperResult }) {
   const calls: string[] = [];
   const whisper = Object.assign(new EventEmitter(), {
     state: 'ready', message: null, ensure: async () => {}, stop: async () => { calls.push('stop'); },
-    transcribe: async () => { calls.push('whisper'); return whisperResult; },
+    transcribe: async (_samples: Int16Array, o: RemoteOptions) => { calls.push('whisper'); return opts.local?.(o) ?? whisperResult; },
   }) as unknown as WhisperServer;
   const keys = { ...opts.keys };
   const secrets: SecretStore = {
@@ -190,4 +191,34 @@ test('Whisper stays the default and keeps live partial text', () => {
   const { speech } = makeService('whisper', { fallback: true });
   assert.equal(speech.partials, true);
   assert.equal(speech.label, 'Whisper');
+});
+
+test('the glossary goes out as a sentence, and a prompt the engine repeats as speech is removed, after a fallback too', async () => {
+  const glossary = ['ATAC-seq', 'ChIP-seq', 'RNA-seq'];
+  const toWhisper: RemoteOptions[] = [];
+  const { speech } = makeService('qwen-cloud', {
+    fallback: true, keys: { 'qwen-cloud': 'sk-test-key-123' },
+    local: (o) => { toWhisper.push(o); return { ...whisperResult, text: `${o.prompt} Next slide.` }; },
+  });
+  const t = new Transcriber(speech, () => ({ language: 'en', glossary, chineseScript: 'simplified' }));
+  const lines: string[] = [], errors: string[] = [];
+  t.on('final', (pieces) => lines.push(...pieces.map((p) => p.text)));
+  t.on('error', (m) => errors.push(m));
+  const utt = (id: number) => ({ id, startSec: id, endSec: id + 1, samples: audio, final: true });
+
+  // Qwen3-ASR reads the prompt as context and sometimes says it back
+  seen.length = 0;
+  reply = (s) => ({ status: 200, json: { choices: [{ message: { content: `${JSON.parse(s.body.toString()).messages[0].content} The peaks moved.` } }] } });
+  t.pushFinal('mic', utt(1));
+  await t.drain();
+  assert.equal(JSON.parse(seen[0].body.toString()).messages[0].content, 'We talked about ATAC-seq, ChIP-seq and RNA-seq.');
+
+  // The service fails, so local Whisper gets the same prompt, now with the previous line after the sentence
+  reply = () => ({ status: 503, json: { error: { message: 'overloaded' } } });
+  t.pushFinal('mic', utt(2));
+  await t.drain();
+  assert.equal(toWhisper[0].prompt, 'We talked about ATAC-seq, ChIP-seq and RNA-seq. The peaks moved.');
+  assert.deepEqual(toWhisper[0].glossary, glossary);
+  assert.deepEqual(lines, ['The peaks moved.', 'Next slide.']);
+  assert.deepEqual(errors, []);
 });
