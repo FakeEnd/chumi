@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { SpeechService } from './speech.ts';
-import { cleanSegmentText, keepSegment, langCode, toSimplified } from './clean.ts';
+import { cleanSegmentText, keepSegment, langCode, mostlyHan, stripPromptEcho, termSentence, toSimplified } from './clean.ts';
 import type { Utterance } from '../audio/vad.ts';
 import type { SourceName } from '../audio/capture.ts';
 import { log } from '../util.ts';
@@ -61,13 +61,16 @@ export class Transcriber extends EventEmitter<{
     while ((this.finals.length || this.busy) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
   }
 
-  private prompt(source: SourceName): string {
-    const { glossary } = this.cfg();
-    const parts: string[] = [];
-    if (glossary.length) parts.push(`Glossary: ${glossary.slice(0, 40).join(', ')}.`);
-    const prev = this.lastText.get(source);
-    if (prev) parts.push(prev.slice(-160));
-    return parts.join(' ').slice(-600);
+  /**
+   * Whisper reads the prompt as the transcript just before this audio: the glossary as a sentence in the language being spoken,
+   * then the latest text. Qwen3-ASR gets the same text as context; ElevenLabs ignores it and takes the glossary as keyterms.
+   */
+  private prompt(source: SourceName): { text: string; terms: string[]; chinese: boolean; prev: string } {
+    const { glossary, language } = this.cfg();
+    const terms = glossary.slice(0, 40);
+    const prev = this.lastText.get(source)?.slice(-160) ?? '';
+    const chinese = prev ? mostlyHan(prev) : language === 'zh';
+    return { text: [termSentence(terms, chinese), prev].filter(Boolean).join(' ').slice(-600), terms, chinese, prev };
   }
 
   /** A chunk whose language detection is split between English and Mandarin usually spans a speaker turn. */
@@ -117,9 +120,12 @@ export class Transcriber extends EventEmitter<{
     const { language, glossary } = this.cfg();
     const durSec = job.utt.samples.length / 16000;
     try {
-      const res = await this.speech.transcribe(job.utt.samples, { language, prompt: this.prompt(job.source), glossary, timeoutMs: job.kind === 'final' ? 90000 : 20000 });
+      const prompt = this.prompt(job.source);
+      const res = await this.speech.transcribe(job.utt.samples, { language, prompt: prompt.text, glossary, timeoutMs: job.kind === 'final' ? 90000 : 20000 });
       const lang = langCode(res.language);
       const fix = (t: string) => (lang === 'zh' && this.cfg().chineseScript === 'simplified' ? toSimplified(t) : t);
+      // Every engine's text is checked: a service that fails hands the same prompt to local Whisper, and Qwen3-ASR reads it too.
+      const clean = (t: string) => stripPromptEcho(cleanSegmentText(t), prompt);
       if (job.kind === 'final' && (job.depth ?? 0) < 2 && durSec > 4 && Transcriber.isMixed(res.langProbs)) {
         // Mixed English/Mandarin detection: transcribe each half separately instead of letting Whisper translate one language into the other.
         const [a, b] = Transcriber.split(job.utt);
@@ -128,7 +134,7 @@ export class Transcriber extends EventEmitter<{
       }
       if (job.kind === 'partial') {
         if ((this.finalizedUtts.get(job.source) ?? 0) >= job.utt.id) return; // final already arrived
-        const text = fix(res.segments.map((s) => cleanSegmentText(s.text)).filter((t, i) => keepSegment(res.segments[i], t, durSec)).join(' ').trim());
+        const text = fix(res.segments.map((s) => clean(s.text)).filter((t, i) => keepSegment(res.segments[i], t, durSec)).join(' ').trim());
         if (text) this.emit('partial', job.source, job.utt.id, job.utt.startSec, text);
         return;
       }
@@ -136,7 +142,7 @@ export class Transcriber extends EventEmitter<{
       const pieces: FinalPiece[] = [];
       const segs = res.segments.length ? res.segments : [{ start: 0, end: durSec, text: res.text }];
       for (const s of segs) {
-        const text = fix(cleanSegmentText(s.text));
+        const text = fix(clean(s.text));
         if (!keepSegment(s, text, durSec)) continue;
         const startSec = job.utt.startSec + Math.max(0, Math.min(durSec, s.start));
         const endSec = job.utt.startSec + Math.max(0, Math.min(durSec, s.end || durSec));
