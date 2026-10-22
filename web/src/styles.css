@@ -1,6 +1,7 @@
 :root {
   --bg: #f4f6fb; --panel: #ffffff; --panel-2: #f3f5fa; --text: #1b2033; --muted: #687089; --border: #e3e7f0;
   --accent: #4f46e5; --accent-2: #eef0ff; --teal: #0e9fb8; --amber: #f59e0b; --ok: #15803d; --ok-bg: #e7f6ec; --warn: #b45309; --warn-bg: #fff4e0; --bad: #c0362c; --bad-bg: #fdeceb;
+  --tangent: #a21caf; --tangent-bg: #fae8ff;
   --rec: #e0352b; --hl: #fff3bf; --partial: #8a92a3; --shadow: 0 10px 30px rgba(30, 40, 90, .14);
   --card-shadow: 0 1px 2px rgba(20, 30, 70, .04), 0 2px 8px rgba(20, 30, 70, .05);
   --grad: linear-gradient(135deg, #4f46e5 0%, #0e9fb8 100%);
@@ -11,6 +12,7 @@
   :root {
     --bg: #11131b; --panel: #191c27; --panel-2: #21253296; --text: #e6e8f0; --muted: #959cb0; --border: #2b3040;
     --accent: #8b87ff; --accent-2: #262a4d; --teal: #38bdd8; --ok: #5ccf8b; --ok-bg: #16301f; --warn: #f0b04b; --warn-bg: #382a12; --bad: #ff7b70; --bad-bg: #3d1d1b;
+    --tangent: #e879f9; --tangent-bg: #3a1a3f;
     --hl: #4a4220; --partial: #7e8698; --shadow: 0 10px 30px rgba(0, 0, 0, .5); --card-shadow: 0 1px 2px rgba(0, 0, 0, .3);
   }
 }
@@ -322,6 +324,23 @@ section h3 { font-size: 13px; margin: 14px 0 6px; }
 .card:hover { box-shadow: 0 2px 4px rgba(20, 30, 70, .06), 0 6px 18px rgba(20, 30, 70, .07); }
 .card-auto_explain { border-left: 3px solid var(--amber); }
 .tag { border-radius: 6px; }
+/* Assistant timeline: the current card is open, earlier ones fold to one row; the stripe shows what kind of card it is. */
+.card.stripe-meeting { border-left: 3px solid var(--accent); }
+.card.stripe-tangent { border-left: 3px solid var(--tangent); }
+.card.stripe-background { border-left: 3px solid var(--amber); }
+.card.stripe-summary { border-left: 3px solid var(--ok); }
+.tag-meeting { background: var(--accent-2); color: var(--accent); }
+.tag-tangent { background: var(--tangent-bg); color: var(--tangent); }
+.card:not(.open) { padding-top: 6px; padding-bottom: 6px; }
+.card-head { gap: 8px; }
+.card-head > .spinner, .card-head > .tag { flex: none; }
+.card-time { flex: none; min-width: 42px; text-align: center; font-size: 11px; font-variant-numeric: tabular-nums; }
+.card-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; border: none; background: none; padding: 0; text-align: left; cursor: pointer; }
+.card-toggle .tag { flex: none; }
+.card-chev { flex: none; color: var(--muted); font-size: 10px; transition: transform .15s; }
+.card.open .card-chev { transform: rotate(90deg); }
+.card-title { min-width: 0; }
+.card:not(.open) .card-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
 .seg-control { border-radius: 9px; background: var(--panel); }
 .seg-control button.on { background: var(--accent-2); color: var(--accent); }
 .dialog { border-radius: 16px; }

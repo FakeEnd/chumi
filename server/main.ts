@@ -70,6 +70,7 @@ function broadcast(event: string, data: unknown): void {
 const assistant = new Assistant(store, registry, broadcast);
 const manager = new SessionManager(store, speech, assistant, broadcast);
 assistant.visual = manager;
+assistant.clock = (id) => (manager.session?.id === id ? manager.nowT() : null);
 manager.recoverOnBoot();
 
 // mybot export: refresh a session's JSONL when it ends, gets its summary or Q&A, is renamed; remove it on delete.

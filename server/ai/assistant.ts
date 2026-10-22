@@ -12,6 +12,7 @@ import {
 import { ProviderError, parseJsonLoose, type CompletionRequest } from './provider.ts';
 import type { ProviderRegistry } from './registry.ts';
 import { sessionStyle, sessionTypeName } from '../../shared/session-types.ts';
+import { splitCategory } from '../../shared/question-category.ts';
 
 export type Broadcast = (event: string, data: unknown) => void;
 export type CatchupScope = '2m' | '5m' | 'all';
@@ -32,6 +33,8 @@ export interface VisualSource {
 type ImagePick = { kind: 'ids'; ids: number[] } | { kind: 'around'; fromT: number; toT: number } | { kind: 'now' } | { kind: 'range'; fromT: number; toT: number } | { kind: 'spread'; max: number };
 
 const PRIO = { manual: 10, summary: 8, overview: 2, auto: 1 };
+/** Cards in the assistant column, which records the meeting time each was asked at. */
+const TIMELINE_KINDS = new Set(['catchup', 'answer', 'explain', 'final_summary']);
 const AUTO_FREQ = { low: { cooldownMs: 180_000, maxPer10: 2 }, medium: { cooldownMs: 90_000, maxPer10: 4 }, high: { cooldownMs: 45_000, maxPer10: 6 } } as const;
 
 export function publicOutput(o: OutputRow): Record<string, unknown> {
@@ -79,6 +82,8 @@ export class Assistant {
   visual: VisualSource | null = null;
   /** Earlier agent sessions in the meeting's project (through mybot), for questions asked with project context on. */
   projectContext: ((sessionId: string, query: string, signal: AbortSignal) => Promise<{ text: string; meta: unknown }>) | null = null;
+  /** The session clock while the session is being recorded; null otherwise. */
+  clock: ((sessionId: string) => number | null) | null = null;
 
   constructor(store: Store, registry: ProviderRegistry, broadcast: Broadcast) {
     this.store = store; this.registry = registry; this.broadcast = broadcast;
@@ -118,9 +123,13 @@ export class Assistant {
     onSettled?: () => void;
   }): string {
     const id = uid('o_');
+    // Where the meeting was when the user asked; not recorded for requests made after it (reviewing).
+    const askedT = TIMELINE_KINDS.has(o.kind) ? this.clock?.(o.sessionId) ?? null : null;
+    const asked = askedT != null ? { askedT } : {};
     const row = this.store.insertOutput({
       id, session_id: o.sessionId, kind: o.kind, status: 'pending', question: o.question ?? null,
       selection_json: o.selection ? JSON.stringify(o.selection) : null, scope: o.scope ?? null, depth: o.depth ?? null, parent_id: o.parentId ?? null,
+      data_json: askedT != null ? JSON.stringify(asked) : null,
     });
     this.broadcast('ai', publicOutput(row));
     const controller = new AbortController();
@@ -149,7 +158,7 @@ export class Assistant {
         const refCheck = checkRefs(fin.content, segs);
         this.update(id, {
           status: 'done', content: fin.content, covered_from: built.coveredFrom, covered_to: built.coveredTo,
-          data_json: JSON.stringify({ ...(built.extra ?? {}), ...(fin.data ?? {}), refCheck, effort: meta.effort }),
+          data_json: JSON.stringify({ ...asked, ...(built.extra ?? {}), ...(fin.data ?? {}), refCheck, effort: meta.effort }),
           provider: meta.provider, model: meta.model, billing: meta.billing, completed_at: Date.now(),
         });
         this.backoffUntil = 0;
@@ -162,7 +171,7 @@ export class Assistant {
         const message = kind === 'aborted' ? 'Cancelled.' : `${err.message}${['quota', 'quota_gate', 'auth', 'network', 'unavailable'].includes(kind) ? ' Transcription continues and nothing captured is lost.' : ''}`;
         if (['quota', 'quota_gate', 'auth', 'unavailable', 'network'].includes(kind)) this.backoffUntil = Date.now() + 120_000;
         log('ai', `${o.kind} failed (${kind}): ${err.message}`);
-        this.update(id, { status: kind === 'aborted' ? 'cancelled' : 'error', error: message, data_json: JSON.stringify({ errorKind: kind }), completed_at: Date.now() });
+        this.update(id, { status: kind === 'aborted' ? 'cancelled' : 'error', error: message, data_json: JSON.stringify({ ...asked, errorKind: kind }), completed_at: Date.now() });
       } finally {
         this.controllers.delete(id);
         o.onSettled?.();
@@ -323,6 +332,10 @@ export class Assistant {
     const withProject = !!opts.projectContext && !!this.projectContext;
     return this.start({
       sessionId, kind: 'answer', prio: PRIO.manual, question, selection, depth, scope: withProject ? 'project' : null,
+      finalize: (text) => {
+        const { category, body } = splitCategory(text);
+        return { content: body, data: category ? { category } : undefined };
+      },
       build: async (signal) => {
         const c = this.contextFor(sessionId, question, selection);
         if (c.to <= 0 && !selection && !frameIds.length && !withProject) return { instructions: '', input: '', coveredFrom: null, coveredTo: null, effort: 'low', direct: 'Nothing has been transcribed yet, so there is no context to answer from.' };

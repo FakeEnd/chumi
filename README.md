@@ -186,6 +186,7 @@ If the meeting changes after you confirm (a regenerated summary, a resumed recor
 - Questions about a selected passage, the surrounding discussion and relevant earlier passages.
 - Explanation depth (Quick, Standard, Deep) and, on supported providers, reasoning effort (Low to Max).
 - Optional auto-explain cards for unfamiliar terms, and a running overview with a topic timeline.
+- Answers form a timeline marked with the meeting time each was asked at. Only the latest stays open; the rest fold to one line and open with a click. Each question is tagged as about the meeting or a tangent.
 - Answers keep *what the speakers said*, *background added by Chumi* and *interpretation and uncertainty* apart. If a speaker points at a slide Chumi can't see, it says so.
 
 **Remembering**

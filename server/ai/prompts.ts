@@ -64,7 +64,8 @@ Base the answer only on the transcript and the supplied earlier-discussion notes
 
 export function askInstructions(depth: Depth): string {
   return `TASK: Answer the user's question about the conversation.
-Start with a one- or two-sentence **Short answer**. Then use these Markdown sections (headings translated to the output language), omitting a section only if it is truly empty:
+First line: classify the question, written exactly as shown and in English whatever the output language: [[meeting]] if it asks about what the meeting is discussing (what was said, meant, decided, or why), or [[tangent]] if it goes beyond the discussion (general background, related ideas, the user's own curiosity). Mention the classification nowhere else.
+Then start the answer with a one- or two-sentence **Short answer**. Then use these Markdown sections (headings translated to the output language), omitting a section only if it is truly empty:
 **What was said** — what the speakers actually said that is relevant, with time citations. Quote briefly (original language) when wording matters. Only transcript content here.
 **Background (added by Chumi)** — background knowledge, definitions, analogies, or method rationale that the user needs. Clearly your addition, not the speakers'.
 **Interpretation & uncertainty** — your reading of what they mean, caveats, possible ASR errors, missing visual information, and what remains unclear.
