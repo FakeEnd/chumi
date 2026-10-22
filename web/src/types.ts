@@ -3,13 +3,19 @@ import type { CompatibleSettings } from '../../shared/compatible-provider.ts';
 import type { SpeakerAnnotation, SpeakerView } from '../../shared/speakers.ts';
 import type { AgentId } from '../../shared/agents.ts';
 
+/** server/asr/engines.ts: 'whisper' runs on this computer; the others are speech services. */
+export type SpeechEngineId = 'whisper' | 'elevenlabs' | 'qwen-cloud' | 'qwen-local';
+
 export type Depth = 'quick' | 'standard' | 'deep';
 export type Effort = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type SessionType = string;
 
 export interface Settings {
   audio: { source: 'mic' | 'system' | 'both'; micDeviceUid: string | null; aec: boolean; saveRawAudio: boolean };
-  asr: { model: string; language: 'auto' | 'en' | 'zh'; threads: number; glossary: string[]; chineseScript: 'simplified' | 'original'; diarization: boolean };
+  asr: {
+    engine: SpeechEngineId; qwenCloud: { baseUrl: string; model: string }; qwenLocal: { baseUrl: string; model: string };
+    model: string; language: 'auto' | 'en' | 'zh'; threads: number; glossary: string[]; chineseScript: 'simplified' | 'original'; diarization: boolean;
+  };
   ai: {
     provider: 'codex' | 'claude-cli' | 'anthropic-api' | 'compatible' | 'mock';
     effort: Effort;

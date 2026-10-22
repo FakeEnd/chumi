@@ -3,9 +3,11 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import { extname, isAbsolute, join, normalize, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { Store, speakerFields } from './db.ts';
-import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool } from './paths.ts';
+import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool, which } from './paths.ts';
 import { deepMerge, log, uid } from './util.ts';
 import { WhisperServer } from './asr/whisper.ts';
+import { SpeechService } from './asr/speech.ts';
+import { ENGINE_NAMES, isKeyedEngine, isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId } from './asr/engines.ts';
 import { MODEL_CATALOG, ModelDownloader, benchmark, hardware, isInstalled, recommendModel } from './asr/models.ts';
 import { ProviderRegistry } from './ai/registry.ts';
 import { Assistant, publicOutput, type CatchupScope, type Selection } from './ai/assistant.ts';
@@ -45,6 +47,9 @@ const store = new Store();
 store.failStaleOutputs();
 const settings0 = store.getSettings();
 const whisper = new WhisperServer({ model: settings0.asr.model, threads: settings0.asr.threads });
+/** Local Whisper can stand in for a speech service only when its program and the chosen model are installed. */
+const whisperUsable = () => !!which('whisper-server') && isInstalled(store.getSettings().asr.model);
+const speech = new SpeechService(whisper, () => store.getSettings().asr, whisperUsable);
 const registry = new ProviderRegistry(store);
 const downloader = new ModelDownloader();
 const localModelDownloader = new LocalModelDownloader({
@@ -60,7 +65,7 @@ function broadcast(event: string, data: unknown): void {
   for (const c of clients) c.write(msg);
 }
 const assistant = new Assistant(store, registry, broadcast);
-const manager = new SessionManager(store, whisper, assistant, broadcast);
+const manager = new SessionManager(store, speech, assistant, broadcast);
 assistant.visual = manager;
 manager.recoverOnBoot();
 
@@ -137,10 +142,11 @@ if (DESKTOP) process.on('message', (message: any) => { if (message?.type === 'de
 // Test servers (acceptance runs) must not grab the shortcut from the real app.
 if (!process.env.CHUMI_NO_HOTKEY) hotkey.configure(store.getSettings().quickStart.hotkey);
 registry.onStatus = (s) => broadcast('provider', s);
-whisper.on('state', (state, message) => broadcast('asr', { state, message }));
+speech.on('state', (state, message) => broadcast('asr', { state, message }));
+speech.on('fallback', (message) => broadcast('notice', { level: 'warning', code: 'asr_fallback', message }));
 downloader.on('progress', (d) => {
   broadcast('asr-download', d);
-  if (d.status === 'done' && d.id === store.getSettings().asr.model) void whisper.ensure().catch((e) => log('asr', (e as Error).message));
+  if (d.status === 'done' && d.id === store.getSettings().asr.model && speech.engine === 'whisper') void whisper.ensure().catch((e) => log('asr', (e as Error).message));
 });
 
 // ---------------------------------------------------------------- helpers
@@ -240,6 +246,14 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   if (typeof next.ui.setupDismissed !== 'boolean') throw new HttpError(400, 'Invalid setup checklist setting');
   if (!/^https?:\/\/[^\s/]+(\/\S*)?$/.test(String(next.integrations.mybot.serverUrl))) throw new HttpError(400, 'The mybot address must start with http:// (for example http://127.0.0.1:8788).');
   if (!['simplified', 'original'].includes(next.asr.chineseScript)) throw new HttpError(400, 'Unknown Chinese script option');
+  if (!isSpeechEngine(next.asr.engine)) throw new HttpError(400, 'Unknown speech recognition engine.');
+  try {
+    next.asr.qwenCloud = { baseUrl: normalizeQwenCloudUrl(next.asr.qwenCloud.baseUrl), model: speechModelId(next.asr.qwenCloud.model) };
+    next.asr.qwenLocal = { baseUrl: normalizeLocalAsrUrl(next.asr.qwenLocal.baseUrl), model: speechModelId(next.asr.qwenLocal.model) };
+  } catch (error) { throw new HttpError(400, (error as Error).message); }
+  const speechConfig = (s: Settings) => JSON.stringify([s.asr.engine, s.asr.engine === 'qwen-cloud' ? s.asr.qwenCloud : s.asr.engine === 'qwen-local' ? s.asr.qwenLocal : null]);
+  const speechChanged = speechConfig(before) !== speechConfig(next);
+  if (speechChanged && (manager.status === 'recording' || manager.status === 'paused')) throw new HttpError(409, 'End the current session before changing the speech recognition engine.');
   if (typeof next.asr.diarization !== 'boolean') throw new HttpError(400, 'Speaker labeling must be enabled or disabled.');
   if (before.asr.diarization !== next.asr.diarization) {
     if (manager.status !== 'idle') throw new HttpError(409, 'End the current session before changing speaker labeling.');
@@ -253,6 +267,7 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   catch (error) { throw new HttpError(400, (error as Error).message); }
   if (before.assist.autoExplain !== next.assist.autoExplain) assistant.setAutoExplain(next.assist.autoExplain);
   if (before.asr.model !== next.asr.model || before.asr.threads !== next.asr.threads) whisper.configure({ model: next.asr.model, threads: next.asr.threads });
+  if (speechChanged) speech.configure();
   if (before.quickStart.hotkey !== next.quickStart.hotkey && !process.env.CHUMI_NO_HOTKEY) hotkey.configure(next.quickStart.hotkey);
   if (next.integrations.mybot.enabled && (before.integrations.mybot.shareWithTeam !== next.integrations.mybot.shareWithTeam || !before.integrations.mybot.enabled || before.integrations.mybot.exportDir !== next.integrations.mybot.exportDir)) mybot.exportAll();
   if (before.ai.provider !== next.ai.provider || JSON.stringify(before.ai) !== JSON.stringify(next.ai)) void registry.status(true).catch(() => {});
@@ -577,7 +592,7 @@ route('GET', '/api/asr/models', () => {
 });
 route('POST', '/api/asr/setup', () => {
   const id = store.getSettings().asr.model;
-  if (isInstalled(id)) void whisper.ensure().catch((e) => log('asr', (e as Error).message));
+  if (isInstalled(id)) void speech.ensure().catch((e) => log('asr', (e as Error).message));
   else void downloader.start(id).catch((e) => log('asr', (e as Error).message));
   return { id, download: downloader.current };
 });
@@ -595,10 +610,33 @@ route('DELETE', '/api/asr/models/:id', (_req, _res, p) => {
 });
 route('POST', '/api/asr/benchmark', async () => {
   if (manager.status === 'recording') throw new HttpError(409, 'Pause or end the session first; the test would compete with live transcription.');
-  return { model: store.getSettings().asr.model, results: await benchmark(whisper) };
+  return { model: speech.engine === 'whisper' ? store.getSettings().asr.model : speech.label, results: await benchmark(speech) };
+});
+route('GET', '/api/asr/engines', async () => ({
+  keys: { elevenlabs: await speech.hasKey('elevenlabs'), 'qwen-cloud': await speech.hasKey('qwen-cloud') }, fallback: whisperUsable(),
+}));
+route('POST', '/api/asr/engines/:id/key', async (req, _res, p) => {
+  if (!isKeyedEngine(p.id)) throw new HttpError(404, 'This speech engine has no API key.');
+  const b = await readJson(req);
+  if (typeof b.key !== 'string') throw new HttpError(400, 'An API key is required.');
+  try { await speech.saveKey(p.id, b.key.trim()); }
+  catch (error) { throw new HttpError(400, (error as Error).message); }
+  return { stored: true };
+});
+route('DELETE', '/api/asr/engines/:id/key', async (_req, _res, p) => {
+  if (!isKeyedEngine(p.id)) throw new HttpError(404, 'This speech engine has no API key.');
+  if (store.getSettings().asr.engine === p.id && manager.status !== 'idle') throw new HttpError(409, 'End the current session before removing this key.');
+  await speech.deleteKey(p.id);
+  return { stored: false };
 });
 route('GET', '/api/settings', () => store.getSettings());
-route('PUT', '/api/settings', async (req) => applySettingsPatch(await readJson(req)));
+route('PUT', '/api/settings', async (req) => {
+  const patch = await readJson(req);
+  // Keys are read asynchronously, so check before the synchronous settings update.
+  const engine = patch.asr?.engine;
+  if (isKeyedEngine(engine) && engine !== store.getSettings().asr.engine && !(await speech.hasKey(engine))) throw new HttpError(400, `Save your ${ENGINE_NAMES[engine]} API key first.`);
+  return applySettingsPatch(patch);
+});
 route('GET', '/api/profile', () => store.getProfile());
 route('PUT', '/api/profile', async (req) => {
   const b = await readJson(req) as Partial<Profile>;
@@ -749,7 +787,7 @@ server.listen(PORT, HOST, () => {
   log('server', `Chumi listening on http://${HOST}:${PORT}  (data: ${DATA_DIR})`);
   // Where agents' "open in Chumi" links should point (read by the MCP server).
   try { writeFileSync(SERVER_INFO, JSON.stringify({ url: `http://${HOST}:${PORT}`, pid: process.pid, startedAt: Date.now() })); } catch { /* links are optional */ }
-  void whisper.ensure().catch((e) => log('asr', `not ready: ${(e as Error).message}`));
+  void speech.ensure().catch((e) => log('asr', `not ready: ${(e as Error).message}`));
   void registry.status(true).catch(() => {});
 });
 setInterval(() => { void registry.status(true).catch(() => {}); }, 90_000).unref();

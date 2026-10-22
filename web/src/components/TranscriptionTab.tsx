@@ -4,6 +4,7 @@ import { saveSettings } from '../actions.ts';
 import { api } from '../api.ts';
 import { getLang, t, tn } from '../i18n.ts';
 import { SpeakerSettings } from './Speakers.tsx';
+import { SpeechEngineSettings } from './SpeechEngineSettings.tsx';
 
 interface ModelRow {
   id: string; name: string; sizeMB: number; speed: number; accuracy: number; minRamGB: number;
@@ -48,11 +49,15 @@ export function TranscriptionTab() {
 
   return (
     <section>
-      <p className="small">{t('Speech recognition runs on this computer with whisper.cpp. It is free, needs no network, and keeps running when the AI provider is unavailable.')}</p>
+      <p className="small">{settings.asr.engine === 'whisper'
+        ? t('Speech recognition runs on this computer with whisper.cpp. It is free, needs no network, and keeps running when the AI provider is unavailable.')
+        : t('Speech recognition is independent of the AI provider: it keeps running when the AI is unavailable.')}</p>
+
+      <SpeechEngineSettings />
 
       <SpeakerSettings />
 
-      <h3>{t('Speech model')}</h3>
+      <h3>{settings.asr.engine === 'whisper' ? t('Speech model') : t('Local Whisper model (backup)')}</h3>
       {hw && (
         <p className="small">
           {hw.appleSilicon ? t('This Mac: {chip} · {mem} GB memory.', { chip: hw.chip, mem: hw.memoryGB }) : t('This computer: {chip} · {mem} GB memory.', { chip: hw.gpu ? `${hw.chip} · ${hw.gpu.name}` : hw.chip, mem: hw.memoryGB })}{' '}
@@ -71,7 +76,7 @@ export function TranscriptionTab() {
                 <div className="model-name">
                   <b>{m.name}</b>
                   {m.id === list.recommended && <span className="tag">{t('Recommended for this computer')}</span>}
-                  {m.active && <span className="tag tag-ok">{t('In use')}</span>}
+                  {m.active && <span className="tag tag-ok">{settings.asr.engine === 'whisper' ? t('In use') : t('Backup')}</span>}
                   {!m.active && m.installed && <span className="tag tag-muted">{t('Downloaded')}</span>}
                   {tooBig && <span className="tag tag-warn">{t('Needs {n} GB+ memory', { n: m.minRamGB })}</span>}
                 </div>
@@ -101,7 +106,7 @@ export function TranscriptionTab() {
       <p className="muted small">{t('Bigger is not always better: if the transcript falls behind (the Speech badge shows “behind”), switch to a faster model. Switching takes a few seconds and is only possible between sessions.')}</p>
 
       <div className="btn-row">
-        <button className="btn small" disabled={bench.running || live?.status === 'recording'} onClick={runBench}>{bench.running ? t('Testing…') : t('Test speed and accuracy of the current model')}</button>
+        <button className="btn small" disabled={bench.running || live?.status === 'recording'} onClick={runBench}>{bench.running ? t('Testing…') : settings.asr.engine === 'whisper' ? t('Test speed and accuracy of the current model') : t('Test speed and accuracy of the engine in use')}</button>
       </div>
       {bench.error && <p className="error-text small">{bench.error}</p>}
       {bench.results && (

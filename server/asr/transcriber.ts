@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { WhisperServer } from './whisper.ts';
+import type { SpeechService } from './speech.ts';
 import { cleanSegmentText, keepSegment, langCode, toSimplified } from './clean.ts';
 import type { Utterance } from '../audio/vad.ts';
 import type { SourceName } from '../audio/capture.ts';
@@ -10,7 +10,8 @@ export interface FinalPiece { source: SourceName; uttId: number; startSec: numbe
 interface Job { kind: 'final' | 'partial'; source: SourceName; utt: Utterance; enqueued: number; depth?: number; retried?: boolean }
 
 /**
- * Schedules Whisper requests: finals in order (never dropped), partials only when idle and only the newest per source.
+ * Schedules speech requests: finals in order (never dropped), partials only when idle and only the newest per source,
+ * and none at all for paid services (each partial would bill the utterance again).
  * Partial text for an utterance is replaced by its final text, so revisions never duplicate sentences.
  */
 export class Transcriber extends EventEmitter<{
@@ -28,12 +29,12 @@ export class Transcriber extends EventEmitter<{
   stopped = false;
   backlogSec = 0;
 
-  private whisper: WhisperServer;
+  private speech: Pick<SpeechService, 'transcribe' | 'partials'>;
   private cfg: () => { language: string; glossary: string[]; chineseScript: string };
-  constructor(whisper: WhisperServer, cfg: () => { language: string; glossary: string[]; chineseScript: string }) { super(); this.whisper = whisper; this.cfg = cfg; }
+  constructor(speech: Pick<SpeechService, 'transcribe' | 'partials'>, cfg: () => { language: string; glossary: string[]; chineseScript: string }) { super(); this.speech = speech; this.cfg = cfg; }
 
   pushProgress(source: SourceName, utt: Utterance): void {
-    if (this.stopped) return;
+    if (this.stopped || !this.speech.partials) return;
     this.partials.set(source, { kind: 'partial', source, utt, enqueued: Date.now() });
     this.pump();
   }
@@ -113,10 +114,10 @@ export class Transcriber extends EventEmitter<{
   }
 
   private async run(job: Job): Promise<void> {
-    const { language } = this.cfg();
+    const { language, glossary } = this.cfg();
     const durSec = job.utt.samples.length / 16000;
     try {
-      const res = await this.whisper.transcribe(job.utt.samples, { language, prompt: this.prompt(job.source), timeoutMs: job.kind === 'final' ? 90000 : 20000 });
+      const res = await this.speech.transcribe(job.utt.samples, { language, prompt: this.prompt(job.source), glossary, timeoutMs: job.kind === 'final' ? 90000 : 20000 });
       const lang = langCode(res.language);
       const fix = (t: string) => (lang === 'zh' && this.cfg().chineseScript === 'simplified' ? toSimplified(t) : t);
       if (job.kind === 'final' && (job.depth ?? 0) < 2 && durSec > 4 && Transcriber.isMixed(res.langProbs)) {

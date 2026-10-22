@@ -12,6 +12,20 @@ Antigravity CLI (`agy`) 1.3.4 on the development Mac. Details are in [agents.md]
 
 Not verified: **Test a real agent read** and a handoff with a signed-in Antigravity, which needs a Google sign-in. A stand-in model can't stand in here, because Antigravity offers gateway models no tools. Also not verified: the Antigravity desktop app (not installed), and the Settings card in the browser.
 
+## Speech services: ElevenLabs and Qwen3-ASR — 2026-10-13
+
+On the development Mac (Apple M5 Max, 64 GB). Details are in [transcription.md](transcription.md).
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 151 / 151 tests. 14 new tests run against a local stand-in server, covering request shapes, response parsing, refused context, a rejected key (never echoed back), fallback to Whisper, skipping the service during an outage, missing keys, and address checks. |
+| Settings | A non-Alibaba address for the cloud key, an unknown engine, and ElevenLabs without a saved key are all refused with HTTP 400. |
+| Self-hosted Qwen3-ASR, stand-in server | A 16-second clip through the file input went to the stand-in as `audio_url` data URLs, with the glossary as context, and was saved as two English lines. |
+| Fallback | With the server stopped, the same clip still started a session, and local Whisper (Large v3 Turbo) transcribed it in close agreement with the reference. The speech badge and the engine card name the unreachable server. |
+| Settings → Transcription | Checked in the browser preview: the four engines, the key fields, region and address, and the error shown in the active engine's card. |
+
+Not verified: real requests to ElevenLabs and Model Studio (no keys on this machine), and a real `qwen-asr-serve`.
+
 ## Windows desktop — 2026-10-13
 
 Development machine: Windows 11 build 26300, i9-12900H, RTX 3060 Laptop 6 GB, Node 24.21.0, whisper.cpp b5454 CUDA 12.4, Electron 44.7.0.

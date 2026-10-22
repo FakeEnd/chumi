@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate, setTimeout } from 'node:timers/promises';
 import type { Assistant } from '../server/ai/assistant.ts';
-import type { WhisperServer } from '../server/asr/whisper.ts';
+import type { SpeechService } from '../server/asr/speech.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'chumi-speaker-session-'));
 process.env.CHUMI_DATA_DIR = root;
@@ -22,8 +22,8 @@ test('capture closes safely when ending a paused meeting, then waits for local s
   const settings = store.getSettings(); settings.asr.diarization = true; store.saveSettings(settings);
   const summaries: string[] = [];
   const assistant = { onActivity: () => {}, summary: (id: string) => { summaries.push(id); return 'summary'; } } as unknown as Assistant;
-  const whisper = { ensure: async () => {}, state: 'ready' } as unknown as WhisperServer;
-  const manager = new SessionManager(store, whisper, assistant, () => {});
+  const speech = { ensure: async () => {}, state: 'ready' } as unknown as SpeechService;
+  const manager = new SessionManager(store, speech, assistant, () => {});
   let finish!: () => void;
   manager.beforeSummary = () => new Promise<void>((resolve) => { finish = resolve; });
   try {
@@ -45,7 +45,7 @@ test('resuming a meeting invalidates its pending automatic summary before cancel
   const store = new Store(':memory:');
   const summaries: string[] = [];
   const assistant = { onActivity: () => {}, summary: (id: string) => { summaries.push(id); return 'summary'; } } as unknown as Assistant;
-  const manager = new SessionManager(store, { ensure: async () => {}, state: 'ready' } as unknown as WhisperServer, assistant, () => {});
+  const manager = new SessionManager(store, { ensure: async () => {}, state: 'ready' } as unknown as SpeechService, assistant, () => {});
   let finish!: () => void;
   manager.beforeSummary = () => new Promise<void>((resolve) => { finish = resolve; });
   manager.beforeResume = async () => { finish(); await setImmediate(); };
@@ -65,7 +65,7 @@ test('resume reserves the active session while speaker cancellation waits and ro
   const store = new Store(':memory:');
   store.createSession({ id: 'old', title: 'Old meeting', type: 'other', audio_source: 'file' });
   store.updateSession('old', { status: 'ended' });
-  const manager = new SessionManager(store, { ensure: async () => {} } as unknown as WhisperServer, {} as Assistant, () => {});
+  const manager = new SessionManager(store, { ensure: async () => {} } as unknown as SpeechService, {} as Assistant, () => {});
   let fail!: (error: Error) => void;
   manager.beforeResume = () => new Promise<void>((_resolve, reject) => { fail = reject; });
   try {
