@@ -4,7 +4,7 @@
   Rendered to MP4 by scripts/make-video.ts (headless Chrome + ffmpeg).  ?lang=zh for the Chinese version.
   Screenshots and their element boxes (regions.js) come from scripts/demo-shoot.ts: docs/assets/screens/ (English)
   and docs/assets/screens/zh/ (中文). The coding-agent terminal is drawn here from a real Claude Code run on the
-  sample project (the Chinese original; translated for the English cut).
+  sample project (condensed from its English answer; translated for the Chinese cut).
 -->
 <html><head><meta charset="utf-8">
 <script>
@@ -133,14 +133,15 @@
 
   <div class="scene" id="app">
     <div class="cap"><div class="kick" id="kick"></div><div class="ctitle" id="ctitle"></div><div class="csub" id="csub"></div></div>
-    <div class="progress"><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="progress"><span></span><span></span><span></span><span></span><span></span><span></span></div>
     <div class="window" id="win">
       <div class="viewport" id="vp">
         <img class="shot" data-shot="live" data-file="live.png">
         <img class="shot" data-shot="explain" data-file="explain.png" style="opacity:0">
+        <img class="shot" data-shot="playback" data-file="playback.png" style="opacity:0">
         <img class="shot" data-shot="handoff" data-file="handoff.png" style="opacity:0">
         <img class="shot" data-shot="pc" data-file="project-context.png" style="opacity:0">
-        <div class="term" id="term"><div class="term-bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>enhancer-model — claude</span></div><div class="term-body" id="termBody"></div></div>
+        <div class="term" id="term"><div class="term-bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>citation-rag — claude</span></div><div class="term-body" id="termBody"></div></div>
         <div class="hl" id="hl"></div>
         <div class="ripple" id="ripple"></div>
         <svg class="cursor" id="cursor" viewBox="0 0 24 24"><path d="M3 2l17 9.5-7.4 1.6L9 20.5z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>
@@ -225,31 +226,32 @@ const TXT = {
     s: [
       ['During the meeting', 'Lost the thread?\nCatch me up.', 'What you missed and what is being argued now. Every point cited.'],
       ['Explained for you', 'Answers at\nyour level.', 'Select any term. Chumi explains it for your background.'],
-      ['After the meeting', 'A handoff\nyou review.', 'Agreed, only suggested, or proposed by Chumi, each cited. Only what you confirm becomes work.'],
-      ['In your project', 'Your coding agent\npicks it up.', 'Claude Code, Codex, opencode or Qwen Code reads the handoff and the original lines over MCP, then proposes a plan.'],
+      ['After the meeting', 'Listen again,\nfrom any line.', 'The recording stays on your Mac. Click ▶ on a line to hear that moment, or export the meeting as one audio file.'],
+      ['Hand it on', 'A handoff\nyou review.', 'Agreed, only suggested, or proposed by Chumi, each cited. Only what you confirm becomes work.'],
+      ['In your project', 'Your coding agent\npicks it up.', 'Claude Code, Codex, opencode, Qwen Code or Antigravity reads the handoff and the original lines over MCP, then proposes a plan.'],
       ['Next meeting', 'It knows what\nthe agents did.', 'Turn on Project context: answers cite your earlier agent sessions, found through mybot.'],
     ],
     term: [
-      ['cmd', '<b>~/enhancer-model ❯</b> claude "$(cat handoff.md)"'],
-      ['you', '> Continue work from a meeting I recorded in Chumi. Project: Enhancer model'],
-      ['tool', '⏺ <b>chumi - chumi_get_handoff</b> (MCP)(handoff_id: "hf_3d7d74c7ad12424f")'],
-      ['res', '  ⎿ 4 confirmed actions, with owners, open points and evidence'],
-      ['tool', '⏺ <b>chumi - chumi_get_passages</b> (MCP)(from: "4:15", to: "5:30")'],
-      ['tool', '⏺ <b>chumi - chumi_get_passages</b> (MCP)(from: "15:51", to: "17:29")'],
-      ['tool', '⏺ <b>Read</b>(splits.py)'],
-      ['say', '⏺ I read the handoff and checked the original lines at 4:15–5:30 and 15:51–17:29.'],
+      ['cmd', '<b>~/citation-rag ❯</b> claude "$(cat handoff.md)"'],
+      ['you', '> Continue work from a meeting I recorded in Chumi. Project: Citation model'],
+      ['tool', '⏺ <b>chumi - chumi_get_handoff</b> (MCP)(handoff_id: "hf_71e88ea5c4d64540")'],
+      ['res', '  ⎿ the confirmed actions, with owners, open points and evidence'],
+      ['tool', '⏺ <b>Read</b>(eval/judge.py)'],
+      ['tool', '⏺ <b>chumi - chumi_get_passages</b> (MCP)(from: "2:27", to: "6:24")'],
+      ['tool', '⏺ <b>chumi - chumi_get_passages</b> (MCP)(from: "6:44", to: "8:35")'],
+      ['say', '⏺ I read the handoff, the cited lines and every file. Nothing is changed yet.'],
       ['say', '  <b>Plan (I will wait for your go-ahead before changing files):</b>'],
-      ['dim', '  A. splits.py: split_peaks_by_chrom(), chr8 + chr9 test, chr10 val'],
-      ['dim', '     (only an example in the meeting, 16:30–16:42, so it is a parameter)'],
-      ['dim', '  B. Performance plot over 5 seeds, old vs. new split'],
-      ['dim', '  C. Scaling curve with a replicate noise ceiling (5:05–5:14)'],
-      ['say', '  Before I start: where do the training code and data live?'],
+      ['dim', '  1. eval/bootstrap.py: paired bootstrap, 10,000 resamples, 95% CI,'],
+      ['dim', '     the three comparisons pre-registered before any results'],
+      ['dim', '  2. eval/length_match.py: cut SFT and DPO answers to matched length'],
+      ['say', '  Checked against the transcript: #6 (a second judge) was only suggested.'],
+      ['say', '  Before I start: what should the n-gram check compare against?'],
     ],
     loopTitle: 'One loop, not a pile of notes.',
     n1: 'Meeting', n1s: 'listen · catch up · explain', n2: 'Reviewed handoff', n2s: 'cited · you confirm',
-    n3: 'Coding agent', n3s: 'Claude Code · Codex · opencode · Qwen', n4: 'Project memory', n4s: 'agent sessions, via mybot',
+    n3: 'Coding agent', n3s: 'Claude Code · Codex · and more', n4: 'Project memory', n4s: 'agent sessions, via mybot',
     ctx: 'Project context',
-    t1: 'Speech stays on your Mac', t1s: 'Local whisper.cpp transcription. No audio upload, ever.',
+    t1: 'Audio stays on your Mac', t1s: 'Local whisper.cpp transcription by default. Recordings never leave this computer.',
     t2: 'Uses the plan you have', t2s: 'Your ChatGPT or Claude subscription, or a local model. No surprise bills.',
     t3: 'You decide what agents do', t3s: 'Only confirmed work is handed on, and the agent proposes a plan first.',
     who: 'Lab meetings · Advisor 1:1s · Lectures · and the work that follows',
@@ -260,31 +262,32 @@ const TXT = {
     s: [
       ['会议进行中', '跟丢了？\n帮我跟上。', '你错过了什么、现在在争论什么，每一点都有出处。'],
       ['为你解释', '按你的水平讲解。', '选中任何术语，Chumi 按你的背景用中文解释，保留英文术语。'],
-      ['会议结束后', '一份由你审核的\n交接。', '区分“已商定”“仅建议”和“Chumi 提议”，每条都有出处。只有你确认的才会交出去。'],
-      ['在你的项目里', '编程智能体\n接着干。', 'Claude Code、Codex、opencode 或 Qwen Code 通过 MCP 读取交接和原始转写，先给出计划。'],
+      ['会议结束后', '从任意一句\n再听一遍。', '录音只保存在你的 Mac 上。点某一行的 ▶ 就能回放那一刻，也能把整场会议导出成一个音频文件。'],
+      ['交接', '一份由你审核的\n交接。', '区分“已商定”“仅建议”和“Chumi 提议”，每条都有出处。只有你确认的才会交出去。'],
+      ['在你的项目里', '编程智能体\n接着干。', 'Claude Code、Codex、opencode、Qwen Code 或 Antigravity 通过 MCP 读取交接和原始转写，先给出计划。'],
       ['下次开会', '它知道 agent\n做过什么。', '打开“项目上下文”，回答会引用你之前的 agent 会话（通过 mybot 检索）。'],
     ],
     term: [
-      ['cmd', '<b>~/enhancer-model ❯</b> claude "$(cat handoff.md)"'],
-      ['you', '> Continue work from a meeting I recorded in Chumi. Project: 增强子模型'],
-      ['tool', '⏺ <b>chumi - chumi_get_handoff</b> (MCP)(handoff_id: "hf_3d7d74c7ad12424f")'],
-      ['res', '  ⎿ 4 项已确认的行动，含负责人、未决点和出处'],
-      ['tool', '⏺ <b>chumi - chumi_get_passages</b> (MCP)(from: "4:15", to: "5:30")'],
-      ['tool', '⏺ <b>chumi - chumi_get_passages</b> (MCP)(from: "15:51", to: "17:29")'],
-      ['tool', '⏺ <b>Read</b>(splits.py)'],
-      ['say', '⏺ 我看过项目和 handoff，也核对了 4:15–5:30 和 15:51–17:29 两段原始转录。'],
+      ['cmd', '<b>~/citation-rag ❯</b> claude "$(cat handoff.md)"'],
+      ['you', '> Continue work from a meeting I recorded in Chumi. Project: 引用模型'],
+      ['tool', '⏺ <b>chumi - chumi_get_handoff</b> (MCP)(handoff_id: "hf_71e88ea5c4d64540")'],
+      ['res', '  ⎿ 已确认的行动项，含负责人、未决点和出处'],
+      ['tool', '⏺ <b>Read</b>(eval/judge.py)'],
+      ['tool', '⏺ <b>chumi - chumi_get_passages</b> (MCP)(from: "2:27", to: "6:24")'],
+      ['tool', '⏺ <b>chumi - chumi_get_passages</b> (MCP)(from: "6:44", to: "8:35")'],
+      ['say', '⏺ 我看过 handoff、引用的原始转录和所有文件，还没有改动任何东西。'],
       ['say', '  <b>计划（等你确认后再动文件）：</b>'],
-      ['dim', '  A. 按染色体划分 split，改 splits.py：split_peaks_by_chrom()'],
-      ['dim', '     chr8+chr9 test、chr10 val 只是会上举例（16:30–16:42），做成参数'],
-      ['dim', '  B. 性能图改为多 seed，对比新旧 split'],
-      ['dim', '  C. Scaling 曲线和 noise ceiling（5:05–5:14）'],
-      ['say', '  需要你先确认：训练代码和数据在哪里？'],
+      ['dim', '  1. eval/bootstrap.py：paired bootstrap，重采样 10,000 次，95% CI，'],
+      ['dim', '     三个比较在看到结果之前就预先登记'],
+      ['dim', '  2. eval/length_match.py：把 SFT 和 DPO 的回答截到相同长度'],
+      ['say', '  对照转录：#6（换一个 judge）在会上只是建议，没有商定。'],
+      ['say', '  开始之前：n-gram 检查要和什么语料比？'],
     ],
     loopTitle: '一个闭环，而不是一堆纪要。',
     n1: '会议', n1s: '听懂 · 跟上 · 解释', n2: '审核过的交接', n2s: '有出处 · 由你确认',
-    n3: '编程智能体', n3s: 'Claude Code · Codex · opencode · Qwen', n4: '项目记忆', n4s: 'agent 会话，通过 mybot',
+    n3: '编程智能体', n3s: 'Claude Code · Codex 等', n4: '项目记忆', n4s: 'agent 会话，通过 mybot',
     ctx: '项目上下文',
-    t1: '音频留在你的 Mac', t1s: '本地 whisper.cpp 转写，音频从不上传。',
+    t1: '音频留在你的 Mac', t1s: '默认本地 whisper.cpp 转写，录音只保存在本机。',
     t2: '用你已有的订阅', t2s: 'ChatGPT 或 Claude 订阅，或本地模型。不会突然扣费。',
     t3: 'agent 做什么由你决定', t3s: '只有你确认的工作才会交出去，agent 先给计划。',
     who: '实验室组会 · 导师一对一 · 课堂 · 以及会后的工作',
@@ -317,12 +320,14 @@ const B = {
   transcript: box(G.live?.transcript, [20, 350, 867, 493]), catchBtn: box(G.live?.catchBtn, [930, 120, 92, 36]),
   card: box(G.live?.card, [904, 343, 436, 500]), covers: box(G.live?.covers, [912, 368, 118, 24]),
   explain: box(G.explain?.card, [904, 343, 436, 500]),
+  pbPlayer: box(G.playback?.player, [20, 100, 640, 36]), pbRow: box(G.playback?.row, [20, 420, 867, 48]),
   hDialog: box(G.handoff?.dialog, [200, 60, 960, 740]), hItem: box(G.handoff?.item, [230, 230, 900, 120]), hOrigin: box(G.handoff?.origin, [240, 240, 140, 24]),
   hEvidence: box(G.handoff?.evidence, [240, 320, 200, 24]), hCont: box(G.handoff?.cont, [960, 760, 190, 36]),
   pcToggle: box(G.pc?.toggle, [1150, 300, 130, 26]), pcCard: box(G.pc?.card, [904, 400, 436, 440]), pcSources: box(G.pc?.sources, [912, 430, 200, 24]),
 };
 const R = {
   transcript: focus(B.transcript, .98), card: focus(B.card, .96), explain: focus(B.explain, .96),
+  pb: focus([B.pbPlayer[0], B.pbPlayer[1] - 12, Math.max(B.pbPlayer[2], B.pbRow[0] + B.pbRow[2] - B.pbPlayer[0]), B.pbRow[1] + B.pbRow[3] + 12 - (B.pbPlayer[1] - 12)], .96),
   hDialog: focus(B.hDialog, .98), hItem: focus([B.hItem[0] - 20, B.hItem[1] - 30, B.hItem[2] + 40, B.hItem[3] + 60], .95),
   hCont: focus([B.hCont[0] - 660, B.hCont[1] - 250, 880, 330], 1),
   pcAsk: focus([B.pcToggle[0] - 330, B.pcToggle[1] - 150, 470, 260], 1), pcCard: focus(B.pcCard, .96),
@@ -340,14 +345,15 @@ function applyView(v) { for (const img of document.querySelectorAll('.shot')) im
 const toVp = (v, px, py) => [v.x + px * v.z, v.y + py * v.z];
 const hlBox = (v, r, k) => { const [x1, y1] = toVp(v, r[0], r[1]); const [x2, y2] = toVp(v, r[0] + r[2], r[1] + r[3]); return [x1, y1, x2 - x1, y2 - y1, k]; };
 
-// ---------- timeline (seconds): about 54 s
-const APP = [[8.0, 14.2], [14.2, 19.6], [19.6, 26.2], [26.2, 33.0], [33.0, 39.8]];
-const T = { introEnd: 3.2, probEnd: 8.0, appEnd: 39.8, loopEnd: 45.0, trustEnd: 49.6, end: 53.6 };
+// ---------- timeline (seconds): about 59 s. D shifts everything after the Listen again scene.
+const D = 5.4;
+const APP = [[8.0, 14.2], [14.2, 19.6], [19.6, 19.6 + D], [19.6 + D, 26.2 + D], [26.2 + D, 33.0 + D], [33.0 + D, 39.8 + D]];
+const T = { introEnd: 3.2, probEnd: 8.0, appEnd: 39.8 + D, loopEnd: 45.0 + D, trustEnd: 49.6 + D, end: 53.6 + D };
 window.DURATION = T.end;
-window.CLICKS = [11.2, 25.2];
+window.CLICKS = [11.2, 21.9, 25.2 + D];
 window.APP_WINDOW = [T.probEnd, T.appEnd];
-window.POSTER_T = 32.1;
-window.PREVIEW_T = [1.6, 6.4, 9.4, 12.6, 16.8, 21.2, 23.0, 25.3, 28.6, 32.1, 34.4, 36.4, 38.4, 41.0, 43.6, 47.4, 51.4];
+window.POSTER_T = 32.1 + D;
+window.PREVIEW_T = [1.6, 6.4, 9.4, 12.6, 16.8, 20.4, 22.2, 24.2, ...[21.2, 23.0, 25.3, 28.6, 32.1, 34.4, 36.4, 38.4, 41.0, 43.6, 47.4, 51.4].map((x) => +(x + D).toFixed(1))];
 
 const termBody = $('termBody');
 TXT.term.forEach(([kind, html]) => { const d = document.createElement('div'); d.className = `tl ${kind}`; d.dataset.html = html; termBody.appendChild(d); });
@@ -364,7 +370,7 @@ function partial(html, n) {
 const plainLen = (html) => html.replace(/<[^>]+>/g, '').length;
 function renderTerm(t) {
   // The command types out; tool calls appear one by one; the answer streams in.
-  const start = 26.7, slots = [0.0, 0.7, 1.2, 1.6, 1.95, 2.3, 2.65, 3.05, 3.45, 3.7, 3.9, 4.1, 4.3, 4.55];
+  const start = 26.7 + D, slots = [0.0, 0.7, 1.2, 1.6, 1.95, 2.3, 2.65, 3.05, 3.45, 3.7, 3.9, 4.1, 4.3, 4.55];
   termLines.forEach((el, i) => {
     const s0 = start + slots[i], kind = TXT.term[i][0], html = el.dataset.html;
     const typing = kind === 'cmd' ? .6 : kind === 'say' || kind === 'dim' ? .3 : 0;
@@ -393,7 +399,7 @@ window.render = function (t) {
   });
 
   // app
-  const appOn = fade(t, 7.8, 8.4, 39.3, 39.8);
+  const appOn = fade(t, 7.8, 8.4, 39.3 + D, 39.8 + D);
   $('app').style.opacity = appOn;
   $('win').style.transform = `translateY(${lerp(60, 0, ease(seg(t, 7.8, 8.7)))}px) scale(${lerp(.96, 1, ease(seg(t, 7.8, 8.7)))})`;
   let idx = APP.findIndex(([a, b]) => t >= a && t < b); if (idx < 0) idx = t < APP[0][0] ? 0 : APP.length - 1;
@@ -418,27 +424,37 @@ window.render = function (t) {
   } else if (idx === 1) {     // explanation pitched to the profile
     setShots('live', 'explain', ease(seg(t, 14.2, 14.7)));
     v = mix(mix(R.card, FULL, ease(seg(t, 14.2, 14.7))), R.explain, ease(seg(t, 14.9, 16.4)));
-  } else if (idx === 2) {     // the reviewed handoff: an item with its origin and evidence, then Continue in Claude Code
-    setShots('explain', 'handoff', ease(seg(t, 19.6, 20.1)));
-    const v1 = mix(R.explain, R.hDialog, ease(seg(t, 19.6, 20.2)));
-    const v2 = mix(v1, R.hItem, ease(seg(t, 20.4, 21.6)));
-    v = mix(v2, R.hCont, ease(seg(t, 23.6, 24.4)));
-    if (t > 21.6 && t < 22.7) hl = hlBox(v, B.hOrigin, fade(t, 21.7, 22.0, 22.4, 22.7));
-    if (t > 22.7 && t < 23.7) hl = hlBox(v, B.hEvidence, fade(t, 22.75, 23.05, 23.4, 23.7));
-    const p = ease(seg(t, 24.2, 25.0));
+  } else if (idx === 2) {     // listen again: the cursor clicks a line's play button, the line lights up, then the player
+    setShots('explain', 'playback', ease(seg(t, 19.6, 20.1)));
+    v = mix(mix(R.explain, FULL, ease(seg(t, 19.6, 20.2))), R.pb, ease(seg(t, 22.5, 23.5)));
+    const p = ease(seg(t, 20.5, 21.6));
+    const [bx, by] = toVp(v, B.pbRow[0] + 14, B.pbRow[1] + Math.min(18, B.pbRow[3] / 2));
+    cur = [lerp(VW * .5, bx, p), lerp(VH * .85, by, p), fade(t, 20.4, 20.7, 22.4, 22.8)];
+    rip = seg(t, 21.9, 22.6);
+    if (t > 23.5) hl = hlBox(v, B.pbPlayer, fade(t, 23.6, 23.9, 24.5, 24.9));
+  } else if (idx === 3) {     // the reviewed handoff: an item with its origin and evidence, then Continue in Claude Code
+    const u = t - D;
+    setShots('playback', 'handoff', ease(seg(u, 19.6, 20.1)));
+    const v1 = mix(R.pb, R.hDialog, ease(seg(u, 19.6, 20.2)));
+    const v2 = mix(v1, R.hItem, ease(seg(u, 20.4, 21.6)));
+    v = mix(v2, R.hCont, ease(seg(u, 23.6, 24.4)));
+    if (u > 21.6 && u < 22.7) hl = hlBox(v, B.hOrigin, fade(u, 21.7, 22.0, 22.4, 22.7));
+    if (u > 22.7 && u < 23.7) hl = hlBox(v, B.hEvidence, fade(u, 22.75, 23.05, 23.4, 23.7));
+    const p = ease(seg(u, 24.2, 25.0));
     const [bx, by] = toVp(v, B.hCont[0] + B.hCont[2] * .82, B.hCont[1] + B.hCont[3] * .7);
-    cur = [lerp(VW * .45, bx, p), lerp(VH * .55, by, p), fade(t, 24.1, 24.4, 25.6, 26.0)];
-    rip = seg(t, 25.2, 25.9);
-  } else if (idx === 3) {     // the agent picks it up in the project folder
+    cur = [lerp(VW * .45, bx, p), lerp(VH * .55, by, p), fade(u, 24.1, 24.4, 25.6, 26.0)];
+    rip = seg(u, 25.2, 25.9);
+  } else if (idx === 4) {     // the agent picks it up in the project folder
     setShots('handoff', 'handoff', 0);
     v = R.hCont;
-    term = seg(t, 26.2, 26.7);
+    term = seg(t - D, 26.2, 26.7);
   } else {                    // next meeting: Project context on, an answer that cites the earlier agent sessions
+    const u = t - D;
     setShots('handoff', 'pc', 1);
-    term = 1 - seg(t, 33.0, 33.5);
-    v = mix(R.pcAsk, R.pcCard, ease(seg(t, 35.0, 36.4)));
-    if (t > 33.6 && t < 34.9) hl = hlBox(v, B.pcToggle, fade(t, 33.7, 34.0, 34.5, 34.9));
-    if (t > 36.4) hl = hlBox(v, B.pcSources, fade(t, 36.6, 36.9, 39.2, 39.6));
+    term = 1 - seg(u, 33.0, 33.5);
+    v = mix(R.pcAsk, R.pcCard, ease(seg(u, 35.0, 36.4)));
+    if (u > 33.6 && u < 34.9) hl = hlBox(v, B.pcToggle, fade(u, 33.7, 34.0, 34.5, 34.9));
+    if (u > 36.4) hl = hlBox(v, B.pcSources, fade(u, 36.6, 36.9, 39.2, 39.6));
   }
   applyView(v);
   $('term').style.opacity = term;
@@ -451,29 +467,30 @@ window.render = function (t) {
   if (rip > 0 && rip < 1 && cur) { const s = 1 + rip * 4; P.style.transform = `translate(${cur[0] - 10}px, ${cur[1] - 10}px) scale(${s})`; P.style.opacity = 1 - rip; } else P.style.opacity = 0;
 
   // the loop: each stage lights up in turn, and project memory feeds the next meeting
-  $('loop').style.opacity = fade(t, 39.8, 40.3, 44.5, 45.0);
-  $('loop').querySelector('.loopTitle').style.opacity = seg(t, 40.0, 40.5);
+  const u = t - D;
+  $('loop').style.opacity = fade(u, 39.8, 40.3, 44.5, 45.0);
+  $('loop').querySelector('.loopTitle').style.opacity = seg(u, 40.0, 40.5);
   document.querySelectorAll('#loop .node').forEach((el, i) => {
     const s0 = 40.3 + i * .55;
-    el.style.opacity = seg(t, s0, s0 + .35); el.style.transform = `scale(${lerp(.9, 1, outBack(seg(t, s0, s0 + .5)))})`;
-    el.classList.toggle('on', t >= 42.6 && Math.floor((t - 42.6) / .45) % 4 === i);
+    el.style.opacity = seg(u, s0, s0 + .35); el.style.transform = `scale(${lerp(.9, 1, outBack(seg(u, s0, s0 + .5)))})`;
+    el.classList.toggle('on', u >= 42.6 && Math.floor((u - 42.6) / .45) % 4 === i);
   });
   document.querySelectorAll('#loop .arc').forEach((el, i) => {
     const len = el.getTotalLength(), s0 = 40.55 + i * .55;
-    el.style.strokeDasharray = `${len}`; el.style.strokeDashoffset = `${len * (1 - ease(seg(t, s0, s0 + .5)))}`;
+    el.style.strokeDasharray = `${len}`; el.style.strokeDashoffset = `${len * (1 - ease(seg(u, s0, s0 + .5)))}`;
   });
-  $('ctx').style.opacity = seg(t, 42.4, 42.8);
-  $('hub').style.opacity = seg(t, 40.2, 40.7);
+  $('ctx').style.opacity = seg(u, 42.4, 42.8);
+  $('hub').style.opacity = seg(u, 40.2, 40.7);
 
   // trust
-  $('trust').style.opacity = fade(t, 45.0, 45.4, 49.1, 49.6);
+  $('trust').style.opacity = fade(u, 45.0, 45.4, 49.1, 49.6);
   document.querySelectorAll('.tcard').forEach((el, i) => {
     const s0 = 45.3 + i * .3;
-    el.style.opacity = seg(t, s0, s0 + .4); el.style.transform = `translateY(${lerp(40, 0, ease(seg(t, s0, s0 + .6)))}px)`;
+    el.style.opacity = seg(u, s0, s0 + .4); el.style.transform = `translateY(${lerp(40, 0, ease(seg(u, s0, s0 + .6)))}px)`;
   });
 
   // outro
-  $('outro').style.opacity = seg(t, 49.6, 50.2) * (1 - seg(t, 52.9, 53.6));
+  $('outro').style.opacity = seg(u, 49.6, 50.2) * (1 - seg(u, 52.9, 53.6));
 };
 render(0);
 </script>

@@ -121,7 +121,7 @@
   <div class="right">
     <div class="ghost g1"></div><div class="ghost g2"></div>
     <div class="card">
-      <div class="bar"><span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span><span class="title" data-t="win"></span><span class="rec"><i></i>REC 9:42</span></div>
+      <div class="bar"><span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span><span class="title" data-t="win"></span><span class="rec"><i></i>REC 4:51</span></div>
       <div class="body">
         <div class="q" data-h="q"></div>
         <div class="a">
@@ -129,13 +129,13 @@
           <div class="grounded">
             <div class="lbl" data-t="gl"></div>
             <div class="chips">
-              <span class="chip"><b>7:35</b> · Wei</span>
-              <span class="chip"><b>8:06</b> · PI</span>
-              <span class="chip"><b>9:13</b> · Maya</span>
+              <span class="chip"><b>2:51</b> · Wei</span>
+              <span class="chip"><b>3:06</b> · PI</span>
+              <span class="chip"><b>3:48</b> · Maya</span>
             </div>
           </div>
         </div>
-        <div class="live"><span class="ts">9:42</span><span data-t="live"></span></div>
+        <div class="live"><span class="ts">4:51</span><span data-t="live"></span></div>
       </div>
     </div>
   </div>
@@ -152,20 +152,20 @@
       h1: 'Never lose the thread.', h2: 'Understand every talk.',
       lead: 'A listening companion for lab meetings, advisor 1:1s, lectures and seminars. Chumi transcribes English and Mandarin on your Mac, catches you up in one click, and explains what you need at your level, with every answer cited to the transcript.',
       p1: 'Runs on your Mac', p2: 'ChatGPT or Claude plan', p3: 'English + Mandarin',
-      win: 'Lab meeting · enhancer model', gl: 'Grounded in',
+      win: 'Lab meeting · citation model', gl: 'Grounded in',
       q: '<b>Catch me up</b> · last 2 min',
-      a: '<span class="now">Now:</span> debating whether the GATA-motif signal is real or a <b>batch artifact</b>. The two agreeing replicates were sequenced together <span class="t">8:06</span>; the third disagrees. Still <i>preliminary</i>.',
-      live: 'So let’s switch gears to the validation experiment…',
+      a: '<span class="now">Now:</span> debating whether the DPO gain is real or <b>judge bias</b>. The same model family labeled the training pairs and grades the test set <span class="t">3:06</span>. Still <i>preliminary</i>.',
+      live: 'OK, let’s switch gears and talk about the evaluation plan…',
     },
     zh: {
       eyebrow: '本地转写 · 用你自己的 AI 订阅 · 每句回答都有出处',
       h1: '开会不再跟丢。', h2: '每个概念都听得懂。',
       lead: '为实验室组会、导师一对一、课堂和学术报告打造的听会助手。Chumi 在你的 Mac 上实时转写中英文，一键帮你跟上进度，按你的背景解释陌生概念，每个回答都能追溯到原话。',
       p1: '在你的 Mac 本地运行', p2: 'ChatGPT / Claude 订阅', p3: '中英双语',
-      win: '组会 · 增强子模型', gl: '出处',
+      win: '组会 · 引用模型', gl: '出处',
       q: '<b>帮我跟上</b> · 最近 2 分钟',
-      a: '<span class="now">现在：</span>在争论 GATA motif 信号是真实的，还是<b>批次效应（batch artifact）</b>。结果一致的两个重复是同一批测序的 <span class="t">8:06</span>，第三个不一致，目前仍是<i>初步</i>结论。',
-      live: 'So let’s switch gears to the validation experiment…',
+      a: '<span class="now">现在：</span>在争论 DPO 的提升是真实的，还是 <b>judge 的偏差（judge bias）</b>。给训练数据打标签和给测试集打分的是同一类模型 <span class="t">3:06</span>，目前仍是<i>初步</i>结论。',
+      live: 'OK, let’s switch gears and talk about the evaluation plan…',
     },
   }[lang];
   for (const el of document.querySelectorAll('[data-t]')) el.textContent = T[el.dataset.t];
