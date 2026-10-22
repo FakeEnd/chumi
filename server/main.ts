@@ -439,7 +439,8 @@ route('GET', '/api/sessions/:id/audio/export', async (req, res, p) => {
   const file = await exportRecording(p.id, rec);
   const headers = { 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`${exportName(store.getSession(p.id)!)}.${file.ext}`)}`, 'cache-control': 'no-store' };
   if (!file.path) { await sendRecording(req, res, rec, headers); return undefined; }
-  res.writeHead(200, { 'content-type': 'audio/mp4', 'content-length': String(statSync(file.path).size), ...headers });
+  // audio/x-m4a, not audio/mp4: WebKit (Chumi.app) renames a download to match its type, and audio/mp4 became .mp4.
+  res.writeHead(200, { 'content-type': 'audio/x-m4a', 'content-length': String(statSync(file.path).size), ...headers });
   await pipeline(createReadStream(file.path), res).catch(() => {});
   return undefined;
 });

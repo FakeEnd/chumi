@@ -11,8 +11,9 @@ On the development Mac. **Record audio** is chosen per session in Start session 
 | Player | ▶ on a transcript line played from that line and highlighted it; a citation click moved the player and kept it paused. Range requests returned 206 with the right `Content-Range`; a range past the end returned 416. |
 | Export | A 9-minute meeting encoded to a 2.3 MB `.m4a` (AAC, 16 kHz mono, 32 kbit/s) in 0.6 s with `afconvert`. |
 | Crash | `kill -9` during a recording: after restart the session was marked interrupted, its WAV header was repaired, and all 32.5 s captured so far played back. |
+| WebKit (Chumi.app's engine), 2026-10-22 | Chumi.app's own `WebController` (compiled into a test harness) loaded the 9-minute session from an isolated server. Play, ▶ on a line (highlighted), −10 s, the seek bar to 8:00, 2× speed and citation clicks all worked. **Export audio** downloaded through the app's download handler in 9 of 11 runs, including first exports that had to encode; the two misses were the first two harness runs and did not recur. Found and fixed: WebKit renamed the download to `.mp4` because it was served as `audio/mp4`; it is now `audio/x-m4a` and saves as `.m4a`. |
 
-Not verified: playback and download inside the native Chumi.app (WKWebView) and on Windows.
+Not verified: playback and download in a signed Chumi.app build itself (the test used its WebKit code, not the bundle), and on Windows.
 
 ## Antigravity as a coding agent — 2026-10-13
 
