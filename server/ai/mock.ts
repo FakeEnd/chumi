@@ -72,7 +72,9 @@ export class MockProvider implements AIProvider {
         });
       }
     } else {
-      text = `> Offline test provider — this is not an AI answer.\n\n**Task:** ${req.task}${req.images?.length ? ` · ${req.images.length} screen capture(s) received` : ''}\n\n**Transcript covered:** [${first}]–[${last}] (${lines.length} lines)\n\n${lines.slice(-3).map((l) => `- ${l}`).join('\n')}`;
+      // Answers start with the question's category (shared/question-category.ts); the stub calls "relate…" questions tangents.
+      const category = req.task !== 'answer' ? '' : /\b(relate|in general)\b/i.test(req.input.match(/^USER QUESTION: (.*)$/m)?.[1] ?? '') ? '[[tangent]]\n' : '[[meeting]]\n';
+      text = `${category}> Offline test provider — this is not an AI answer.\n\n**Task:** ${req.task}${req.images?.length ? ` · ${req.images.length} screen capture(s) received` : ''}\n\n**Transcript covered:** [${first}]–[${last}] (${lines.length} lines)\n\n${lines.slice(-3).map((l) => `- ${l}`).join('\n')}`;
     }
     for (const chunk of text.match(/.{1,40}/gs) ?? []) req.onDelta?.(chunk);
     return { text, provider: this.id, model: 'mock', billing: 'none', effort: req.effort ?? null };
