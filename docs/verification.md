@@ -1,5 +1,17 @@
 # Verification log
 
+## Antigravity as a coding agent — 2026-10-13
+
+Antigravity CLI (`agy`) 1.3.4 on the development Mac. Details are in [agents.md](agents.md).
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 152 / 152 tests. The read check and **Continue in…** tests now include Antigravity. A new test covers Connect and Disconnect: the server entry is added and removed, the check-tool rule is added once, and the user's other settings and rules are kept. |
+| Real CLI, throwaway home | `agy mcp add` writes `~/.gemini/config/mcp_config.json`, replacing an earlier entry (and re-enabling it). Antigravity started Chumi's MCP server, got past its `server/discover` handshake, and listed all seven tools. The client name is `antigravity-client`. |
+| Real CLI, this Mac | Connected through Chumi's own code. The status is registered and up to date. Chumi's MCP server starts and reads the local meetings. |
+
+Not verified: **Test a real agent read** and a handoff with a signed-in Antigravity, which needs a Google sign-in. A stand-in model can't stand in here, because Antigravity offers gateway models no tools. Also not verified: the Antigravity desktop app (not installed), and the Settings card in the browser.
+
 ## Windows desktop — 2026-10-13
 
 Development machine: Windows 11 build 26300, i9-12900H, RTX 3060 Laptop 6 GB, Node 24.21.0, whisper.cpp b5454 CUDA 12.4, Electron 44.7.0.

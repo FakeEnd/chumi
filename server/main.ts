@@ -505,7 +505,7 @@ route('POST', '/api/handoffs/:id/continue', async (req, _res, p) => {
   return { prompt, launched, handoff: handoffs.view(h.session_id) };
 });
 
-// ---------------------------------------------------------------- coding agent connection (Claude Code, Codex, opencode, Qwen Code)
+// ---------------------------------------------------------------- coding agent connection (Claude Code, Codex, opencode, Qwen Code, Antigravity)
 const isAgent = (a: string): a is AgentId => AGENTS.includes(a as AgentId);
 route('GET', '/api/agents', async () => {
   const [local, ...statuses] = await Promise.all([agents.localCheck(), ...AGENTS.map((a) => agents.status(a))]);
