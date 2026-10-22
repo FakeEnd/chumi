@@ -18,9 +18,13 @@
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
 <p align="center">
-  <a href="docs/assets/chumi-promo-zh-1.5x.mp4"><img src="docs/assets/chumi-promo-zh-poster.jpg" width="760" alt="观看 40 秒 Chumi 介绍视频：NLP 组会中帮我跟上和按你的水平解释、从某一行回放录音、审核过的交接、Claude Code 通过 Chumi 的 MCP 服务接着干，以及下一个问题引用 agent 之前的会话"></a><br>
-  <sub>▶ <a href="docs/assets/chumi-promo-zh-1.5x.mp4">观看 40 秒介绍视频</a> · <a href="docs/assets/chumi-promo-zh-2x.mp4">30 秒快剪版</a> · <a href="docs/assets/chumi-promo-zh.mp4">完整 59 秒版</a> · <a href="docs/assets/chumi-promo-1.5x.mp4">English version</a></sub>
+  <!-- 作为 PR #5 的评论上传，GitHub 才能从这个 user-attachments 地址在页面里直接播放；放在仓库里的视频文件只能下载。
+       不支持 <video> 的页面会显示里面的封面链接。 -->
+  <video src="https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc" controls width="760" poster="https://raw.githubusercontent.com/FakeEnd/chumi/main/docs/assets/chumi-promo-zh-poster.jpg">
+    <a href="https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc"><img src="docs/assets/chumi-promo-zh-poster.jpg" width="760" alt="观看 59 秒 Chumi 介绍视频：NLP 组会中帮我跟上和按你的水平解释、从某一行回放录音、审核过的交接、Claude Code 通过 Chumi 的 MCP 服务接着干，以及下一个问题引用 agent 之前的会话"></a>
+  </video>
 </p>
+<p align="center"><sub>▶ 59 秒介绍视频（有背景音乐）· <a href="https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d">English version</a> · 快剪版下载：<a href="docs/assets/chumi-promo-zh-1.5x.mp4">40 秒</a>、<a href="docs/assets/chumi-promo-zh-2x.mp4">30 秒</a></sub></p>
 
 ---
 
