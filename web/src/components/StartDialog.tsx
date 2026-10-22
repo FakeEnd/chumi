@@ -25,9 +25,10 @@ export function StartDialog() {
   const [capture, setCapture] = useState(false);
   const [win, setWin] = useState<WindowInfo | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [record, setRecord] = useState(settings?.audio.saveRawAudio ?? false);
   const go = async () => {
     setBusy(true);
-    await startSession({ title: title || `${typeLabel(type)} ${new Date().toLocaleDateString(locale())}`, type, source, ...(source === 'file' ? { filePath: file, speed } : {}), window: capture && win ? { id: win.id, title: win.title, app: win.app } : null, project_id: projectId });
+    await startSession({ title: title || `${typeLabel(type)} ${new Date().toLocaleDateString(locale())}`, type, source, ...(source === 'file' ? { filePath: file, speed } : {}), window: capture && win ? { id: win.id, title: win.title, app: win.app } : null, project_id: projectId, record_audio: record });
     setBusy(false);
   };
   return (
@@ -62,10 +63,13 @@ export function StartDialog() {
         <label className="check-inline"><input type="checkbox" checked={capture} onChange={(e) => setCapture(e.target.checked)} /><span><b>{t('Also capture a window')}</b>: {t('Zoom/Teams screen share, a lecture video or slides, so answers can refer to what is shown')}</span></label>
         {capture && <WindowPicker value={win} onChange={setWin} />}
       </fieldset>
+      <fieldset className="field">
+        <label className="check-inline"><input type="checkbox" checked={record} onChange={(e) => setRecord(e.target.checked)} /><span><b>{t('Record audio')}</b>: {t('keep the audio on this computer to play it back from any line and export it (about 115 MB per hour per source)')}</span></label>
+      </fieldset>
       {source !== 'file' && !helperBuilt && (windows
         ? <p className="error-text">{t('The audio component is missing. Reinstall Chumi to restore it.')}</p>
         : <p className="error-text">{tn("The native audio helper isn't built. Run {cmd} in the project folder.", { cmd: <code>npm run build:native</code> })}</p>)}
-      <p className="muted small">{t('Audio is transcribed on this computer and is not uploaded.')} {settings?.audio.saveRawAudio ? t('Raw audio will be saved (Settings → Audio).') : t('Raw audio is not saved.')} {windows ? t('Allow desktop apps to access your microphone in Windows Settings. For hybrid meetings, headphones reduce speaker echo.') : t('The first time, macOS asks for Microphone and/or System Audio Recording permission.')}</p>
+      <p className="muted small">{t('Audio is transcribed on this computer and is not uploaded.')} {windows ? t('Allow desktop apps to access your microphone in Windows Settings. For hybrid meetings, headphones reduce speaker echo.') : t('The first time, macOS asks for Microphone and/or System Audio Recording permission.')}</p>
     </Dialog>
   );
 }

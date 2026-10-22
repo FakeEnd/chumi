@@ -1,0 +1,449 @@
+{
+  "title": "Adler Lab Meeting: Citation-Grounded Answers with DPO, and the Evaluation Plan",
+  "description": "Synthetic NLP lab meeting (fictional people, voiced by macOS text-to-speech). Wei mixes Mandarin with English technical terms. Used for the Chinese README screenshots and promo video.",
+  "leadInMs": 800,
+  "tailMs": 1500,
+  "defaultPauseMs": 600,
+  "speakers": {
+    "PI": {
+      "name": "Prof. Adler",
+      "role": "principal investigator",
+      "voice": "Daniel",
+      "rate": 180
+    },
+    "Maya": {
+      "name": "Maya",
+      "role": "PhD student, presenting",
+      "voice": "Samantha",
+      "rate": 185
+    },
+    "Wei": {
+      "name": "Wei",
+      "role": "postdoc, mixes Mandarin with English technical terms",
+      "voice": "Tingting",
+      "rate": 185
+    },
+    "Sam": {
+      "name": "Sam",
+      "role": "rotation student",
+      "voice": "Reed (English (US))",
+      "rate": 180
+    }
+  },
+  "lines": [
+    {
+      "speaker": "PI",
+      "text": "OK, let's get started. Quick housekeeping first: the GPU reservation for next week got cut in half, so if you have a big training run, talk to me before you launch it. Maya, you're presenting today, so whenever you're ready.",
+      "pauseAfterMs": 700,
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "Thanks. So I'll give an update on the citation model, and then we agreed to use the second half to plan the evaluation for the paper. Let me share my screen. Can everyone see the first slide?",
+      "tags": []
+    },
+    {
+      "speaker": "Sam",
+      "text": "Yep, we can see it.",
+      "pauseAfterMs": 400,
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "OK. Quick reminder of the setup. The model gets a question about a paper, plus eight retrieved passages, and it has to answer with a citation for every claim. We start from a seven billion parameter open model, do supervised fine-tuning on about forty thousand examples, and then a round of DPO on preference pairs.",
+      "tags": [
+        "unfamiliar_term"
+      ]
+    },
+    {
+      "speaker": "PI",
+      "text": "Remind everyone where the preference pairs come from.",
+      "pauseAfterMs": 400,
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "We sample two answers per question, and a larger model judges which one is better grounded. That gives us about sixty thousand pairs. The judge sees the passages, so it can check whether each citation actually supports the claim.",
+      "tags": []
+    },
+    {
+      "speaker": "Wei",
+      "text": "而且这些 preference pairs 是过滤过的吧？judge 不确定的那些我们都去掉了。",
+      "tags": [
+        "mandarin"
+      ]
+    },
+    {
+      "speaker": "Maya",
+      "text": "Right, we keep a pair only if the judge's margin is above a threshold. That removed about a fifth of them.",
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "OK, results. The main metric is citation precision: the fraction of citations where the cited passage really supports the sentence. Supervised fine-tuning alone gets sixty one percent. After DPO we're at seventy four percent. That's averaged over three seeds, and the spread is about two points.",
+      "tags": []
+    },
+    {
+      "speaker": "PI",
+      "text": "And recall? A model can get perfect precision by citing almost nothing.",
+      "pauseAfterMs": 500,
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "Good point. Citation recall goes from fifty five to sixty three, so it isn't just citing less. Answer accuracy is basically flat, sixty eight versus sixty nine.",
+      "tags": []
+    },
+    {
+      "speaker": "Sam",
+      "text": "Sorry, what's the difference between precision and recall here?",
+      "pauseAfterMs": 500,
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "Precision asks: of the citations the model gave, how many are correct. Recall asks: of the claims that needed a citation, how many got one.",
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "Next slide. As you can see in this plot, precision keeps climbing until about twenty thousand preference pairs, and then it flattens out.",
+      "tags": [
+        "unseen_visual"
+      ]
+    },
+    {
+      "speaker": "Maya",
+      "text": "The blue line is DPO. Orange is just training longer on the supervised data, and that one barely moves.",
+      "tags": [
+        "unseen_visual"
+      ]
+    },
+    {
+      "speaker": "PI",
+      "text": "So more pairs past twenty thousand doesn't buy us much.",
+      "pauseAfterMs": 500,
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "Not with this judge, no. Which brings me to the part I'm less sure about.",
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "When I looked at the outputs, the DPO answers are about thirty percent longer, and they put more citations in each sentence. And all of these numbers come from the same kind of LLM judge that labeled the training pairs.",
+      "tags": [
+        "tentative_finding"
+      ]
+    },
+    {
+      "speaker": "Maya",
+      "text": "I did a quick human check on fifty answers, and I agreed with the judge on forty one of them. So I think the gain is mostly real, but I wouldn't claim it yet.",
+      "tags": [
+        "tentative_finding"
+      ]
+    },
+    {
+      "speaker": "Wei",
+      "text": "我觉得是真的提升。五十个里四十一个一致，就是百分之八十二的 agreement，跟两个人类 rater 之间的一致性差不多。而且 recall 也上去了，length bias 解释不了这个。",
+      "tags": [
+        "tentative_finding",
+        "disagreement",
+        "mandarin"
+      ]
+    },
+    {
+      "speaker": "PI",
+      "text": "Maybe. But here's what makes me nervous. The judge that scores the test set is the same model family that created the preference pairs. We trained the model to please that judge, and then we asked the same judge to grade it. I'd assume it's partly judge bias until we check with a different judge.",
+      "tags": [
+        "disagreement",
+        "tentative_finding"
+      ]
+    },
+    {
+      "speaker": "Wei",
+      "text": "但是 self-preference 一般是整体风格上的偏好，不会让每一条 citation 都对得上 passage。judge 是逐条核对的。",
+      "tags": [
+        "disagreement",
+        "mandarin"
+      ]
+    },
+    {
+      "speaker": "PI",
+      "text": "It's supposed to verify each one. Longer answers with more citations give it more chances to say yes. And fifty answers is a small sample; the interval around eighty two percent is wide. I'm not saying it's wrong. I'm saying we don't know yet.",
+      "tags": [
+        "disagreement"
+      ]
+    },
+    {
+      "speaker": "Maya",
+      "text": "That's fair. I think it's plausible, but it stays out of the paper draft until we've checked it with another judge and with people.",
+      "tags": [
+        "tentative_finding"
+      ]
+    },
+    {
+      "speaker": "Wei",
+      "text": "好，先不下结论。不过我还是赌它站得住。",
+      "tags": [
+        "disagreement",
+        "mandarin"
+      ]
+    },
+    {
+      "speaker": "PI",
+      "text": "Noted. For the record: interesting, not confirmed. Let's not put the seventy four percent on any slides outside the lab yet.",
+      "tags": [
+        "tentative_finding"
+      ]
+    },
+    {
+      "speaker": "Sam",
+      "text": "Could we just make the answers the same length and judge them again?",
+      "pauseAfterMs": 500,
+      "tags": []
+    },
+    {
+      "speaker": "PI",
+      "text": "That's actually the cleanest check. Truncate the answers to matched length, then rerun the judge.",
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "I can do that. One more result before we switch. I tried sixteen passages instead of eight, and precision went up a little, but the runs got much slower.",
+      "tags": []
+    },
+    {
+      "speaker": "Wei",
+      "text": "那是 KV cache 的问题。十六个 passage 的话，context 大概有一万两千个 token，每个请求的 cache 占太多显存，batch size 只能降到二。",
+      "tags": [
+        "mandarin"
+      ]
+    },
+    {
+      "speaker": "Maya",
+      "text": "Right, so for now I'm staying with eight passages.",
+      "tags": []
+    },
+    {
+      "speaker": "PI",
+      "text": "OK, good. Anything else on results?",
+      "pauseAfterMs": 400,
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "No, that's it for results.",
+      "tags": []
+    },
+    {
+      "speaker": "PI",
+      "text": "OK, let's switch gears and talk about the evaluation plan for the paper.",
+      "pauseAfterMs": 900,
+      "tags": [
+        "topic_change"
+      ]
+    },
+    {
+      "speaker": "Maya",
+      "text": "So the plan has three parts: a new test set, a human study, and the judge as a secondary metric. Let me put up the plan slide.",
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "First, the test set. Our current questions come from papers that are old enough to be in the model's pre-training data, so the model may have seen the answers. I want about a thousand new questions from papers published after the model's training cutoff.",
+      "tags": []
+    },
+    {
+      "speaker": "PI",
+      "text": "Good. Contamination is the first thing a reviewer will ask about.",
+      "pauseAfterMs": 500,
+      "tags": []
+    },
+    {
+      "speaker": "Sam",
+      "text": "How do we know what the cutoff is?",
+      "pauseAfterMs": 400,
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "The model card gives a date. To be safe, we only take papers from at least three months after it.",
+      "tags": []
+    },
+    {
+      "speaker": "Wei",
+      "text": "我们还应该做一个 n-gram overlap 检查，有些论文可能更早就作为 preprint 发出来了。",
+      "tags": [
+        "mandarin"
+      ]
+    },
+    {
+      "speaker": "Maya",
+      "text": "Good idea, I'll add that.",
+      "pauseAfterMs": 500,
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "Second, the human study. Each answer is rated by three people. They mark every citation as supported, partly supported, or not supported. We report agreement with Cohen's kappa, and we resolve disagreements by majority vote.",
+      "tags": []
+    },
+    {
+      "speaker": "PI",
+      "text": "Three raters is the minimum I'd accept. Four would be better if the budget allows. Let's start with three and revisit if the agreement is low.",
+      "tags": []
+    },
+    {
+      "speaker": "Wei",
+      "text": "rater 需要很清楚的 guidelines。partly supported 这一类是大家最容易不一致的地方。",
+      "tags": [
+        "mandarin"
+      ]
+    },
+    {
+      "speaker": "Maya",
+      "text": "Agreed. Third, statistics. We compare the two models on the same questions, so I'd use a paired bootstrap: resample the questions with replacement ten thousand times, and take the ninety five percent interval of the difference.",
+      "tags": []
+    },
+    {
+      "speaker": "PI",
+      "text": "And fix the comparisons in advance. Precision, recall and accuracy: three tests. We decide that before we look at the data.",
+      "tags": []
+    },
+    {
+      "speaker": "Sam",
+      "text": "Why is it called a bootstrap, by the way? It sounds like something about shoes.",
+      "pauseAfterMs": 500,
+      "tags": [
+        "tangent"
+      ]
+    },
+    {
+      "speaker": "PI",
+      "text": "It comes from pulling yourself up by your own bootstraps. You estimate the uncertainty from the data itself, without collecting new data.",
+      "tags": [
+        "tangent"
+      ]
+    },
+    {
+      "speaker": "Wei",
+      "text": "有点像 cross-validation，同一份数据换个方式重复利用。",
+      "tags": [
+        "tangent",
+        "mandarin"
+      ]
+    },
+    {
+      "speaker": "Sam",
+      "text": "And is that the same bootstrap as in random forests?",
+      "pauseAfterMs": 400,
+      "tags": [
+        "tangent"
+      ]
+    },
+    {
+      "speaker": "PI",
+      "text": "Related idea, different use. OK, that's a tangent for another day. Back to the plan.",
+      "tags": [
+        "tangent"
+      ]
+    },
+    {
+      "speaker": "Maya",
+      "text": "The last piece is compute. Running the judge on a thousand questions, with three seeds per model, is fine with eight passages. With sixteen, the KV cache gets too big, and it would take about four days of our GPU share.",
+      "tags": []
+    },
+    {
+      "speaker": "PI",
+      "text": "Then eight passages for the main results, and sixteen as an ablation on a subset.",
+      "tags": []
+    },
+    {
+      "speaker": "PI",
+      "text": "OK, action items. Maya, can you rerun the judge with the answers matched for length? No rush, whenever you get to it.",
+      "tags": [
+        "action_item_no_deadline"
+      ]
+    },
+    {
+      "speaker": "Maya",
+      "text": "Sure. I'll start with the fifty answers I already checked by hand, so we can compare.",
+      "tags": []
+    },
+    {
+      "speaker": "Wei",
+      "text": "我来写 annotation guidelines，这个星期五之前发给大家。",
+      "tags": [
+        "action_item_with_deadline",
+        "mandarin"
+      ]
+    },
+    {
+      "speaker": "PI",
+      "text": "Good. So Wei sends the annotation guidelines by Friday. That's the one hard deadline we have, because the raters start the week after.",
+      "tags": [
+        "action_item_with_deadline"
+      ]
+    },
+    {
+      "speaker": "PI",
+      "text": "The other open thing is the size of the human study. Five hundred questions, or the full thousand?",
+      "tags": [
+        "open_question"
+      ]
+    },
+    {
+      "speaker": "Wei",
+      "text": "我倾向一千个都做。只有五百个的话，precision 差三个点可能不显著。",
+      "tags": [
+        "open_question",
+        "mandarin"
+      ]
+    },
+    {
+      "speaker": "Maya",
+      "text": "But a thousand answers times three raters is a lot of hours. I'd rather do five hundred well, and maybe run a small pilot first to see the agreement.",
+      "tags": [
+        "open_question"
+      ]
+    },
+    {
+      "speaker": "PI",
+      "text": "Both fair points. Let's leave that open until we see the budget and the pilot agreement.",
+      "tags": [
+        "open_question"
+      ]
+    },
+    {
+      "speaker": "Sam",
+      "text": "Should I help with the pilot?",
+      "pauseAfterMs": 400,
+      "tags": []
+    },
+    {
+      "speaker": "PI",
+      "text": "Yes, please. Talk to Maya after this.",
+      "tags": []
+    },
+    {
+      "speaker": "PI",
+      "text": "OK, let me summarize. The DPO result is interesting but not confirmed: we check it with length-matched answers and with people. A new test set from papers after the cutoff. Three raters, a paired bootstrap, and comparisons fixed in advance. Wei's guidelines by Friday. And the size of the human study is still an open question.",
+      "tags": [
+        "open_question"
+      ]
+    },
+    {
+      "speaker": "PI",
+      "text": "Thanks, everyone. Good work, Maya.",
+      "pauseAfterMs": 400,
+      "tags": []
+    },
+    {
+      "speaker": "Maya",
+      "text": "Thanks!",
+      "tags": []
+    }
+  ]
+}

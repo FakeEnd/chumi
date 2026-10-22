@@ -1,0 +1,860 @@
+{
+  "title": "Adler Lab Meeting: Citation-Grounded Answers with DPO, and the Evaluation Plan",
+  "audioFile": "llm-meeting.wav",
+  "format": {
+    "container": "WAVE",
+    "encoding": "PCM signed 16-bit little-endian",
+    "sampleRate": 16000,
+    "channels": 1,
+    "bitsPerSample": 16
+  },
+  "durationMs": 532906,
+  "duration": "08:52",
+  "lineCount": 66,
+  "wordCount": {
+    "latin": 1280,
+    "cjk": 253,
+    "total": 1533,
+    "note": "total = English-style tokens + Chinese characters (each counted as one word)"
+  },
+  "speakers": {
+    "PI": {
+      "name": "Prof. Adler",
+      "role": "principal investigator",
+      "voice": "Daniel",
+      "rate": 180,
+      "lines": 23
+    },
+    "Maya": {
+      "name": "Maya",
+      "role": "PhD student, presenting",
+      "voice": "Samantha",
+      "rate": 185,
+      "lines": 26
+    },
+    "Wei": {
+      "name": "Wei",
+      "role": "postdoc, mixes Mandarin with English technical terms",
+      "voice": "Tingting",
+      "rate": 185,
+      "lines": 10
+    },
+    "Sam": {
+      "name": "Sam",
+      "role": "rotation student",
+      "voice": "Reed (English (US))",
+      "rate": 180,
+      "lines": 7
+    }
+  },
+  "tagIndex": {
+    "unfamiliar_term": [
+      {
+        "index": 3,
+        "startMs": 29763,
+        "at": "00:29"
+      }
+    ],
+    "mandarin": [
+      {
+        "index": 6,
+        "startMs": 65543,
+        "at": "01:05"
+      },
+      {
+        "index": 19,
+        "startMs": 170991,
+        "at": "02:50"
+      },
+      {
+        "index": 21,
+        "startMs": 202860,
+        "at": "03:22"
+      },
+      {
+        "index": 24,
+        "startMs": 235275,
+        "at": "03:55"
+      },
+      {
+        "index": 29,
+        "startMs": 268499,
+        "at": "04:28"
+      },
+      {
+        "index": 39,
+        "startMs": 331031,
+        "at": "05:31"
+      },
+      {
+        "index": 43,
+        "startMs": 363372,
+        "at": "06:03"
+      },
+      {
+        "index": 48,
+        "startMs": 408564,
+        "at": "06:48"
+      },
+      {
+        "index": 55,
+        "startMs": 457269,
+        "at": "07:37"
+      },
+      {
+        "index": 58,
+        "startMs": 478045,
+        "at": "07:58"
+      }
+    ],
+    "unseen_visual": [
+      {
+        "index": 13,
+        "startMs": 126180,
+        "at": "02:06"
+      },
+      {
+        "index": 14,
+        "startMs": 134380,
+        "at": "02:14"
+      }
+    ],
+    "tentative_finding": [
+      {
+        "index": 17,
+        "startMs": 149450,
+        "at": "02:29"
+      },
+      {
+        "index": 18,
+        "startMs": 161651,
+        "at": "02:41"
+      },
+      {
+        "index": 19,
+        "startMs": 170991,
+        "at": "02:50"
+      },
+      {
+        "index": 20,
+        "startMs": 185632,
+        "at": "03:05"
+      },
+      {
+        "index": 23,
+        "startMs": 228345,
+        "at": "03:48"
+      },
+      {
+        "index": 25,
+        "startMs": 239831,
+        "at": "03:59"
+      }
+    ],
+    "disagreement": [
+      {
+        "index": 19,
+        "startMs": 170991,
+        "at": "02:50"
+      },
+      {
+        "index": 20,
+        "startMs": 185632,
+        "at": "03:05"
+      },
+      {
+        "index": 21,
+        "startMs": 202860,
+        "at": "03:22"
+      },
+      {
+        "index": 22,
+        "startMs": 212823,
+        "at": "03:32"
+      },
+      {
+        "index": 24,
+        "startMs": 235275,
+        "at": "03:55"
+      }
+    ],
+    "topic_change": [
+      {
+        "index": 33,
+        "startMs": 290988,
+        "at": "04:50"
+      }
+    ],
+    "tangent": [
+      {
+        "index": 46,
+        "startMs": 393879,
+        "at": "06:33"
+      },
+      {
+        "index": 47,
+        "startMs": 399648,
+        "at": "06:39"
+      },
+      {
+        "index": 48,
+        "startMs": 408564,
+        "at": "06:48"
+      },
+      {
+        "index": 49,
+        "startMs": 414126,
+        "at": "06:54"
+      },
+      {
+        "index": 50,
+        "startMs": 417706,
+        "at": "06:57"
+      }
+    ],
+    "action_item_no_deadline": [
+      {
+        "index": 53,
+        "startMs": 443091,
+        "at": "07:23"
+      }
+    ],
+    "action_item_with_deadline": [
+      {
+        "index": 55,
+        "startMs": 457269,
+        "at": "07:37"
+      },
+      {
+        "index": 56,
+        "startMs": 462692,
+        "at": "07:42"
+      }
+    ],
+    "open_question": [
+      {
+        "index": 57,
+        "startMs": 471491,
+        "at": "07:51"
+      },
+      {
+        "index": 58,
+        "startMs": 478045,
+        "at": "07:58"
+      },
+      {
+        "index": 59,
+        "startMs": 484849,
+        "at": "08:04"
+      },
+      {
+        "index": 60,
+        "startMs": 493373,
+        "at": "08:13"
+      },
+      {
+        "index": 63,
+        "startMs": 504595,
+        "at": "08:24"
+      }
+    ]
+  },
+  "lines": [
+    {
+      "index": 0,
+      "speaker": "PI",
+      "startMs": 800,
+      "endMs": 15936,
+      "text": "OK, let's get started. Quick housekeeping first: the GPU reservation for next week got cut in half, so if you have a big training run, talk to me before you launch it. Maya, you're presenting today, so whenever you're ready.",
+      "tags": []
+    },
+    {
+      "index": 1,
+      "speaker": "Maya",
+      "startMs": 16636,
+      "endMs": 27357,
+      "text": "Thanks. So I'll give an update on the citation model, and then we agreed to use the second half to plan the evaluation for the paper. Let me share my screen. Can everyone see the first slide?",
+      "tags": []
+    },
+    {
+      "index": 2,
+      "speaker": "Sam",
+      "startMs": 27957,
+      "endMs": 29363,
+      "text": "Yep, we can see it.",
+      "tags": []
+    },
+    {
+      "index": 3,
+      "speaker": "Maya",
+      "startMs": 29763,
+      "endMs": 48031,
+      "text": "OK. Quick reminder of the setup. The model gets a question about a paper, plus eight retrieved passages, and it has to answer with a citation for every claim. We start from a seven billion parameter open model, do supervised fine-tuning on about forty thousand examples, and then a round of DPO on preference pairs.",
+      "tags": [
+        "unfamiliar_term"
+      ]
+    },
+    {
+      "index": 4,
+      "speaker": "PI",
+      "startMs": 48631,
+      "endMs": 51757,
+      "text": "Remind everyone where the preference pairs come from.",
+      "tags": []
+    },
+    {
+      "index": 5,
+      "speaker": "Maya",
+      "startMs": 52157,
+      "endMs": 64943,
+      "text": "We sample two answers per question, and a larger model judges which one is better grounded. That gives us about sixty thousand pairs. The judge sees the passages, so it can check whether each citation actually supports the claim.",
+      "tags": []
+    },
+    {
+      "index": 6,
+      "speaker": "Wei",
+      "startMs": 65543,
+      "endMs": 71458,
+      "text": "而且这些 preference pairs 是过滤过的吧？judge 不确定的那些我们都去掉了。",
+      "tags": [
+        "mandarin"
+      ]
+    },
+    {
+      "index": 7,
+      "speaker": "Maya",
+      "startMs": 72058,
+      "endMs": 77790,
+      "text": "Right, we keep a pair only if the judge's margin is above a threshold. That removed about a fifth of them.",
+      "tags": []
+    },
+    {
+      "index": 8,
+      "speaker": "Maya",
+      "startMs": 78390,
+      "endMs": 95927,
+      "text": "OK, results. The main metric is citation precision: the fraction of citations where the cited passage really supports the sentence. Supervised fine-tuning alone gets sixty one percent. After DPO we're at seventy four percent. That's averaged over three seeds, and the spread is about two points.",
+      "tags": []
+    },
+    {
+      "index": 9,
+      "speaker": "PI",
+      "startMs": 96527,
+      "endMs": 100988,
+      "text": "And recall? A model can get perfect precision by citing almost nothing.",
+      "tags": []
+    },
+    {
+      "index": 10,
+      "speaker": "Maya",
+      "startMs": 101488,
+      "endMs": 111842,
+      "text": "Good point. Citation recall goes from fifty five to sixty three, so it isn't just citing less. Answer accuracy is basically flat, sixty eight versus sixty nine.",
+      "tags": []
+    },
+    {
+      "index": 11,
+      "speaker": "Sam",
+      "startMs": 112442,
+      "endMs": 116131,
+      "text": "Sorry, what's the difference between precision and recall here?",
+      "tags": []
+    },
+    {
+      "index": 12,
+      "speaker": "Maya",
+      "startMs": 116631,
+      "endMs": 125580,
+      "text": "Precision asks: of the citations the model gave, how many are correct. Recall asks: of the claims that needed a citation, how many got one.",
+      "tags": []
+    },
+    {
+      "index": 13,
+      "speaker": "Maya",
+      "startMs": 126180,
+      "endMs": 133780,
+      "text": "Next slide. As you can see in this plot, precision keeps climbing until about twenty thousand preference pairs, and then it flattens out.",
+      "tags": [
+        "unseen_visual"
+      ]
+    },
+    {
+      "index": 14,
+      "speaker": "Maya",
+      "startMs": 134380,
+      "endMs": 140361,
+      "text": "The blue line is DPO. Orange is just training longer on the supervised data, and that one barely moves.",
+      "tags": [
+        "unseen_visual"
+      ]
+    },
+    {
+      "index": 15,
+      "speaker": "PI",
+      "startMs": 140961,
+      "endMs": 144212,
+      "text": "So more pairs past twenty thousand doesn't buy us much.",
+      "tags": []
+    },
+    {
+      "index": 16,
+      "speaker": "Maya",
+      "startMs": 144712,
+      "endMs": 148850,
+      "text": "Not with this judge, no. Which brings me to the part I'm less sure about.",
+      "tags": []
+    },
+    {
+      "index": 17,
+      "speaker": "Maya",
+      "startMs": 149450,
+      "endMs": 161051,
+      "text": "When I looked at the outputs, the DPO answers are about thirty percent longer, and they put more citations in each sentence. And all of these numbers come from the same kind of LLM judge that labeled the training pairs.",
+      "tags": [
+        "tentative_finding"
+      ]
+    },
+    {
+      "index": 18,
+      "speaker": "Maya",
+      "startMs": 161651,
+      "endMs": 170391,
+      "text": "I did a quick human check on fifty answers, and I agreed with the judge on forty one of them. So I think the gain is mostly real, but I wouldn't claim it yet.",
+      "tags": [
+        "tentative_finding"
+      ]
+    },
+    {
+      "index": 19,
+      "speaker": "Wei",
+      "startMs": 170991,
+      "endMs": 185032,
+      "text": "我觉得是真的提升。五十个里四十一个一致，就是百分之八十二的 agreement，跟两个人类 rater 之间的一致性差不多。而且 recall 也上去了，length bias 解释不了这个。",
+      "tags": [
+        "tentative_finding",
+        "disagreement",
+        "mandarin"
+      ]
+    },
+    {
+      "index": 20,
+      "speaker": "PI",
+      "startMs": 185632,
+      "endMs": 202260,
+      "text": "Maybe. But here's what makes me nervous. The judge that scores the test set is the same model family that created the preference pairs. We trained the model to please that judge, and then we asked the same judge to grade it. I'd assume it's partly judge bias until we check with a different judge.",
+      "tags": [
+        "disagreement",
+        "tentative_finding"
+      ]
+    },
+    {
+      "index": 21,
+      "speaker": "Wei",
+      "startMs": 202860,
+      "endMs": 212223,
+      "text": "但是 self-preference 一般是整体风格上的偏好，不会让每一条 citation 都对得上 passage。judge 是逐条核对的。",
+      "tags": [
+        "disagreement",
+        "mandarin"
+      ]
+    },
+    {
+      "index": 22,
+      "speaker": "PI",
+      "startMs": 212823,
+      "endMs": 227745,
+      "text": "It's supposed to verify each one. Longer answers with more citations give it more chances to say yes. And fifty answers is a small sample; the interval around eighty two percent is wide. I'm not saying it's wrong. I'm saying we don't know yet.",
+      "tags": [
+        "disagreement"
+      ]
+    },
+    {
+      "index": 23,
+      "speaker": "Maya",
+      "startMs": 228345,
+      "endMs": 234675,
+      "text": "That's fair. I think it's plausible, but it stays out of the paper draft until we've checked it with another judge and with people.",
+      "tags": [
+        "tentative_finding"
+      ]
+    },
+    {
+      "index": 24,
+      "speaker": "Wei",
+      "startMs": 235275,
+      "endMs": 239231,
+      "text": "好，先不下结论。不过我还是赌它站得住。",
+      "tags": [
+        "disagreement",
+        "mandarin"
+      ]
+    },
+    {
+      "index": 25,
+      "speaker": "PI",
+      "startMs": 239831,
+      "endMs": 247926,
+      "text": "Noted. For the record: interesting, not confirmed. Let's not put the seventy four percent on any slides outside the lab yet.",
+      "tags": [
+        "tentative_finding"
+      ]
+    },
+    {
+      "index": 26,
+      "speaker": "Sam",
+      "startMs": 248526,
+      "endMs": 252280,
+      "text": "Could we just make the answers the same length and judge them again?",
+      "tags": []
+    },
+    {
+      "index": 27,
+      "speaker": "PI",
+      "startMs": 252780,
+      "endMs": 258490,
+      "text": "That's actually the cleanest check. Truncate the answers to matched length, then rerun the judge.",
+      "tags": []
+    },
+    {
+      "index": 28,
+      "speaker": "Maya",
+      "startMs": 259090,
+      "endMs": 267899,
+      "text": "I can do that. One more result before we switch. I tried sixteen passages instead of eight, and precision went up a little, but the runs got much slower.",
+      "tags": []
+    },
+    {
+      "index": 29,
+      "speaker": "Wei",
+      "startMs": 268499,
+      "endMs": 281241,
+      "text": "那是 KV cache 的问题。十六个 passage 的话，context 大概有一万两千个 token，每个请求的 cache 占太多显存，batch size 只能降到二。",
+      "tags": [
+        "mandarin"
+      ]
+    },
+    {
+      "index": 30,
+      "speaker": "Maya",
+      "startMs": 281841,
+      "endMs": 284716,
+      "text": "Right, so for now I'm staying with eight passages.",
+      "tags": []
+    },
+    {
+      "index": 31,
+      "speaker": "PI",
+      "startMs": 285316,
+      "endMs": 288251,
+      "text": "OK, good. Anything else on results?",
+      "tags": []
+    },
+    {
+      "index": 32,
+      "speaker": "Maya",
+      "startMs": 288651,
+      "endMs": 290388,
+      "text": "No, that's it for results.",
+      "tags": []
+    },
+    {
+      "index": 33,
+      "speaker": "PI",
+      "startMs": 290988,
+      "endMs": 295327,
+      "text": "OK, let's switch gears and talk about the evaluation plan for the paper.",
+      "tags": [
+        "topic_change"
+      ]
+    },
+    {
+      "index": 34,
+      "speaker": "Maya",
+      "startMs": 296227,
+      "endMs": 303963,
+      "text": "So the plan has three parts: a new test set, a human study, and the judge as a secondary metric. Let me put up the plan slide.",
+      "tags": []
+    },
+    {
+      "index": 35,
+      "speaker": "Maya",
+      "startMs": 304563,
+      "endMs": 318029,
+      "text": "First, the test set. Our current questions come from papers that are old enough to be in the model's pre-training data, so the model may have seen the answers. I want about a thousand new questions from papers published after the model's training cutoff.",
+      "tags": []
+    },
+    {
+      "index": 36,
+      "speaker": "PI",
+      "startMs": 318629,
+      "endMs": 322323,
+      "text": "Good. Contamination is the first thing a reviewer will ask about.",
+      "tags": []
+    },
+    {
+      "index": 37,
+      "speaker": "Sam",
+      "startMs": 322823,
+      "endMs": 324700,
+      "text": "How do we know what the cutoff is?",
+      "tags": []
+    },
+    {
+      "index": 38,
+      "speaker": "Maya",
+      "startMs": 325100,
+      "endMs": 330431,
+      "text": "The model card gives a date. To be safe, we only take papers from at least three months after it.",
+      "tags": []
+    },
+    {
+      "index": 39,
+      "speaker": "Wei",
+      "startMs": 331031,
+      "endMs": 338431,
+      "text": "我们还应该做一个 n-gram overlap 检查，有些论文可能更早就作为 preprint 发出来了。",
+      "tags": [
+        "mandarin"
+      ]
+    },
+    {
+      "index": 40,
+      "speaker": "Maya",
+      "startMs": 339031,
+      "endMs": 340603,
+      "text": "Good idea, I'll add that.",
+      "tags": []
+    },
+    {
+      "index": 41,
+      "speaker": "Maya",
+      "startMs": 341103,
+      "endMs": 354377,
+      "text": "Second, the human study. Each answer is rated by three people. They mark every citation as supported, partly supported, or not supported. We report agreement with Cohen's kappa, and we resolve disagreements by majority vote.",
+      "tags": []
+    },
+    {
+      "index": 42,
+      "speaker": "PI",
+      "startMs": 354977,
+      "endMs": 362772,
+      "text": "Three raters is the minimum I'd accept. Four would be better if the budget allows. Let's start with three and revisit if the agreement is low.",
+      "tags": []
+    },
+    {
+      "index": 43,
+      "speaker": "Wei",
+      "startMs": 363372,
+      "endMs": 370321,
+      "text": "rater 需要很清楚的 guidelines。partly supported 这一类是大家最容易不一致的地方。",
+      "tags": [
+        "mandarin"
+      ]
+    },
+    {
+      "index": 44,
+      "speaker": "Maya",
+      "startMs": 370921,
+      "endMs": 384212,
+      "text": "Agreed. Third, statistics. We compare the two models on the same questions, so I'd use a paired bootstrap: resample the questions with replacement ten thousand times, and take the ninety five percent interval of the difference.",
+      "tags": []
+    },
+    {
+      "index": 45,
+      "speaker": "PI",
+      "startMs": 384812,
+      "endMs": 393279,
+      "text": "And fix the comparisons in advance. Precision, recall and accuracy: three tests. We decide that before we look at the data.",
+      "tags": []
+    },
+    {
+      "index": 46,
+      "speaker": "Sam",
+      "startMs": 393879,
+      "endMs": 399148,
+      "text": "Why is it called a bootstrap, by the way? It sounds like something about shoes.",
+      "tags": [
+        "tangent"
+      ]
+    },
+    {
+      "index": 47,
+      "speaker": "PI",
+      "startMs": 399648,
+      "endMs": 407964,
+      "text": "It comes from pulling yourself up by your own bootstraps. You estimate the uncertainty from the data itself, without collecting new data.",
+      "tags": [
+        "tangent"
+      ]
+    },
+    {
+      "index": 48,
+      "speaker": "Wei",
+      "startMs": 408564,
+      "endMs": 413526,
+      "text": "有点像 cross-validation，同一份数据换个方式重复利用。",
+      "tags": [
+        "tangent",
+        "mandarin"
+      ]
+    },
+    {
+      "index": 49,
+      "speaker": "Sam",
+      "startMs": 414126,
+      "endMs": 417306,
+      "text": "And is that the same bootstrap as in random forests?",
+      "tags": [
+        "tangent"
+      ]
+    },
+    {
+      "index": 50,
+      "speaker": "PI",
+      "startMs": 417706,
+      "endMs": 423921,
+      "text": "Related idea, different use. OK, that's a tangent for another day. Back to the plan.",
+      "tags": [
+        "tangent"
+      ]
+    },
+    {
+      "index": 51,
+      "speaker": "Maya",
+      "startMs": 424521,
+      "endMs": 437050,
+      "text": "The last piece is compute. Running the judge on a thousand questions, with three seeds per model, is fine with eight passages. With sixteen, the KV cache gets too big, and it would take about four days of our GPU share.",
+      "tags": []
+    },
+    {
+      "index": 52,
+      "speaker": "PI",
+      "startMs": 437650,
+      "endMs": 442491,
+      "text": "Then eight passages for the main results, and sixteen as an ablation on a subset.",
+      "tags": []
+    },
+    {
+      "index": 53,
+      "speaker": "PI",
+      "startMs": 443091,
+      "endMs": 451041,
+      "text": "OK, action items. Maya, can you rerun the judge with the answers matched for length? No rush, whenever you get to it.",
+      "tags": [
+        "action_item_no_deadline"
+      ]
+    },
+    {
+      "index": 54,
+      "speaker": "Maya",
+      "startMs": 451641,
+      "endMs": 456669,
+      "text": "Sure. I'll start with the fifty answers I already checked by hand, so we can compare.",
+      "tags": []
+    },
+    {
+      "index": 55,
+      "speaker": "Wei",
+      "startMs": 457269,
+      "endMs": 462092,
+      "text": "我来写 annotation guidelines，这个星期五之前发给大家。",
+      "tags": [
+        "action_item_with_deadline",
+        "mandarin"
+      ]
+    },
+    {
+      "index": 56,
+      "speaker": "PI",
+      "startMs": 462692,
+      "endMs": 470891,
+      "text": "Good. So Wei sends the annotation guidelines by Friday. That's the one hard deadline we have, because the raters start the week after.",
+      "tags": [
+        "action_item_with_deadline"
+      ]
+    },
+    {
+      "index": 57,
+      "speaker": "PI",
+      "startMs": 471491,
+      "endMs": 477445,
+      "text": "The other open thing is the size of the human study. Five hundred questions, or the full thousand?",
+      "tags": [
+        "open_question"
+      ]
+    },
+    {
+      "index": 58,
+      "speaker": "Wei",
+      "startMs": 478045,
+      "endMs": 484249,
+      "text": "我倾向一千个都做。只有五百个的话，precision 差三个点可能不显著。",
+      "tags": [
+        "open_question",
+        "mandarin"
+      ]
+    },
+    {
+      "index": 59,
+      "speaker": "Maya",
+      "startMs": 484849,
+      "endMs": 492773,
+      "text": "But a thousand answers times three raters is a lot of hours. I'd rather do five hundred well, and maybe run a small pilot first to see the agreement.",
+      "tags": [
+        "open_question"
+      ]
+    },
+    {
+      "index": 60,
+      "speaker": "PI",
+      "startMs": 493373,
+      "endMs": 498309,
+      "text": "Both fair points. Let's leave that open until we see the budget and the pilot agreement.",
+      "tags": [
+        "open_question"
+      ]
+    },
+    {
+      "index": 61,
+      "speaker": "Sam",
+      "startMs": 498909,
+      "endMs": 500504,
+      "text": "Should I help with the pilot?",
+      "tags": []
+    },
+    {
+      "index": 62,
+      "speaker": "PI",
+      "startMs": 500904,
+      "endMs": 503995,
+      "text": "Yes, please. Talk to Maya after this.",
+      "tags": []
+    },
+    {
+      "index": 63,
+      "speaker": "PI",
+      "startMs": 504595,
+      "endMs": 526047,
+      "text": "OK, let me summarize. The DPO result is interesting but not confirmed: we check it with length-matched answers and with people. A new test set from papers after the cutoff. Three raters, a paired bootstrap, and comparisons fixed in advance. Wei's guidelines by Friday. And the size of the human study is still an open question.",
+      "tags": [
+        "open_question"
+      ]
+    },
+    {
+      "index": 64,
+      "speaker": "PI",
+      "startMs": 526647,
+      "endMs": 529821,
+      "text": "Thanks, everyone. Good work, Maya.",
+      "tags": []
+    },
+    {
+      "index": 65,
+      "speaker": "Maya",
+      "startMs": 530221,
+      "endMs": 530806,
+      "text": "Thanks!",
+      "tags": []
+    }
+  ]
+}

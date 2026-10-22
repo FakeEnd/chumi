@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { setState, useStore } from '../store.ts';
 import { api } from '../api.ts';
-import { deleteSession, exportUrl, openSession, resumeSaved } from '../actions.ts';
+import { deleteSession, exportAudio, exportUrl, openSession, resumeSaved } from '../actions.ts';
 import { Dialog } from './Dialog.tsx';
 import type { Session } from '../types.ts';
 import { t } from '../i18n.ts';
@@ -12,6 +12,7 @@ export function HistoryDialog() {
   const [project, setProject] = useState('');
   const projects = useStore((s) => s.projects);
   const [list, setList] = useState<Session[]>([]);
+  const [exporting, setExporting] = useState<Set<string>>(new Set());
   const live = useStore((s) => s.live);
   const settings = useStore((s) => s.settings);
   const load = (query: string) => { const ps = new URLSearchParams(); if (query) ps.set('q', query); if (project) ps.set('project', project); void api<{ sessions: Session[] }>(`/api/sessions${ps.size ? `?${ps}` : ''}`).then((r) => setList(r.sessions)); };
@@ -39,6 +40,8 @@ export function HistoryDialog() {
             <div className="h-actions">
               <a className="btn small" href={exportUrl(s.id, 'md')} download>Markdown</a>
               <a className="btn small" href={exportUrl(s.id, 'txt')} download>{t('Text')}</a>
+              {s.has_audio && <button className="btn small" disabled={live?.session?.id === s.id || exporting.has(s.id)} title={t('Download the recording as one audio file')}
+                onClick={() => { setExporting((x) => new Set(x).add(s.id)); void exportAudio(s.id).finally(() => setExporting((x) => { const n = new Set(x); n.delete(s.id); return n; })); }}>{exporting.has(s.id) ? t('Preparing…') : t('Audio')}</button>}
               {s.status === 'interrupted' && idle && <button className="btn small" onClick={() => void resumeSaved(s.id, settings?.audio.source ?? 'mic').then(() => setState({ dialog: null }))}>{t('Resume recording')}</button>}
               <button className="btn small danger" disabled={live?.session?.id === s.id} onClick={() => { if (confirm(t('Delete “{title}” permanently? Transcript, AI answers and summary will be removed from this computer.', { title: s.title }))) void deleteSession(s.id); }}>{t('Delete')}</button>
             </div>

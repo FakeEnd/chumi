@@ -1,5 +1,5 @@
 /**
- * Coding agents (Claude Code, Codex, opencode, Qwen Code): register Chumi's MCP server with each client, report
+ * Coding agents (Claude Code, Codex, opencode, Qwen Code, Antigravity): register Chumi's MCP server with each client, report
  * what is verified, run an explicit read check, and open a project session that starts from a confirmed handoff.
  * Nothing here runs an agent on its own: registration, the read check and continuation are user actions.
  */
@@ -17,7 +17,7 @@ import { AGENT_BILLING, AGENT_NAMES, AGENTS, type AgentId } from '../../shared/a
 export { AGENTS, type AgentId };
 const NAME = 'chumi';
 // Same safety rule as the AI providers: never let an API key in the environment turn a plan into paid usage.
-// Agents billed through the user's own model account (opencode, Qwen Code) keep their keys: that is how they work.
+// Agents billed through the user's own model account (opencode, Qwen Code, Antigravity) keep their keys: that is how they work.
 const PLAN_STRIP_ENV = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'OPENAI_API_KEY'];
 
 export const MCP_SCRIPT = join(REPO_ROOT, 'server', 'mcp', 'main.ts');
@@ -102,7 +102,7 @@ export interface AgentStatus {
   registered: boolean | null;
   /** Registered with a different Chumi location or data folder (re-connect to fix). */
   outdated: boolean;
-  /** Health reported by the client itself (Claude Code, opencode and Qwen Code start the server to list it); unknown for Codex. */
+  /** Health reported by the client itself (Claude Code, opencode and Qwen Code start the server to list it); unknown for Codex and Antigravity. */
   clientHealth: 'connected' | 'failed' | 'unknown';
   /** A real agent read through this client, recorded by the MCP server. */
   lastRead: { at: number; tool: string } | null;
@@ -120,7 +120,7 @@ const outdated = (args: string[] | undefined, env: Record<string, string> | null
 /** What Chumi needs to know about one agent. */
 interface Adapter {
   bin: string;
-  /** Part of the MCP clientInfo name it sends (Claude Code "claude-code", Codex "codex-mcp-client", opencode "opencode", Qwen Code "qwen-cli-mcp-client-chumi"). */
+  /** Part of the MCP clientInfo name it sends (Claude Code "claude-code", Codex "codex-mcp-client", opencode "opencode", Qwen Code "qwen-cli-mcp-client-chumi", Antigravity "antigravity-client"). */
   client: string;
   /** Removed from the environment of commands Chumi runs. */
   strip: string[];
@@ -139,6 +139,11 @@ interface Adapter {
 const MESSAGE = Symbol('first message');
 const opencodeFile = (ext: 'json' | 'jsonc') => join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'opencode', `opencode.${ext}`);
 const qwenSettings = () => join(homedir(), '.qwen', 'settings.json');
+/** Written by `agy mcp add`; the Antigravity app reads the same file. */
+const agyMcpConfig = () => join(homedir(), '.gemini', 'config', 'mcp_config.json');
+const agySettings = () => join(homedir(), '.gemini', 'antigravity-cli', 'settings.json');
+/** Antigravity's print mode cannot ask for approval, so the read check's one tool is pre-approved. Chumi's other tools still ask. */
+const AGY_CHECK_GRANT = `mcp(${NAME}/chumi_connection_check)`;
 
 const ADAPTERS: Record<AgentId, Adapter> = {
   'claude-code': {
@@ -234,6 +239,41 @@ const ADAPTERS: Record<AgentId, Adapter> = {
     async disconnect(cli) { await run(cli, ['mcp', 'remove', '--scope', 'user', NAME]); },
     // The prompt goes first: the list options after it would otherwise swallow it.
     check: (prompt, extra) => ({ args: [prompt, ...extra, '--allowed-mcp-server-names', NAME, '--allowed-tools', `mcp__${NAME}__chumi_connection_check`] }),
+    start: (cli) => [cli, '-i', MESSAGE],
+  },
+  // Antigravity CLI (agy). It has no per-run tool allowlist, so Connect also adds AGY_CHECK_GRANT to its settings.
+  antigravity: {
+    bin: 'agy', client: 'antigravity', strip: [],
+    setup: (m) => `agy mcp add ${Object.entries(m.env).map(([k, v]) => `-e ${k}=${q(v)} `).join('')}${NAME} -- ${q(m.command)} ${q(m.args[0])}\n${agySettings()}\n${JSON.stringify({ permissions: { allow: [AGY_CHECK_GRANT] } }, null, 2)}`,
+    // `agy mcp list` shows only enabled or disabled, so there is no client health to report.
+    async registration() {
+      const entry = readJsonc(agyMcpConfig())?.mcpServers?.[NAME] as { args?: string[]; env?: Record<string, string>; disabled?: boolean } | undefined;
+      if (!entry) return { registered: false };
+      return { registered: true, outdated: outdated(entry.args, entry.env), detail: entry.disabled ? 'Registered but disabled in Antigravity.' : null };
+    },
+    async connect(cli, m) {
+      // `agy mcp add` replaces an existing entry, and re-enables it.
+      const r = await run(cli, ['mcp', 'add', ...Object.entries(m.env).flatMap(([k, v]) => ['-e', `${k}=${v}`]), NAME, '--', m.command, ...m.args]);
+      if (r.code !== 0) throw new Error((r.err || r.out).trim() || 'agy mcp add failed');
+      editJsonFile(agySettings(), (cfg) => {
+        const allow: string[] = cfg.permissions?.allow ?? [];
+        if (allow.includes(AGY_CHECK_GRANT)) return false;
+        cfg.permissions = { ...cfg.permissions, allow: [...allow, AGY_CHECK_GRANT] };
+        return true;
+      }, {});
+    },
+    async disconnect(cli) {
+      await run(cli, ['mcp', 'remove', NAME]);
+      editJsonFile(agySettings(), (cfg) => {
+        const allow: string[] | undefined = cfg.permissions?.allow;
+        if (!allow?.includes(AGY_CHECK_GRANT)) return false;
+        cfg.permissions.allow = allow.filter((g) => g !== AGY_CHECK_GRANT);
+        if (!cfg.permissions.allow.length) delete cfg.permissions.allow;
+        if (!Object.keys(cfg.permissions).length) delete cfg.permissions;
+        return true;
+      }, null);
+    },
+    check: (prompt, extra) => ({ args: ['-p', prompt, ...extra] }),
     start: (cli) => [cli, '-i', MESSAGE],
   },
 };

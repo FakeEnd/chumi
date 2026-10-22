@@ -9,7 +9,7 @@ import { encodeWav } from '../audio/wav.ts';
 
 export interface WhisperSegment { start: number; end: number; text: string; avg_logprob?: number; no_speech_prob?: number }
 export interface WhisperResult { text: string; language: string | null; langProbs: Record<string, number>; segments: WhisperSegment[]; ms: number }
-export type AsrState = 'stopped' | 'starting' | 'ready' | 'error' | 'missing_binary' | 'missing_model';
+export type AsrState = 'stopped' | 'starting' | 'ready' | 'error' | 'missing_binary' | 'missing_model' | 'missing_key';
 
 const PID_FILE = join(DATA_DIR, 'whisper-server.pid');
 

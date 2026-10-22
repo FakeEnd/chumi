@@ -18,136 +18,92 @@
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
 <p align="center">
-  <a href="docs/assets/chumi-promo-1.5x.mp4"><img src="docs/assets/chumi-promo-poster.jpg" width="760" alt="Watch the 36-second Chumi video: catch-up and explanations during a lab meeting, a reviewed handoff, Claude Code picking up the work through Chumi's MCP server, and the next question answered from the agents' earlier sessions"></a><br>
-  <sub>▶ <a href="docs/assets/chumi-promo-1.5x.mp4">Watch the 36-second video</a> · <a href="docs/assets/chumi-promo-2x.mp4">27-second cut</a> · <a href="docs/assets/chumi-promo.mp4">full 54 s</a> · <a href="docs/assets/chumi-promo-zh-1.5x.mp4">中文版</a></sub>
+  <a href="docs/assets/chumi-promo-1.5x.mp4"><img src="docs/assets/chumi-promo-poster.jpg" width="760" alt="Watch the 40-second Chumi video: a catch-up and an explanation during an NLP lab meeting, playing the recording back from a line, a reviewed handoff, Claude Code picking up the work through Chumi's MCP server, and the next question answered from the agent's earlier session"></a><br>
+  <sub>▶ <a href="docs/assets/chumi-promo-1.5x.mp4">Watch the 40-second video</a> · <a href="docs/assets/chumi-promo-2x.mp4">30-second cut</a> · <a href="docs/assets/chumi-promo.mp4">full 59 s</a> · <a href="docs/assets/chumi-promo-zh-1.5x.mp4">中文版</a></sub>
 </p>
 
 ---
 
-**Chumi is a listening companion for academic conversations that carries what was decided into your coding agent.** It transcribes lab meetings, advisor 1:1s, lectures and seminars on your Mac, in English, Mandarin, or both at once. While the talk goes on, it tells you where the discussion is, catches you up when you drift, and explains unfamiliar methods and terms at your level. Every answer is cited back to the moment it came from.
+**Chumi listens to academic meetings with you, explains what you missed, and hands what was decided to your coding agent.**
 
-When the meeting ends, Chumi doesn't stop at notes. You review a handoff of what was decided, and Claude Code, Codex, opencode or Qwen Code picks it up in your project, reading the original evidence for itself. In the next meeting, Chumi can look up what those agents already did. It runs on your ChatGPT or Claude subscription, a local model server, or a compatible API, and audio never leaves your Mac.
+It transcribes lab meetings, advisor 1:1s, lectures and seminars on your Mac, in English, Mandarin, or both at once.
 
-## The agent loop
+- **During the meeting:** catch up in one click, get terms explained at your level, and ask about the slide on screen. Every answer cites the moment it came from.
+- **After the meeting:** read a structured summary, play the recording back from any line, and review a handoff of decisions and actions.
+- **In your project:** Claude Code, Codex, opencode, Qwen Code or Antigravity continues the work, reading the original evidence through Chumi's MCP server.
+- **At the next meeting:** answers can draw on what those agents already did.
 
-```mermaid
-flowchart LR
-  M["Meeting<br/>live transcript · catch-up<br/>explanations at your level"] --> H["Reviewed handoff<br/>decisions · actions · open questions<br/>each cited to the transcript"]
-  H --> A["Your coding agent<br/>Claude Code · Codex · opencode · Qwen Code<br/>reads the evidence over MCP"]
-  A --> P["Project memory<br/>the agents' sessions,<br/>indexed by mybot"]
-  P -- "Project context" --> M
-```
+It runs on the ChatGPT or Claude plan you already have, or on a local model. By default, audio never leaves your Mac.
 
-1. **Listen and understand.** During the meeting, Chumi transcribes on your Mac, catches you up when you drift, and explains terms at your level.
-2. **Review a handoff.** Afterwards it drafts the decisions, actions and open questions, each cited to the transcript and labelled *agreed in the meeting*, *suggested, not agreed* or *proposed by Chumi*. You edit, confirm or reject every item. Only confirmed work is handed on.
-3. **Your agent continues.** **Continue in Claude Code** (or Codex, opencode, Qwen Code) opens the agent in the project folder with the confirmed work. Through Chumi's local, read-only MCP server it reads the handoff, the original transcript lines and the captured slides, then proposes a plan and waits for your go-ahead.
-4. **The next meeting remembers.** Turn on **Project context** in the Ask box, and your questions also search the project's earlier Claude Code and Codex sessions through [mybot](https://github.com/jzhoulab/mybot). Answers cite them as `[P1]`, `[P2]`, so you hear what the agents already tried before deciding again.
-
-<p align="center">
-  <img src="docs/assets/screens/handoff.png" width="900" alt="The handoff dialog: confirmed actions labelled agreed in the meeting or proposed by Chumi, each with its reason, unresolved points, owner, possible checks and transcript citations, and the Continue in Claude Code button">
-</p>
-
-<p align="center">
-  <img src="docs/assets/screens/project-context.png" width="900" alt="Project context turned on in the Ask box; the answer draws on earlier Claude Code and Codex sessions in the project, cited as P1 and P2, next to what was said in the meeting">
-</p>
-
-<sub>Both from a real run on the sample meeting: real local transcription and real Claude answers. The project-context answer draws on the Claude Code and Codex sessions that continued an earlier handoff of this sample project.</sub>
-
-## How Chumi differs from a transcription app
-
-| | Typical meeting transcription app | Chumi |
-|---|---|---|
-| **During the meeting** | A live transcript to scroll through | Catches you up, explains terms at your level, and reads the slides on screen |
-| **When it ends** | A summary and action items for people to read | A handoff you review, which your coding agent then continues in the project |
-| **Evidence** | The summary becomes the record | Every claim cites a moment; agents fetch the original lines and slides themselves |
-| **What the AI added** | Mixed into the notes | Kept apart: what was said, background Chumi added, and interpretation |
-| **Who decides** | The AI's action items are the output | Items are labelled agreed, suggested or proposed by Chumi; only what you confirm becomes work |
-| **Across meetings** | One set of notes per meeting | Meetings and agent sessions in one memory, which the next meeting can draw on |
-| **Audio and cost** | Often processed in the vendor's cloud, on a separate subscription | Speech recognized on your Mac; AI from the ChatGPT or Claude plan you already have, or a local model |
-
-## Highlights
-
-- **Meetings that turn into work.** A reviewed handoff goes to Claude Code, Codex, opencode or Qwen Code in your project folder, with the original evidence one tool call away. No pasting the transcript, no briefing the agent from scratch.
-- **The next meeting knows what the agents did.** With **Project context** on, answers draw on the project's earlier agent sessions and cite them, next to what was said in the room.
-- **Catch up in one click.** You drifted off, or the speaker skipped ahead. **Catch me up** tells you what is being discussed now, what you missed, how it connects to earlier points, and which question is on the table. Every answer states the exact stretch of transcript it covers, and it stays put while the meeting goes on.
-- **Explanations pitched to you.** Select a phrase and get the background at the right level. Chumi keeps a per-domain profile: it won't explain transformers to an ML person, and it won't assume you know a wet-lab assay. Pick **Quick, Standard or Deep**, and, on supported providers, choose how hard the model thinks, from **Low to Max**. Compatible models use their server's reasoning defaults.
-- **It keeps what was said apart from what it adds.** Answers separate *what the speakers said*, *background added by Chumi*, and *interpretation and uncertainty*. Every claim cites a clickable `[m:ss]` that jumps to the supporting lines. If a speaker points at a slide Chumi can't see, it says so instead of guessing.
-- **It sees the slides too.** Capture the Zoom share, the lecture video or the slide deck. Chumi keeps one picture per slide and can show it to the model, so *"explain this figure"* works.
-- **Bilingual by design.** Transcribes English, Mandarin, and Mandarin with English technical terms. Explains in **中文** (keeping English terms) or **English**, switchable at any time. The interface itself comes in English and 中文 too.
-- **Summaries you can trust.** Summaries are shaped for lab meetings, advisor 1:1s, lectures or WIP talks. Rename or add your own types in **Settings → Session types**, each with the summary style it should use. Preliminary results stay preliminary, disagreements are kept, and owners or deadlines appear only if someone actually said them.
-- **Uses the subscription you already pay for.** ChatGPT (through Codex) or Claude (through Claude Code), with quota shown when the provider reports it. Chumi **never** switches to a paid API on its own, and blocks purchased ChatGPT credits unless you allow them. You can also explicitly select a local model server or compatible API; remaining API quota is unknown.
-- **Private and crash-safe.** Speech recognition runs locally with whisper.cpp, so audio never leaves the Mac. Transcript lines are saved as they arrive. After a crash, the session reopens with a gap marker and can be resumed.
-- **One keystroke when a talk starts.** Press **⌃⌥⌘L** from any app to start listening. Press again to pause.
+**Contents:** [See it in action](#see-it-in-action) · [Install](#install) · [Choose an AI](#choose-an-ai) · [Privacy](#privacy) · [The agent loop](#the-agent-loop) · [All features](#all-features) · [Development](#development)
 
 ## See it in action
 
-**Lost the thread? Catch me up.** Here's a live lab meeting with a running overview and transcript. The catch-up covers exactly the last two minutes, with every point cited to the transcript:
+The screenshots come from a real run on a synthetic NLP lab meeting: Maya presents a 7B model trained with DPO to cite its sources, and the lab argues about whether its gain is real or a quirk of the LLM judge. See [About the screenshots](#about-the-screenshots).
+
+### Lost the thread? Catch me up.
+
+One click tells you what is being discussed now, what you missed and which question is on the table. The card states exactly which stretch of the transcript it covers, and every point links to the lines it came from.
 
 <p align="center">
-  <img src="docs/assets/screens/live.png" width="900" alt="Chumi during a lab meeting: live transcript, a running overview with clickable timestamps, and a catch-up card covering the last two minutes">
+  <img src="docs/assets/screens/live.png" width="900" alt="Chumi during a lab meeting: live transcript, a running overview with clickable timestamps, and a catch-up card covering the last two minutes of the judge-bias debate">
 </p>
 
-**Ask about the slide on screen.** A captured slide goes with the question, and the answer weighs it against what was actually said. Here it notices that some of the slide's numbers differ from what was said aloud, so it treats the slide as a draft:
+### Explanations pitched to you
+
+Select a term such as *KV cache* and get the intuition, how it was used in this discussion and why it matters. Chumi keeps a per-domain profile, so a linguist new to GPUs gets a different explanation than a systems engineer would. Answers come in English or 中文.
 
 <p align="center">
-  <img src="docs/assets/screens/window-capture.png" width="900" alt="A captured slide in the Screen strip; the answer explains the slide, cites transcript times, and flags a mismatch between the slide and the discussion">
+  <img src="docs/assets/screens/explain.png" width="900" alt="An explanation card for 'KV cache', pitched to a profile with no hardware background, with transcript citations">
 </p>
 
-**Explanations pitched to you.** Select *negative binomial* in the transcript and get the intuition, how it was used in this discussion, and why it matters. All of it is pitched to your statistics level, in English or Chinese:
+### Ask about the slide on screen
+
+Capture the Zoom share, a lecture video or the slide deck. Chumi keeps one picture per slide and sends it with your question, and the answer weighs it against what was actually said.
 
 <p align="center">
-  <img src="docs/assets/screens/explain.png" width="900" alt="An explanation card for 'negative binomial model', pitched to the profile, with transcript citations">
+  <img src="docs/assets/screens/window-capture.png" width="900" alt="A captured evaluation-plan slide in the Screen strip; the answer explains it and cites the transcript times where it was discussed">
 </p>
 
-**A structured summary when the meeting ends.** It has sections for research question, methods, findings (labelled established, preliminary or contested), disagreements, open questions and action items, all cited back to the transcript. Dark mode included:
+### A summary you can trust
+
+When the meeting ends, the summary is shaped for its type (lab meeting, advisor 1:1, lecture, WIP talk). Preliminary results stay preliminary, disagreements are kept, and owners or deadlines appear only if someone actually said them.
 
 <p align="center">
-  <img src="docs/assets/screens/summary.png" width="900" alt="Dark mode: the final summary card with an overview and research question, each claim linked to transcript times">
+  <img src="docs/assets/screens/summary.png" width="900" alt="Dark mode: the final summary card, with the DPO result marked preliminary and each claim linked to transcript times">
 </p>
 
-**A speech model that fits your Mac.** Settings → Transcription lists seven models from Tiny to Large v3, recommends one for your hardware, and tests the current model's speed and accuracy:
+### Listen again
+
+Each session records its audio on your Mac unless you untick **Record audio** when you start. In the saved session, the ▶ beside a line plays from there, the line being heard stays highlighted, and **Export audio** saves the whole meeting as one file.
 
 <p align="center">
-  <img src="docs/assets/screens/models.png" width="900" alt="Settings, Transcription tab: speech models with size, speed and accuracy, the recommended model in use, and speed and accuracy test results">
+  <img src="docs/assets/screens/playback.png" width="900" alt="A saved session with the audio player in the toolbar and the transcript line being played highlighted">
 </p>
 
-**Start in one click.** The home screen offers quick start, presets for in-person, online and hybrid conversations, your recent sessions, and your knowledge profile at a glance:
+### Hand it to your coding agent
+
+Chumi drafts the decisions, actions and open questions, each cited and labelled *agreed in the meeting*, *suggested, not agreed* or *proposed by Chumi*. You confirm, edit or reject every item. **Continue in Claude Code** (or another agent) opens it in the project folder with only the confirmed work.
 
 <p align="center">
-  <img src="docs/assets/screens/home.png" width="900" alt="The home screen: greeting, status, four start options, recent sessions, profile summary and tips">
+  <img src="docs/assets/screens/handoff.png" width="900" alt="The handoff dialog: confirmed actions with their origin, owner, open points and transcript citations, and the Continue in Claude Code button">
 </p>
 
-<sub>All screenshots come from a real run (real local transcription, real Claude answers) on a synthetic, all-English sample meeting in <code>samples/lab-meeting-en</code>: a written script with fictional people, voiced by macOS text-to-speech, and a fictional profile. Nothing comes from real meetings. To regenerate them, run <code>node scripts/demo-shoot.ts</code>.</sub>
+### The next meeting remembers
 
-## Set up the agent loop
+Turn on **Project context** in the Ask box, and questions also search the project's earlier Claude Code and Codex sessions through [mybot](https://github.com/jzhoulab/mybot). Answers cite them as `[P1]`, `[P2]`, next to what was said in the room.
 
-1. **Projects.** Assign a meeting to a project: the folder you work in. Pick it when you start, or later in the top bar. Nothing is assigned automatically.
-2. **Coding agents.** Connect each agent once in **Settings → Coding agents**. Chumi registers its read-only MCP server with the agent, and **Test a real agent read** confirms the agent can reach Chumi. Claude Code and Codex have their own **Continue** buttons; opencode and Qwen Code are in the **Continue in another agent…** menu.
-3. **Project context (optional).** Run [mybot](https://github.com/jzhoulab/mybot) locally and check its address in **Settings → Integrations** (default `http://127.0.0.1:8788`). Nothing is searched until you turn **Project context** on for a meeting.
+<p align="center">
+  <img src="docs/assets/screens/project-context.png" width="900" alt="Project context turned on in the Ask box; the answer draws on the agent session that continued the handoff, cited as P1, next to what was said in the meeting">
+</p>
 
-If the meeting changes after you confirm, for example a regenerated summary or a resumed recording, Chumi and the agent both see that the handoff may need another look. The agent works under its own permission prompts, and Chumi never marks the work done. Setup, the MCP tools and the privacy model are in [docs/agents.md](docs/agents.md); project context is in [docs/mybot.md](docs/mybot.md#project-context-in-questions).
+#### About the screenshots
 
-## Works with mybot
+They come from a real run: real local transcription, real Claude answers, and a real Claude Code session that continued the handoff. The meeting is a written script with fictional people, voiced by macOS text-to-speech ([`samples/llm-meeting-en`](samples/llm-meeting-en/README.md); the Chinese screenshots use the bilingual [`samples/llm-meeting`](samples/llm-meeting/README.md)). The profile is fictional too. Nothing comes from real meetings. [Development](#development) shows how to regenerate them.
 
-[**mybot**](https://github.com/jzhoulab/mybot) unifies your Claude Code and Codex conversations into one local, searchable memory. It works in both directions with Chumi: during a meeting, **Project context** asks mybot what your agents already did, and with Chumi's export turned on, **your meetings join that memory too**. Ask mybot *"what did my advisor ask me to rerun last week?"* or *"when did we decide on 200 barcodes per variant, and who was unsure?"*, and it answers with the date and a link to the exact moment in the meeting.
+## Install
 
-- In Chumi, go to **Settings → Integrations** and turn on *Export finished sessions for mybot*.
-- In mybot, run `bash integrations/mybot/install.sh ~/Code/mybot` once, then add `chumi` to `TRAJECTORY_SOURCES`.
-- Meetings are **owner-only by default** (`visibility: private`), because they contain other people's words. Sharing with teammates is a separate opt-in.
-
-Setup, the export format and the privacy model are in [docs/mybot.md](docs/mybot.md).
-
-## Optional speaker labels
-
-Run `npm run setup:speakers`, then enable **Settings → Transcription → Speaker labels** before recording. After the meeting ends, a local model groups voices as A/B/C. Open **Speakers** above the transcript to name them; click a line's label to correct it. Current labels accompany AI context, exports, and Claude Code/Codex evidence. Earlier summaries and reviewed handoffs are marked stale after corrections.
-
-Analysis uses temporary local audio, deleted on completion, failure, cancellation, or app restart. **Save raw audio** keeps the captured takes for reruns. Labels are estimates within a meeting and audio source; mixed speech remains uncertain. See [the workflow and testing notes](docs/speaker-diarization.md) and [model setup](docs/speaker-models.md).
-
-## Quick start
-
-**You need** a Mac with Apple Silicon on macOS 14.4 or later, and a ChatGPT or Claude subscription. Without a subscription, a Mac with 16 GB of memory or more can run a free local model. Nothing else has to be installed first.
-
-**Windows (desktop preview):** an Electron window, microphone/computer-audio capture and hybrid meetings are implemented. The installer bundles Node, the speech engine and Codex; users need no .NET or build commands. First use offers an in-app model download and ChatGPT browser sign-in. The current x64 build has passed real capture, transcription, live assistance, summary and MCP handoff checks on Windows 11. Other Windows 10/11 machines still need release qualification. See [docs/windows.md](docs/windows.md).
+**You need** a Mac with Apple Silicon on macOS 14.4 or later, and a ChatGPT or Claude subscription. Without one, a Mac with 16 GB of memory or more can run a free local model.
 
 Open Terminal and paste:
 
@@ -155,70 +111,92 @@ Open Terminal and paste:
 curl -fsSL https://raw.githubusercontent.com/FakeEnd/chumi/main/scripts/install.sh | bash
 ```
 
-It downloads Chumi into `~/Chumi`, and the guided setup takes about 5 to 15 minutes:
+This downloads Chumi into `~/Chumi`. The guided setup takes 5 to 15 minutes. It installs what is missing (asking first), sets up local speech recognition with a model that suits your Mac, builds Chumi.app, and helps you sign in to an AI. Your sign-in stays with the official tool; Chumi never sees it.
 
-1. **Checks your Mac** and offers to install anything missing: the Xcode Command Line Tools, Homebrew, Node.js 24. It asks first.
-2. **Installs local speech recognition:** whisper.cpp, plus the speech model that suits your Mac (Large v3 Turbo, about 875 MB, on Apple Silicon with 16 GB or more).
-3. **Builds Chumi.app** on your Mac.
-4. **Helps you connect an AI:** ChatGPT through Codex, Claude through Claude Code, or a local model. Your sign-in stays with the official tool; Chumi never sees it.
-5. **Checks everything** and opens Chumi.
+On first launch, the **Get Chumi ready** checklist on Home covers the rest: AI sign-in, your background and microphone access. Then click **⚡ Quick start**, or press **⌃⌥⌘L** from any app. Press it again to pause.
 
-On first launch, the **Get Chumi ready** checklist on Home walks you through what is left: the AI sign-in, your background (explanations are pitched to it) and microphone access. Then click **⚡ Quick start**, or press **⌃⌥⌘L** from any app. You can also run Chumi in a browser: `npm start`, then open http://127.0.0.1:4777.
+<p align="center">
+  <img src="docs/assets/screens/home.png" width="760" alt="The home screen: greeting, status, four start options, recent sessions with an audio marker, profile summary and tips">
+</p>
 
-Prefer to install by hand? Run `git clone https://github.com/FakeEnd/chumi.git && cd chumi && bash scripts/setup.sh`. **[The install guide](docs/install.md)** has the options (including `--mirror` for faster downloads in mainland China), permissions, troubleshooting and uninstalling. `npm run doctor` checks an existing install and prints the fix for anything missing.
+- **By hand:** `git clone https://github.com/FakeEnd/chumi.git && cd chumi && bash scripts/setup.sh`. [The install guide](docs/install.md) covers the options (including `--mirror` for mainland China), permissions, troubleshooting and uninstalling.
+- **Check an install:** `npm run doctor` prints the fix for anything missing.
+- **In a browser:** `npm start`, then open http://127.0.0.1:4777.
+- **Windows (desktop preview):** an installer with microphone and computer-audio capture, local speech recognition and Codex. It has passed real end-to-end checks on Windows 11. See [docs/windows.md](docs/windows.md).
 
-### Other models: local or API
+## Choose an AI
 
-Presets cover **Qwen, Doubao, MiniMax, GLM, Ollama, LM Studio**, and a **custom compatible API**. These use a compatible Chat Completions endpoint; a preset supplies a starting URL, not a model or subscription entitlement.
+Pick one in **Settings → AI provider**. Chumi uses exactly one at a time and never switches to a paid API on its own.
 
-1. Open **Settings → AI provider** and select **Other models: local or API**. Choose **Ollama** or **LM Studio** to automatically read the local service's model list, then select a model. No model ID is needed to discover models. If the service cannot be reached or lists no models, follow the installation, startup, or download guidance and click **Refresh models**. Remote API presets still use the exact model or deployment ID from the provider console.
-2. Explicitly enable the profile, including permission to charge your provider account for a remote API, then **Save model settings**. Each preset keeps its own profile. Save or discard edits before managing a key or testing.
-3. Save an API key if needed. Keys live in **macOS Keychain**, separately for each preset and endpoint. Optionally click **Test with a short generation**: it sends synthetic text, no meeting content, and can incur a charge.
-4. Once saved, the selected model is used for new requests. Discovery only reads model metadata; it does not generate answers, download models, or send meeting content. Connection URLs, optional local API keys, and advanced model options are available in expandable sections.
+| AI | Sign-in | What you pay |
+|---|---|---|
+| **ChatGPT plan**, through OpenAI's [Codex app-server](https://learn.chatgpt.com/docs/app-server) | `codex login` | Included plan usage. Purchased credits only if you allow them. |
+| **Claude plan**, through the unmodified `claude -p` | `claude auth login` | Plan usage limits. Chumi stops at paid overage. |
+| **Local model** (Ollama, LM Studio) | none | Free, on your Mac. Chumi suggests models that fit its memory. |
+| **Compatible API** (Qwen, Doubao, MiniMax, GLM, custom) | key in macOS Keychain | Your provider's billing; off until you enable it. |
+| **Anthropic API key** | key in macOS Keychain | Pay per request; off until you enable it. |
 
-Before downloading, the local presets show **models for this computer** using the detected chip, total memory, home-volume disk space, and selected transcription model. Compare approximate download sizes and estimated runtime memory for specific Qwen3 quantizations. Recommendations reserve room for macOS, other apps, and Chumi transcription; longer context lengths increase the estimate. The context selector only changes the estimate, so configure the same context length in your model manager. This is capacity guidance, not a speed benchmark or a guarantee. Recommendations work before the model service is installed or started. See [estimation assumptions and sources](docs/local-model-advice.md).
+Local models and compatible APIs are set up in [docs/other-models.md](docs/other-models.md). The reasoning behind these choices, with links to the official terms, is in [docs/provider-research.md](docs/provider-research.md).
 
-Images are off by default; enable them only when the model and endpoint support them, and also enable **Send screen captures** in Screen settings. Structured output defaults to prompt-only; select JSON object/schema mode only if supported. Chumi does not send its reasoning-effort controls to compatible endpoints.
+**Speech recognition** is separate from the AI. It runs locally with whisper.cpp by default, and Settings → Transcription recommends one of seven models for your Mac. ElevenLabs Scribe and Qwen3-ASR (Alibaba Cloud or self-hosted) are opt-in alternatives that send meeting audio off the Mac; if one fails, the local model takes over. See [docs/transcription.md](docs/transcription.md).
 
-Install and start Ollama or LM Studio first, then click **Download recommended model** in Chumi. Downloads show progress, continue while Settings is closed, and refresh the model list on completion. Ollama supports cancellation and retry in Chumi; LM Studio 0.4+ uses its native download API, with pause/cancel managed in LM Studio. If its model is not listed after downloading, enable Just-In-Time loading or load it in Developer. Downloading does not automatically select or load the model. Choose it from the list and save your settings.
+<p align="center">
+  <img src="docs/assets/screens/models.png" width="760" alt="Settings, Transcription tab: local Whisper in use and marked private, with ElevenLabs Scribe and Qwen3-ASR as opt-in services that send audio off the Mac">
+</p>
 
-Configure enough context capacity for meeting excerpts, notes and answers; Chumi does not set the server's context window. A local server can route externally, so check its configuration. Compatible inference requests have no automatic retry or provider fallback. API quota remains unknown; check your provider's billing console and terms rather than assuming a chat subscription includes API access.
+## Privacy
 
-## Features
+- **Audio stays on your Mac** with the default local speech recognition. Recordings are stored only on this computer, and deleting a session deletes them.
+- **Everything is local:** sessions, transcripts, answers and your profile live in a SQLite database on your Mac. The server listens only on 127.0.0.1.
+- **What goes to the AI** is the text it needs (and slide images, if you turn that on). Settings → Privacy & data explains exactly what is sent and when.
+- **Agents only read:** the MCP server is read-only, only confirmed handoff items are requested work, and the agent proposes a plan before changing anything.
+
+## The agent loop
+
+```mermaid
+flowchart LR
+  M["Meeting<br/>live transcript · catch-up<br/>explanations at your level"] --> H["Reviewed handoff<br/>decisions · actions · open questions<br/>each cited to the transcript"]
+  H --> A["Your coding agent<br/>Claude Code · Codex · opencode · Qwen Code · Antigravity<br/>reads the evidence over MCP"]
+  A --> P["Project memory<br/>the agents' sessions,<br/>indexed by mybot"]
+  P -- "Project context" --> M
+```
+
+To set it up:
+
+1. **Assign the meeting to a project,** the folder you work in. Pick it when you start, or later in the top bar. Nothing is assigned automatically.
+2. **Connect your coding agents** once in **Settings → Coding agents**. Chumi registers its read-only MCP server, and **Test a real agent read** confirms the agent can reach it.
+3. **Optional: run [mybot](https://github.com/jzhoulab/mybot)** locally for Project context. Its address is in **Settings → Integrations** (default `http://127.0.0.1:8788`). Nothing is searched until you turn Project context on for a meeting.
+
+If the meeting changes after you confirm (a regenerated summary, a resumed recording), Chumi and the agent both see that the handoff may need another look. Details: [docs/agents.md](docs/agents.md) and [docs/mybot.md](docs/mybot.md).
+
+## All features
 
 **Listening**
-- Microphone for in-person conversations, computer audio for Zoom, Teams or recorded lectures (headphones are fine), or both for hybrid meetings, with echo cancellation and duplicate filtering.
-- Local whisper.cpp on the Metal GPU, about 0.3 s per utterance with Large v3 Turbo. Grey partial text is revised in place, never duplicated.
-- Seven speech models, from Tiny (31 MB) for older Macs to Large v3 (1 GB). Settings → Transcription recommends one for your hardware, downloads and deletes models, and measures the current model's speed and accuracy.
-- English, Mandarin and code-switching. Whisper sometimes writes Mandarin in Traditional characters; Chumi converts them to Simplified unless you turn that off. Vocabulary hints improve spelling of jargon and names.
-- Pause, resume, a quick-start shortcut, level meters, and clear permission guidance.
+- Microphone for in-person meetings, computer audio for Zoom, Teams or recorded lectures (headphones are fine), or both for hybrid meetings, with echo cancellation and duplicate filtering.
+- English, Mandarin and code-switching. Vocabulary hints improve the spelling of jargon and names.
+- Pause, resume, a global quick-start shortcut, level meters and clear permission guidance.
+- Optional speaker labels after the meeting (`npm run setup:speakers`): voices are grouped locally as A/B/C, and you name and correct them. See [docs/speaker-diarization.md](docs/speaker-diarization.md).
 
 **Understanding**
-- Catch me up over the last 2 minutes, the last 5 minutes, or the whole session so far.
-- Questions about the selected passage, the surrounding discussion and relevant earlier passages.
-- Explanation depth (Quick, Standard, Deep) for each question; reasoning effort (Auto, Low, Medium, High, Extra high, Max) on supported providers. Compatible models use server defaults. Neither changes your saved profile.
-- Optional auto-explain cards with a cooldown and an interruption cap. Turning it off drops late results.
-- A running overview and topic timeline, updated at pauses and topic changes.
-- Window capture (ScreenCaptureKit) with one picture kept per slide, and *Ask about this slide*.
-
-**Continuing the work**
-- A handoff drafted from the transcript: decisions, actions and open questions, each cited and labelled agreed, suggested or proposed by Chumi. You review every item before anything is handed on.
-- **Continue in** Claude Code, Codex, opencode or Qwen Code: the agent opens in the project folder with the confirmed work, and reads the handoff, original passages and slides through Chumi's read-only MCP server.
-- Freshness: if the meeting changes after you confirm, both you and the agent see what changed.
-- **Project context** in questions: earlier agent sessions in the project folder, found through mybot and cited as `[P1]`.
+- Catch me up over the last 2 minutes, the last 5 minutes or the whole session.
+- Questions about a selected passage, the surrounding discussion and relevant earlier passages.
+- Explanation depth (Quick, Standard, Deep) and, on supported providers, reasoning effort (Low to Max).
+- Optional auto-explain cards for unfamiliar terms, and a running overview with a topic timeline.
+- Answers keep *what the speakers said*, *background added by Chumi* and *interpretation and uncertainty* apart. If a speaker points at a slide Chumi can't see, it says so.
 
 **Remembering**
-- Structured final summaries by session type, with citations, uncertainty and disagreements kept, and owners and deadlines only when stated.
-- History with full-text search (English and 中文), reopen, Markdown or plain-text export, and delete.
-- Transcript lines saved as they arrive. Recording gaps are marked, and interrupted sessions can be resumed.
+- Session types (rename or add your own in Settings → Session types), each with its own summary style.
+- History with full-text search in English and 中文, reopen, Markdown or plain-text export, and delete.
+- Audio recording per session: every source mixed into one track in transcript time, with long pauses shortened to a one-second break. Export gives one `.m4a` on macOS (about 14 MB per hour) or a `.wav` on Windows. The original takes use about 115 MB per hour per source.
+- Transcript lines are saved as they arrive. After a crash, the session reopens with a gap marker, its recorded audio is kept, and it can be resumed.
+- [mybot](https://github.com/jzhoulab/mybot) in both directions: Project context reads your agents' sessions, and finished meetings can be exported into mybot's memory (owner-only by default). See [docs/mybot.md](docs/mybot.md).
 
-**Trust and cost control**
-- Exactly one active AI provider, with no automatic fallback.
-- Billing is shown, with quota when the provider reports it. Subscription adapters pause when they detect exhausted included usage; compatible API quota is unknown.
-- Background work (overview, auto-explain) uses low effort where supported, or server defaults for compatible models. Long sessions use rolling notes instead of resending the whole transcript.
-- Settings → Privacy & data explains exactly what is sent and when.
+**Cost control**
+- Billing is shown, with quota when the provider reports it. Subscription adapters pause when included usage runs out.
+- Background work (overview, auto-explain) uses low effort where supported, and long sessions use rolling notes instead of resending the whole transcript.
 
-## How it works
+<details>
+<summary><b>How it works</b></summary>
 
 ```
 Chumi.app (Swift window + macOS privacy identity)
@@ -226,82 +204,55 @@ Chumi.app (Swift window + macOS privacy identity)
 ├── chumi-screen  ScreenCaptureKit window capture
 ├── chumi-hotkey  global quick-start shortcut
 └── Node.js server (TypeScript, node:sqlite)
-    ├── voice-activity segmenter → transcriber → whisper-server (local, separate process)
+    ├── voice-activity segmenter → transcriber → whisper-server (local) or an opt-in speech service
     ├── SQLite: sessions · raw transcript · gaps · AI outputs (kept separate) · screen captures
-    ├── assistant: catch-up · Q&A · explain · overview · auto-explain · summary
+    ├── recordings: timed takes per source, mixed on the fly for playback and export
+    ├── assistant: catch-up · Q&A · explain · overview · auto-explain · summary · handoff
+    ├── MCP server (read-only) for coding agents
     └── providers: Codex app-server │ claude -p │ Anthropic API │ compatible local server / API
 React UI ⇄ HTTP + Server-Sent Events on 127.0.0.1
 ```
 
-| Provider | Sign-in | Billing |
-|---|---|---|
-| ChatGPT plan, via OpenAI's documented [Codex app-server](https://learn.chatgpt.com/docs/app-server) | `codex login` | Included plan usage. Purchased credits are used only if you allow it. |
-| Claude plan, via the unmodified `claude -p` (personal use) | `claude auth login` | Plan usage limits. Chumi stops on paid overage. |
-| Anthropic API key | macOS Keychain | Pay per request. Off until you enable it. |
-| Compatible API or local model server | Per-preset and endpoint key in macOS Keychain, if needed | Remote API access requires opt-in; provider billing applies and remaining quota is unknown. Local runtime is managed separately. |
-
-The reasoning behind these choices, with links to the official terms, is in [docs/provider-research.md](docs/provider-research.md).
+</details>
 
 ## Development
 
 ```bash
-npm run check
+npm run check                                  # type checks and unit tests
+node scripts/acceptance.ts                     # end to end: a 20-minute sample through real Whisper, offline AI stand-in
+node scripts/check-audio.ts system 6 --play    # real computer-audio capture (use "mic 6" for the microphone)
+npm run build:tools                            # rebuild the window-capture and shortcut helpers
 ```
 
-That runs the type checks and unit tests. Compatible-provider tests use fake endpoints; they do not validate real vendors' model quality.
+<details>
+<summary><b>Regenerating the screenshots and video</b></summary>
 
-```bash
-node scripts/acceptance.ts
-```
+1. Render the sample meetings with macOS `say` (about a minute each): `node scripts/make-sample.mjs --script samples/llm-meeting-en/script.json`, and the same for `samples/llm-meeting`.
+2. Agent loop, once: `node scripts/demo-shoot.ts --prepare-agent --project-folder DIR` drafts and confirms a handoff for a project folder and keeps its data folder. Run Claude Code (or Codex) in `DIR` with that prompt and Chumi's MCP server pointed at the kept data folder, and let mybot index the session.
+3. Screenshots: `node scripts/demo-shoot.ts --project-folder DIR` (add `--lang zh` for the Chinese set in `docs/assets/screens/zh/`). It uses about 15 requests on your Claude plan.
+4. Video: `node scripts/make-video.ts` renders `docs/video/promo.html`; add `--lang zh`, or `--speed 1.5` / `--speed 2` for the faster cuts. `bash scripts/make-banner.sh` re-renders the banner.
 
-This end-to-end run streams the 20-minute sample through real Whisper, using an offline test provider. Add `--provider claude-cli` to use a real model.
-
-```bash
-node scripts/check-audio.ts system 6 --play
-```
-
-That confirms real computer-audio capture. Use `mic 6` instead to test the microphone.
-
-```bash
-node scripts/demo-shoot.ts
-```
-
-This regenerates the English README screenshots; add `--lang zh` for the Chinese set in `docs/assets/screens/zh/`. The agent-loop screenshots also need `--project-folder DIR`: a project folder where Claude Code or Codex already continued a handoff of the sample meeting, with mybot running (`--only agent` shoots just those two). `bash scripts/make-banner.sh` re-renders the banner, and `node scripts/make-video.ts` (add `--lang zh` for Chinese, `--speed 1.5` or `--speed 2` for the faster cuts) re-renders the promo video from `docs/video/promo.html`.
-
-```bash
-npm run build:tools
-```
-
-That rebuilds the window-capture and shortcut helpers without touching Chumi.app's permissions.
+</details>
 
 | Path | Contents |
 |---|---|
-| `server/` | Audio pipeline, speech recognition, assistant, AI providers, storage |
+| `server/` | Audio pipeline, speech recognition, recordings, assistant, AI providers, MCP server, storage |
 | `web/` | React interface |
-| `native/` | Swift app shell and helpers ([native/README.md](native/README.md)) |
-| `scripts/` | Setup, acceptance test, audio check, screenshots, sample generator |
-| `samples/lab-meeting/` | Synthetic bilingual lab meeting, generated with `npm run sample` |
-| `integrations/mybot/` | mybot source adapter, patch, installer and test ([docs/mybot.md](docs/mybot.md)) |
-| `docs/` | [Provider research](docs/provider-research.md), the [verification log](docs/verification.md), [mybot integration](docs/mybot.md), and banner source |
+| `native/` | Swift app shell and helpers ([native/README.md](native/README.md)), and the Windows desktop app |
+| `scripts/` | Setup, acceptance test, audio check, screenshots, video, sample generator |
+| `samples/` | Synthetic meetings: `llm-meeting` (screenshots, video) and `lab-meeting` (acceptance tests) |
+| `integrations/mybot/` | mybot source adapter, patch, installer and test |
+| `docs/` | Guides, [provider research](docs/provider-research.md) and the [verification log](docs/verification.md) |
 
-## Related projects
-
-| Project | What it is |
-|---|---|
-| [mybot](https://github.com/jzhoulab/mybot) | The connectivity layer for coding agents: every Claude Code and Codex conversation in one searchable memory, shared across your team. Chumi meetings plug in as a source, and Chumi's project context reads from it. |
-| [nebula-notebook](https://github.com/jzhoulab/nebula-notebook) | An agent-native notebook: you and your AI work in the same cells |
-
-## Status and roadmap
+## Status
 
 Chumi is a working personal tool. What has been verified, and how, is in [docs/verification.md](docs/verification.md).
 
-**Known limits:**
-- Optional speaker labeling runs after the meeting, with manual naming and corrections. It does not identify real people or match voices across sources; live transcription still shows audio sources.
-- Protected (DRM) video captures as black.
-- Claude reports plan usage only after each request.
-- The app is ad-hoc signed, so rebuilds ask for permissions again.
+**Known limits:** speaker labels run after the meeting and don't identify real people; protected (DRM) video captures as black; Claude reports plan usage only after each request; the app is ad-hoc signed, so rebuilds ask for permissions again.
 
 **Next:** paper and slide-deck files as context, live speaker labels, a cross-session glossary, spoken explanations, a menu-bar mini mode, and a per-session usage meter.
+
+**Related:** [mybot](https://github.com/jzhoulab/mybot), one searchable memory for all your Claude Code and Codex conversations; [nebula-notebook](https://github.com/jzhoulab/nebula-notebook), an agent-native notebook.
 
 ## License
 

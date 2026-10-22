@@ -49,7 +49,7 @@ export function SpeakerSettings() {
     <h3>{t('Speaker labels')}</h3>
     <label className="field check"><input type="checkbox" checked={enabled} disabled={saving || recording || (!enabled && (busy || !runtime?.ready))} onChange={(e) => void toggle(e.target.checked)} />{t('Automatically label speakers after each meeting (local, optional)')}</label>
     <p className="small muted">{t('Creates Speaker A, B, C labels within each meeting and audio source. It does not identify people or guess their real names; you can add names and correct individual lines.')}</p>
-    <p className="small muted">{t('When enabled before recording, Chumi saves temporary audio locally for speaker analysis. It deletes that audio after analysis, failure or cancellation unless “Save raw audio” is on.')}</p>
+    <p className="small muted">{t('When enabled before recording, Chumi saves temporary audio locally for speaker analysis. It deletes that audio after analysis, failure or cancellation unless the session records audio.')}</p>
     {recording && <p className="small muted">{t('End the current recording before changing automatic speaker labeling.')}</p>}
     {runtime && <RuntimeSetup runtime={runtime} />}
     <button type="button" className="btn small" disabled={busy} onClick={() => void load()}>{busy ? t('Checking…') : t('Refresh speaker model status')}</button>
@@ -116,7 +116,7 @@ export function SpeakersPanel() {
         {analyzing && <progress aria-label={t('Speaker labeling in progress')} />}
         {view.analysis.error && <p className="small error-text" role="alert">{t(view.analysis.error)}</p>}
         {!analyzing && !view.runtime.ready && <p className="small warn-text">{t('Set up the local speaker model in Settings → Transcription.')}{view.runtime.reason ? ` ${t(view.runtime.reason)}` : ''}</p>}
-        {!analyzing && !activeSession && !view.audioAvailable && <p className="small muted">{t('No local audio is available for analysis or retry. Enable speaker labeling before your next recording, or retain raw audio if you need to rerun it.')}</p>}
+        {!analyzing && !activeSession && !view.audioAvailable && <p className="small muted">{t('No local audio is available for analysis or retry. Enable speaker labeling before your next recording, or turn on “Record audio” if you need to rerun it.')}</p>}
         {activeSession && <p className="small muted">{t('Automatic speaker analysis runs after the recording ends.')}</p>}
         {!analyzing && !activeSession && view.runtime.ready && view.audioAvailable && !view.canRun && <p className="small muted">{t('Speaker analysis cannot run for this session right now.')}</p>}
         <div className="btn-row">

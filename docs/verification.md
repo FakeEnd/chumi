@@ -1,5 +1,45 @@
 # Verification log
 
+## Recording, playback and export — 2026-10-21
+
+On the development Mac. **Record audio** is chosen per session in Start session (on by default; the default is in Settings → Audio).
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 159 / 159 tests. `tests/recording.test.ts` covers the session-time ↔ file-position mapping, mixing overlapping sources with clipping, long gaps shortened to a one-second break, byte ranges that start or end inside a sample, crash recovery (including audio written after the last checkpoint), the per-session choice surviving a resume, and AAC export. |
+| Real run, isolated data folder | The English sample played through the file input at 8×, with a pause and a resume. Playback matched the source file sample for sample before the pause, and the resumed run sat exactly 0.5 s later, matching the resume marker. |
+| Player | ▶ on a transcript line played from that line and highlighted it; a citation click moved the player and kept it paused. Range requests returned 206 with the right `Content-Range`; a range past the end returned 416. |
+| Export | A 9-minute meeting encoded to a 2.3 MB `.m4a` (AAC, 16 kHz mono, 32 kbit/s) in 0.6 s with `afconvert`. |
+| Crash | `kill -9` during a recording: after restart the session was marked interrupted, its WAV header was repaired, and all 32.5 s captured so far played back. |
+
+Not verified: playback and download inside the native Chumi.app (WKWebView) and on Windows.
+
+## Antigravity as a coding agent — 2026-10-13
+
+Antigravity CLI (`agy`) 1.3.4 on the development Mac. Details are in [agents.md](agents.md).
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 152 / 152 tests. The read check and **Continue in…** tests now include Antigravity. A new test covers Connect and Disconnect: the server entry is added and removed, the check-tool rule is added once, and the user's other settings and rules are kept. |
+| Real CLI, throwaway home | `agy mcp add` writes `~/.gemini/config/mcp_config.json`, replacing an earlier entry (and re-enabling it). Antigravity started Chumi's MCP server, got past its `server/discover` handshake, and listed all seven tools. The client name is `antigravity-client`. |
+| Real CLI, this Mac | Connected through Chumi's own code. The status is registered and up to date. Chumi's MCP server starts and reads the local meetings. |
+
+Not verified: **Test a real agent read** and a handoff with a signed-in Antigravity, which needs a Google sign-in. A stand-in model can't stand in here, because Antigravity offers gateway models no tools. Also not verified: the Antigravity desktop app (not installed), and the Settings card in the browser.
+
+## Speech services: ElevenLabs and Qwen3-ASR — 2026-10-13
+
+On the development Mac (Apple M5 Max, 64 GB). Details are in [transcription.md](transcription.md).
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 151 / 151 tests. 14 new tests run against a local stand-in server, covering request shapes, response parsing, refused context, a rejected key (never echoed back), fallback to Whisper, skipping the service during an outage, missing keys, and address checks. |
+| Settings | A non-Alibaba address for the cloud key, an unknown engine, and ElevenLabs without a saved key are all refused with HTTP 400. |
+| Self-hosted Qwen3-ASR, stand-in server | A 16-second clip through the file input went to the stand-in as `audio_url` data URLs, with the glossary as context, and was saved as two English lines. |
+| Fallback | With the server stopped, the same clip still started a session, and local Whisper (Large v3 Turbo) transcribed it in close agreement with the reference. The speech badge and the engine card name the unreachable server. |
+| Settings → Transcription | Checked in the browser preview: the four engines, the key fields, region and address, and the error shown in the active engine's card. |
+
+Not verified: real requests to ElevenLabs and Model Studio (no keys on this machine), and a real `qwen-asr-serve`.
+
 ## Windows desktop — 2026-10-13
 
 Development machine: Windows 11 build 26300, i9-12900H, RTX 3060 Laptop 6 GB, Node 24.21.0, whisper.cpp b5454 CUDA 12.4, Electron 44.7.0.

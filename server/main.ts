@@ -1,15 +1,20 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { extname, isAbsolute, join, normalize, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { Store, speakerFields } from './db.ts';
-import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool } from './paths.ts';
+import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool, which } from './paths.ts';
 import { deepMerge, log, uid } from './util.ts';
 import { WhisperServer } from './asr/whisper.ts';
+import { SpeechService } from './asr/speech.ts';
+import { ENGINE_NAMES, isKeyedEngine, isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId } from './asr/engines.ts';
 import { MODEL_CATALOG, ModelDownloader, benchmark, hardware, isInstalled, recommendModel } from './asr/models.ts';
 import { ProviderRegistry } from './ai/registry.ts';
 import { Assistant, publicOutput, type CatchupScope, type Selection } from './ai/assistant.ts';
 import { SessionManager, publicFrame } from './session/manager.ts';
+import { exportRecording, playbackInfo, recordingBytes, sessionRecording, type Recording } from './session/recording.ts';
 import { listWindows, requestScreenPermission, screenPermission } from './screen/watcher.ts';
 import { HotkeyAgent } from './hotkey.ts';
 import { MybotExporter } from './integrations/mybot.ts';
@@ -19,7 +24,7 @@ import { AGENTS, AgentIntegration, type AgentId } from './projects/agents.ts';
 import { AGENT_BILLING, AGENT_NAMES } from '../shared/agents.ts';
 import { chooseFolder, notify, openExternalUrl, openPrivacySettings, preferredLanguage } from './platform.ts';
 import { chumiLink, SERVER_INFO, workspaceExists } from './projects/evidence.ts';
-import { exportSession } from './export.ts';
+import { exportName, exportSession } from './export.ts';
 import { checkPermissions, listDevices } from './audio/capture.ts';
 import { storeKey, deleteKey } from './ai/anthropic-api.ts';
 import { readCompatibleKey, storeCompatibleKey, deleteCompatibleKey } from './ai/compatible-credentials.ts';
@@ -32,7 +37,7 @@ import type { CodexProvider } from './ai/codex.ts';
 import { EFFORTS, SOURCE_NAMES, isProviderId, normalizeLanguage, type Depth, type Effort, type Profile, type Settings } from './settings.ts';
 import { SpeakerService } from './speakers/service.ts';
 import { speakerRuntime } from './speakers/runtime.ts';
-import { discardSpeakerAudio, speakerAudioAvailable } from './speakers/audio.ts';
+import { discardSpeakerAudio, hasRecordedAudio, speakerAudioAvailable } from './speakers/audio.ts';
 import type { SpeakerCorrection } from '../shared/speakers.ts';
 import { DESKTOP } from './desktop.ts';
 
@@ -45,6 +50,9 @@ const store = new Store();
 store.failStaleOutputs();
 const settings0 = store.getSettings();
 const whisper = new WhisperServer({ model: settings0.asr.model, threads: settings0.asr.threads });
+/** Local Whisper can stand in for a speech service only when its program and the chosen model are installed. */
+const whisperUsable = () => !!which('whisper-server') && isInstalled(store.getSettings().asr.model);
+const speech = new SpeechService(whisper, () => store.getSettings().asr, whisperUsable);
 const registry = new ProviderRegistry(store);
 const downloader = new ModelDownloader();
 const localModelDownloader = new LocalModelDownloader({
@@ -60,7 +68,7 @@ function broadcast(event: string, data: unknown): void {
   for (const c of clients) c.write(msg);
 }
 const assistant = new Assistant(store, registry, broadcast);
-const manager = new SessionManager(store, whisper, assistant, broadcast);
+const manager = new SessionManager(store, speech, assistant, broadcast);
 assistant.visual = manager;
 manager.recoverOnBoot();
 
@@ -137,10 +145,11 @@ if (DESKTOP) process.on('message', (message: any) => { if (message?.type === 'de
 // Test servers (acceptance runs) must not grab the shortcut from the real app.
 if (!process.env.CHUMI_NO_HOTKEY) hotkey.configure(store.getSettings().quickStart.hotkey);
 registry.onStatus = (s) => broadcast('provider', s);
-whisper.on('state', (state, message) => broadcast('asr', { state, message }));
+speech.on('state', (state, message) => broadcast('asr', { state, message }));
+speech.on('fallback', (message) => broadcast('notice', { level: 'warning', code: 'asr_fallback', message }));
 downloader.on('progress', (d) => {
   broadcast('asr-download', d);
-  if (d.status === 'done' && d.id === store.getSettings().asr.model) void whisper.ensure().catch((e) => log('asr', (e as Error).message));
+  if (d.status === 'done' && d.id === store.getSettings().asr.model && speech.engine === 'whisper') void whisper.ensure().catch((e) => log('asr', (e as Error).message));
 });
 
 // ---------------------------------------------------------------- helpers
@@ -187,6 +196,7 @@ function sessionDetail(id: string) {
     live: manager.session?.id === id,
     handoff: handoffs.view(id),
     speakerView: speakers.view(id),
+    hasAudio: hasRecordedAudio(id),
   };
 }
 
@@ -240,6 +250,14 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   if (typeof next.ui.setupDismissed !== 'boolean') throw new HttpError(400, 'Invalid setup checklist setting');
   if (!/^https?:\/\/[^\s/]+(\/\S*)?$/.test(String(next.integrations.mybot.serverUrl))) throw new HttpError(400, 'The mybot address must start with http:// (for example http://127.0.0.1:8788).');
   if (!['simplified', 'original'].includes(next.asr.chineseScript)) throw new HttpError(400, 'Unknown Chinese script option');
+  if (!isSpeechEngine(next.asr.engine)) throw new HttpError(400, 'Unknown speech recognition engine.');
+  try {
+    next.asr.qwenCloud = { baseUrl: normalizeQwenCloudUrl(next.asr.qwenCloud.baseUrl), model: speechModelId(next.asr.qwenCloud.model) };
+    next.asr.qwenLocal = { baseUrl: normalizeLocalAsrUrl(next.asr.qwenLocal.baseUrl), model: speechModelId(next.asr.qwenLocal.model) };
+  } catch (error) { throw new HttpError(400, (error as Error).message); }
+  const speechConfig = (s: Settings) => JSON.stringify([s.asr.engine, s.asr.engine === 'qwen-cloud' ? s.asr.qwenCloud : s.asr.engine === 'qwen-local' ? s.asr.qwenLocal : null]);
+  const speechChanged = speechConfig(before) !== speechConfig(next);
+  if (speechChanged && (manager.status === 'recording' || manager.status === 'paused')) throw new HttpError(409, 'End the current session before changing the speech recognition engine.');
   if (typeof next.asr.diarization !== 'boolean') throw new HttpError(400, 'Speaker labeling must be enabled or disabled.');
   if (before.asr.diarization !== next.asr.diarization) {
     if (manager.status !== 'idle') throw new HttpError(409, 'End the current session before changing speaker labeling.');
@@ -253,6 +271,7 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   catch (error) { throw new HttpError(400, (error as Error).message); }
   if (before.assist.autoExplain !== next.assist.autoExplain) assistant.setAutoExplain(next.assist.autoExplain);
   if (before.asr.model !== next.asr.model || before.asr.threads !== next.asr.threads) whisper.configure({ model: next.asr.model, threads: next.asr.threads });
+  if (speechChanged) speech.configure();
   if (before.quickStart.hotkey !== next.quickStart.hotkey && !process.env.CHUMI_NO_HOTKEY) hotkey.configure(next.quickStart.hotkey);
   if (next.integrations.mybot.enabled && (before.integrations.mybot.shareWithTeam !== next.integrations.mybot.shareWithTeam || !before.integrations.mybot.enabled || before.integrations.mybot.exportDir !== next.integrations.mybot.exportDir)) mybot.exportAll();
   if (before.ai.provider !== next.ai.provider || JSON.stringify(before.ai) !== JSON.stringify(next.ai)) void registry.status(true).catch(() => {});
@@ -315,7 +334,8 @@ route('POST', '/api/session/start', async (req) => {
   const projectId = b.project_id ? String(b.project_id) : null;
   if (projectId && !store.getProject(projectId)) throw new HttpError(400, 'Unknown project');
   if (manager.status !== 'idle') throw new HttpError(409, 'A session is already active. End it first.');
-  const s = await manager.start({ title: String(b.title ?? '').slice(0, 200), type, source, filePath: b.filePath, speed: Math.min(16, Math.max(0.5, Number(b.speed ?? 1))), window: win, projectId });
+  const recordAudio = typeof b.record_audio === 'boolean' ? b.record_audio : undefined;
+  const s = await manager.start({ title: String(b.title ?? '').slice(0, 200), type, source, filePath: b.filePath, speed: Math.min(16, Math.max(0.5, Number(b.speed ?? 1))), window: win, projectId, recordAudio });
   return { session: s };
 });
 route('POST', '/api/session/quick-start', async () => {
@@ -357,7 +377,7 @@ route('POST', '/api/sessions/:id/resume', async (req, _res, p) => {
   return manager.state();
 });
 
-route('GET', '/api/sessions', (_req, _res, _p, url) => ({ sessions: store.listSessions(url.searchParams.get('q') ?? undefined, url.searchParams.get('project') || undefined) }));
+route('GET', '/api/sessions', (_req, _res, _p, url) => ({ sessions: store.listSessions(url.searchParams.get('q') ?? undefined, url.searchParams.get('project') || undefined).map((s) => ({ ...s, has_audio: hasRecordedAudio(s.id) })) }));
 route('GET', '/api/sessions/:id', (_req, _res, p) => sessionDetail(p.id));
 route('PATCH', '/api/sessions/:id', async (req, _res, p) => {
   const b = await readJson(req);
@@ -383,6 +403,45 @@ route('DELETE', '/api/sessions/:id', async (_req, _res, p) => {
   mybot.remove(p.id);
   broadcast('session-deleted', { id: p.id });
   return { ok: true };
+});
+
+// ---------------------------------------------------------------- recorded audio
+function recordingOf(id: string): Recording {
+  if (!store.getSession(id)) throw new HttpError(404, 'Session not found');
+  if (manager.session?.id === id) throw new HttpError(409, 'End the session to play or export its audio.');
+  let rec: Recording | null;
+  try { rec = sessionRecording(id); }
+  catch (error) { throw new HttpError(500, `The audio recording cannot be read: ${(error as Error).message}`); }
+  if (!rec) throw new HttpError(404, 'This session has no audio recording.');
+  return rec;
+}
+/** The recording as a WAV, mixed on the fly; byte ranges let the player seek. */
+async function sendRecording(req: IncomingMessage, res: ServerResponse, rec: Recording, headers: Record<string, string>): Promise<void> {
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+  const partial = !!range && !!(range[1] || range[2]);
+  let from = 0, to = rec.bytes;
+  if (partial) {
+    if (range[1]) { from = Number(range[1]); if (range[2]) to = Math.min(rec.bytes, Number(range[2]) + 1); }
+    else from = Math.max(0, rec.bytes - Number(range[2]));
+    if (from >= to) { res.writeHead(416, { 'content-range': `bytes */${rec.bytes}` }); res.end(); return; }
+  }
+  res.writeHead(partial ? 206 : 200, { 'content-type': 'audio/wav', 'accept-ranges': 'bytes', 'content-length': String(to - from), ...(partial ? { 'content-range': `bytes ${from}-${to - 1}/${rec.bytes}` } : {}), ...headers });
+  // The player routinely stops reading partway through a range.
+  await pipeline(Readable.from(recordingBytes(rec, from, to)), res).catch(() => {});
+}
+route('GET', '/api/sessions/:id/audio/info', (_req, _res, p) => playbackInfo(recordingOf(p.id)));
+// The URL carries the recording's version, so a resumed meeting's longer recording is never served from cache.
+route('GET', '/api/sessions/:id/audio', async (req, res, p) => { await sendRecording(req, res, recordingOf(p.id), { 'cache-control': 'private, max-age=86400' }); return undefined; });
+/** Prepares the download (AAC encoding can take a few seconds for a long meeting) so the UI can show progress. */
+route('POST', '/api/sessions/:id/audio/export', async (_req, _res, p) => ({ ext: (await exportRecording(p.id, recordingOf(p.id))).ext }));
+route('GET', '/api/sessions/:id/audio/export', async (req, res, p) => {
+  const rec = recordingOf(p.id);
+  const file = await exportRecording(p.id, rec);
+  const headers = { 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`${exportName(store.getSession(p.id)!)}.${file.ext}`)}`, 'cache-control': 'no-store' };
+  if (!file.path) { await sendRecording(req, res, rec, headers); return undefined; }
+  res.writeHead(200, { 'content-type': 'audio/mp4', 'content-length': String(statSync(file.path).size), ...headers });
+  await pipeline(createReadStream(file.path), res).catch(() => {});
+  return undefined;
 });
 
 route('GET', '/api/speakers/runtime', () => speakerRuntime());
@@ -505,7 +564,7 @@ route('POST', '/api/handoffs/:id/continue', async (req, _res, p) => {
   return { prompt, launched, handoff: handoffs.view(h.session_id) };
 });
 
-// ---------------------------------------------------------------- coding agent connection (Claude Code, Codex, opencode, Qwen Code)
+// ---------------------------------------------------------------- coding agent connection (Claude Code, Codex, opencode, Qwen Code, Antigravity)
 const isAgent = (a: string): a is AgentId => AGENTS.includes(a as AgentId);
 route('GET', '/api/agents', async () => {
   const [local, ...statuses] = await Promise.all([agents.localCheck(), ...AGENTS.map((a) => agents.status(a))]);
@@ -577,7 +636,7 @@ route('GET', '/api/asr/models', () => {
 });
 route('POST', '/api/asr/setup', () => {
   const id = store.getSettings().asr.model;
-  if (isInstalled(id)) void whisper.ensure().catch((e) => log('asr', (e as Error).message));
+  if (isInstalled(id)) void speech.ensure().catch((e) => log('asr', (e as Error).message));
   else void downloader.start(id).catch((e) => log('asr', (e as Error).message));
   return { id, download: downloader.current };
 });
@@ -595,10 +654,33 @@ route('DELETE', '/api/asr/models/:id', (_req, _res, p) => {
 });
 route('POST', '/api/asr/benchmark', async () => {
   if (manager.status === 'recording') throw new HttpError(409, 'Pause or end the session first; the test would compete with live transcription.');
-  return { model: store.getSettings().asr.model, results: await benchmark(whisper) };
+  return { model: speech.engine === 'whisper' ? store.getSettings().asr.model : speech.label, results: await benchmark(speech) };
+});
+route('GET', '/api/asr/engines', async () => ({
+  keys: { elevenlabs: await speech.hasKey('elevenlabs'), 'qwen-cloud': await speech.hasKey('qwen-cloud') }, fallback: whisperUsable(),
+}));
+route('POST', '/api/asr/engines/:id/key', async (req, _res, p) => {
+  if (!isKeyedEngine(p.id)) throw new HttpError(404, 'This speech engine has no API key.');
+  const b = await readJson(req);
+  if (typeof b.key !== 'string') throw new HttpError(400, 'An API key is required.');
+  try { await speech.saveKey(p.id, b.key.trim()); }
+  catch (error) { throw new HttpError(400, (error as Error).message); }
+  return { stored: true };
+});
+route('DELETE', '/api/asr/engines/:id/key', async (_req, _res, p) => {
+  if (!isKeyedEngine(p.id)) throw new HttpError(404, 'This speech engine has no API key.');
+  if (store.getSettings().asr.engine === p.id && manager.status !== 'idle') throw new HttpError(409, 'End the current session before removing this key.');
+  await speech.deleteKey(p.id);
+  return { stored: false };
 });
 route('GET', '/api/settings', () => store.getSettings());
-route('PUT', '/api/settings', async (req) => applySettingsPatch(await readJson(req)));
+route('PUT', '/api/settings', async (req) => {
+  const patch = await readJson(req);
+  // Keys are read asynchronously, so check before the synchronous settings update.
+  const engine = patch.asr?.engine;
+  if (isKeyedEngine(engine) && engine !== store.getSettings().asr.engine && !(await speech.hasKey(engine))) throw new HttpError(400, `Save your ${ENGINE_NAMES[engine]} API key first.`);
+  return applySettingsPatch(patch);
+});
 route('GET', '/api/profile', () => store.getProfile());
 route('PUT', '/api/profile', async (req) => {
   const b = await readJson(req) as Partial<Profile>;
@@ -749,7 +831,7 @@ server.listen(PORT, HOST, () => {
   log('server', `Chumi listening on http://${HOST}:${PORT}  (data: ${DATA_DIR})`);
   // Where agents' "open in Chumi" links should point (read by the MCP server).
   try { writeFileSync(SERVER_INFO, JSON.stringify({ url: `http://${HOST}:${PORT}`, pid: process.pid, startedAt: Date.now() })); } catch { /* links are optional */ }
-  void whisper.ensure().catch((e) => log('asr', `not ready: ${(e as Error).message}`));
+  void speech.ensure().catch((e) => log('asr', `not ready: ${(e as Error).message}`));
   void registry.status(true).catch(() => {});
 });
 setInterval(() => { void registry.status(true).catch(() => {}); }, 90_000).unref();

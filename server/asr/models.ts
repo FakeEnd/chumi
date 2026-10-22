@@ -8,7 +8,7 @@ import { pipeline } from 'node:stream/promises';
 import { DATA_DIR, MODELS_DIR, REPO_ROOT } from '../paths.ts';
 import { toSimplified } from './clean.ts';
 import { readWav } from '../audio/wav.ts';
-import type { WhisperServer } from './whisper.ts';
+import type { SpeechService } from './speech.ts';
 
 /** whisper.cpp ggml models (MIT), from the official repository on Hugging Face. */
 const BASE_URL = process.env.CHUMI_MODEL_BASE_URL || 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
@@ -128,8 +128,8 @@ function say(voice: string, text: string, out: string): Promise<void> {
 
 export interface BenchResult { lang: 'en' | 'zh'; audioSec: number; ms: number; realtimeFactor: number; accuracy: number; text: string }
 
-/** Transcribe two short synthetic clips (English, Mandarin) with the active model; report speed and a rough accuracy. */
-export async function benchmark(whisper: WhisperServer): Promise<BenchResult[]> {
+/** Transcribe two short synthetic clips (English, Mandarin) with the active engine; report speed and a rough accuracy. */
+export async function benchmark(speech: Pick<SpeechService, 'transcribe' | 'engine'>): Promise<BenchResult[]> {
   const dir = join(DATA_DIR, 'bench');
   mkdirSync(dir, { recursive: true });
   const out: BenchResult[] = [];
@@ -140,8 +140,8 @@ export async function benchmark(whisper: WhisperServer): Promise<BenchResult[]> 
     if (!references && !existsSync(file)) await say(BENCH[lang].voice, BENCH[lang].text, file);
     const samples = readWav(file);
     const audioSec = samples.length / 16000;
-    await whisper.transcribe(samples.subarray(0, 8000), { language: lang }); // warm-up
-    const r = await whisper.transcribe(samples, { language: lang });
+    if (speech.engine === 'whisper') await speech.transcribe(samples.subarray(0, 8000), { language: lang }); // warm-up; a service would bill it
+    const r = await speech.transcribe(samples, { language: lang, fallback: false });
     const text = lang === 'zh' ? toSimplified(r.text) : r.text;
     out.push({ lang, audioSec, ms: r.ms, realtimeFactor: audioSec / Math.max(0.001, r.ms / 1000), accuracy: Math.round(textAccuracy(text, references?.[lang] ?? BENCH[lang].text) * 100), text });
   }

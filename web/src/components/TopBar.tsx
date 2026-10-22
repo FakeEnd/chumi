@@ -6,7 +6,8 @@ import { SessionTypeSelect } from './SessionTypes.tsx';
 import { fmtT, sourceLabel } from '../util.ts';
 import { locale, msg, t } from '../i18n.ts';
 import type { Depth } from '../types.ts';
-import { IconBolt, IconClock, IconGear, IconSpark, IconUser, IconWindow } from './icons.tsx';
+import { IconBolt, IconClock, IconGear, IconSpark, IconUser, IconWave, IconWindow } from './icons.tsx';
+import { AudioPlayer } from './AudioPlayer.tsx';
 
 export const DEPTH_LABEL: Record<Depth, string> = { quick: msg('Quick'), standard: msg('Standard'), deep: msg('Deep') };
 
@@ -54,11 +55,13 @@ export function ProviderBadge() {
 
 function AsrBadge() {
   const asr = useStore((s) => s.live?.asr);
+  const local = useStore((s) => s.settings?.asr.engine ?? 'whisper') === 'whisper';
   if (!asr) return null;
   const label = asr.state === 'ready' ? `${t('Speech')}${asr.latencyMs ? ` · ${(asr.latencyMs / 1000).toFixed(1)}s` : ''}${asr.backlogSec > 3 ? ` · ${t('{n}s behind', { n: asr.backlogSec })}` : ''}`
-    : asr.state === 'starting' ? t('Speech: loading…') : asr.state === 'missing_model' || asr.state === 'missing_binary' ? t('Speech: not installed') : asr.state === 'error' ? t('Speech: restarting…') : t('Speech: idle');
+    : asr.state === 'starting' ? t('Speech: loading…') : asr.state === 'missing_model' || asr.state === 'missing_binary' ? t('Speech: not installed')
+    : asr.state === 'missing_key' ? t('Speech: API key needed') : asr.state === 'error' ? local ? t('Speech: restarting…') : t('Speech: service error') : t('Speech: idle');
   const cls = asr.state === 'ready' ? (asr.backlogSec > 10 ? 'badge warn' : 'badge ok') : asr.state === 'starting' || asr.state === 'stopped' ? 'badge muted' : 'badge bad';
-  return <span className={`${cls} speech-badge`} aria-label={label} title={asr.message ?? t('Local speech recognition (whisper.cpp). No audio leaves this computer.')}><span className="dot" /><span className="badge-label">{label}</span></span>;
+  return <span className={`${cls} speech-badge`} aria-label={label} title={asr.message ?? (local ? t('Local speech recognition (whisper.cpp). No audio leaves this computer.') : t('A speech service transcribes the meeting (Settings → Transcription).'))}><span className="dot" /><span className="badge-label">{label}</span></span>;
 }
 
 /** Tier 1: brand, session, recording controls, status, navigation. */
@@ -134,6 +137,8 @@ export function SessionToolbar() {
   if (!data || !settings) return null;
   const status = live?.status ?? 'idle';
   const isLive = live?.session?.id === data.session.id && (status === 'recording' || status === 'paused');
+  // While a session is starting or ending its audio is still being written; the player waits until it is saved.
+  const active = live?.session?.id === data.session.id && status !== 'idle';
   const src = live?.source ?? settings.audio.source;
   return (
     <div className="toolbar">
@@ -144,11 +149,13 @@ export function SessionToolbar() {
             {(src === 'mic' || src === 'both') && <Meter label={t('Mic')} source="mic" />}
             {(src === 'system' || src === 'both') && <Meter label={t('Computer')} source="system" />}
             {src === 'file' && <Meter label={t('File')} source="file" />}
+            {!!data.session.record_audio && <span className="tag tag-muted audio-tag" title={t('This meeting’s audio is saved on this computer, so you can play it back and export it after it ends.')}><IconWave width={11} height={11} /> {t('Saving audio')}</span>}
             <button className={`btn small ${live?.screen ? 'win-on' : ''}`} onClick={() => setState({ dialog: 'window' })} title={t('Capture a window (slides, shared screen, video)')}>
               <IconWindow width={14} height={14} /> {live?.screen ? `${live.screen.app}${live.screen.frames ? ` · ${live.screen.frames}` : ''}` : t('Capture window')}
             </button>
           </>
-        ) : <span className="muted small">{t('Saved session · ask questions, explain passages or regenerate the summary')}</span>}
+        ) : data.hasAudio && !active ? <AudioPlayer key={data.session.id} sessionId={data.session.id} />
+          : <span className="muted small">{t('Saved session · ask questions, explain passages or regenerate the summary')}</span>}
       </div>
       <div className="toolbar-right">
         <label className="switch" title={t('Automatically show short background cards for unfamiliar concepts')}>

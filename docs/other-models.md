@@ -1,0 +1,18 @@
+# Other models: local or API
+
+Chumi normally uses your ChatGPT or Claude plan. This page covers the alternative: a local model server or a compatible API. Back to the [README](../README.md#choose-an-ai).
+
+Presets cover **Qwen, Doubao, MiniMax, GLM, Ollama, LM Studio**, and a **custom compatible API**. These use a compatible Chat Completions endpoint; a preset supplies a starting URL, not a model or subscription entitlement.
+
+1. Open **Settings → AI provider** and select **Other models: local or API**. Choose **Ollama** or **LM Studio** to automatically read the local service's model list, then select a model. No model ID is needed to discover models. If the service cannot be reached or lists no models, follow the installation, startup, or download guidance and click **Refresh models**. Remote API presets still use the exact model or deployment ID from the provider console.
+2. Explicitly enable the profile, including permission to charge your provider account for a remote API, then **Save model settings**. Each preset keeps its own profile. Save or discard edits before managing a key or testing.
+3. Save an API key if needed. Keys live in **macOS Keychain**, separately for each preset and endpoint. Optionally click **Test with a short generation**: it sends synthetic text, no meeting content, and can incur a charge.
+4. Once saved, the selected model is used for new requests. Discovery only reads model metadata; it does not generate answers, download models, or send meeting content. Connection URLs, optional local API keys, and advanced model options are available in expandable sections.
+
+Before downloading, the local presets show **models for this computer** using the detected chip, total memory, home-volume disk space, and selected transcription model. Compare approximate download sizes and estimated runtime memory for specific Qwen3 quantizations. Recommendations reserve room for macOS, other apps, and Chumi transcription; longer context lengths increase the estimate. The context selector only changes the estimate, so configure the same context length in your model manager. This is capacity guidance, not a speed benchmark or a guarantee. Recommendations work before the model service is installed or started. See [estimation assumptions and sources](local-model-advice.md).
+
+Images are off by default; enable them only when the model and endpoint support them, and also enable **Send screen captures** in Screen settings. Structured output defaults to prompt-only; select JSON object/schema mode only if supported. Chumi does not send its reasoning-effort controls to compatible endpoints.
+
+Install and start Ollama or LM Studio first, then click **Download recommended model** in Chumi. Downloads show progress, continue while Settings is closed, and refresh the model list on completion. Ollama supports cancellation and retry in Chumi; LM Studio 0.4+ uses its native download API, with pause/cancel managed in LM Studio. If its model is not listed after downloading, enable Just-In-Time loading or load it in Developer. Downloading does not automatically select or load the model. Choose it from the list and save your settings.
+
+Configure enough context capacity for meeting excerpts, notes and answers; Chumi does not set the server's context window. A local server can route externally, so check its configuration. Compatible inference requests have no automatic retry or provider fallback. API quota remains unknown; check your provider's billing console and terms rather than assuming a chat subscription includes API access.

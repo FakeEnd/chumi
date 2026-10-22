@@ -7,8 +7,11 @@
  *   node scripts/demo-shoot.ts --project-folder DIR  # also shoot the agent loop: a reviewed handoff, and an answer
  *                                                    # that uses the earlier agent sessions in DIR (through mybot)
  *   node scripts/demo-shoot.ts --only agent --project-folder DIR   # just those two screenshots (about 3 AI requests)
+ *   node scripts/demo-shoot.ts --prepare-agent --project-folder DIR
+ *       # step one of the agent loop: a confirmed handoff for DIR, its "Continue" prompt and a kept data folder, so a
+ *       # real coding agent can continue it through Chumi's MCP server before the screenshots are taken
  *
- * Plays a synthetic sample lab meeting (fictional people, macOS text-to-speech; see samples/) through a
+ * Plays a synthetic sample NLP lab meeting (fictional people, macOS text-to-speech; see samples/) through a
  * throwaway server with an empty data folder (3× speed, real local Whisper), with a fictional demo profile.
  * It asks a few real AI questions, injects one rendered slide as a window capture, and screenshots the UI
  * with headless Chrome (Chrome DevTools Protocol, no extra dependencies). Nothing from your own sessions,
@@ -27,51 +30,52 @@ const PROVIDER = args.includes('--provider') ? args[args.indexOf('--provider') +
 const LANG: 'en' | 'zh' = args.includes('--lang') && args[args.indexOf('--lang') + 1] === 'zh' ? 'zh' : 'en';
 const OUT = join(ROOT, 'docs/assets/screens', LANG === 'zh' ? 'zh' : '');
 // English uses the all-English sample; 中文 uses the original, where one speaker mixes Mandarin and English.
-const SAMPLE_DIR = join(ROOT, LANG === 'zh' ? 'samples/lab-meeting' : 'samples/lab-meeting-en');
-const SAMPLE = join(SAMPLE_DIR, LANG === 'zh' ? 'lab-meeting.wav' : 'lab-meeting-en.wav');
+const SAMPLE_DIR = join(ROOT, LANG === 'zh' ? 'samples/llm-meeting' : 'samples/llm-meeting-en');
+const SAMPLE = join(SAMPLE_DIR, LANG === 'zh' ? 'llm-meeting.wav' : 'llm-meeting-en.wav');
 // The agent loop scenes: a project folder where Claude Code / Codex already worked on this meeting's handoff
 // (mybot must be running and have indexed those sessions for the project-context answer).
-const ONLY_AGENT = args.includes('--only') && args[args.indexOf('--only') + 1] === 'agent';
+const PREPARE = args.includes('--prepare-agent');
+const ONLY_AGENT = PREPARE || (args.includes('--only') && args[args.indexOf('--only') + 1] === 'agent');
 const PROJECT_FOLDER = args.includes('--project-folder') ? resolve(args[args.indexOf('--project-folder') + 1]) : null;
-if (ONLY_AGENT && !PROJECT_FOLDER) throw new Error('--only agent needs --project-folder');
+if (ONLY_AGENT && !PROJECT_FOLDER) throw new Error('--only agent and --prepare-agent need --project-folder');
 
 /** Everything the run types or asks, per language. */
 const L = {
   en: {
-    title: 'Lab meeting: enhancer model',
-    project: 'Enhancer model',
-    pcQ: 'What did the agent plan for split_peaks and the noise ceiling?',
-    q1: 'Why does the PI think the GATA result might be a batch artifact?',
+    title: 'Lab meeting: citation model',
+    project: 'Citation model',
+    pcQ: 'What did the agent find in our judge code, and what does it need before the length-matched rerun?',
+    q1: 'Why does the PI think the DPO gain might be judge bias?',
     slideQ: 'Explain what is shown on this slide and how it relates to what the speakers are saying.',
     explanation: 'English',
     profile: {
-      background: 'Computer science undergraduate, now a first-year PhD student in bioinformatics.',
-      researchInterests: 'Machine learning for gene regulation; sequence-to-function models.',
+      background: 'Linguistics undergraduate, now a first-year PhD student in NLP.',
+      researchInterests: 'Grounded question answering; how language models use evidence.',
       domains: [
-        { name: 'Programming', level: 4 }, { name: 'Machine learning', level: 3 }, { name: 'Statistics', level: 2 },
-        { name: 'Genomics', level: 1 }, { name: 'Wet-lab techniques', level: 0, notes: 'Do not assume any protocol knowledge.' },
+        { name: 'Linguistics', level: 4 }, { name: 'Programming', level: 3 }, { name: 'Statistics', level: 3 },
+        { name: 'Machine learning', level: 2 }, { name: 'LLM training', level: 1 }, { name: 'GPU systems', level: 0, notes: 'Do not assume any hardware knowledge.' },
       ],
-      knownConcepts: ['neural network', 'cross-validation', 'attention'],
-      needsBackground: ['experimental assay design', 'count models'],
+      knownConcepts: ['tokenization', 'embeddings', 'cross-validation'],
+      needsBackground: ['preference optimization', 'GPU memory'],
       style: 'Concise. Intuition first, then the mechanism.',
     },
   },
   zh: {
-    title: '组会：增强子模型',
-    project: '增强子模型',
-    pcQ: '之前的 agent 对 split_peaks 和 noise ceiling 有什么计划？',
-    q1: '为什么 PI 觉得 GATA 的结果可能是批次效应？',
+    title: '组会：引用模型',
+    project: '引用模型',
+    pcQ: '之前的 agent 在我们的 judge 代码里发现了什么问题？做 length matching 重跑之前还需要什么？',
+    q1: '为什么 PI 觉得 DPO 的提升可能是 judge 的偏差？',
     slideQ: '解释这张幻灯片上的内容，以及它和发言内容的关系。',
     explanation: 'Simplified Chinese',
     profile: {
-      background: '计算机本科，现在是生物信息学一年级博士生。',
-      researchInterests: '基因调控的机器学习；序列到功能模型。',
+      background: '语言学本科，现在是 NLP 方向一年级博士生。',
+      researchInterests: '有依据的问答；语言模型如何使用证据。',
       domains: [
-        { name: '编程', level: 4 }, { name: '机器学习', level: 3 }, { name: '统计学', level: 2 },
-        { name: '基因组学', level: 1 }, { name: '湿实验技术', level: 0, notes: '不要假设我了解任何实验流程。' },
+        { name: '语言学', level: 4 }, { name: '编程', level: 3 }, { name: '统计学', level: 3 },
+        { name: '机器学习', level: 2 }, { name: '大模型训练', level: 1 }, { name: 'GPU 系统', level: 0, notes: '不要假设我了解任何硬件知识。' },
       ],
-      knownConcepts: ['neural network', 'cross-validation', 'attention'],
-      needsBackground: ['实验设计', '计数模型'],
+      knownConcepts: ['tokenization', 'embeddings', 'cross-validation'],
+      needsBackground: ['偏好优化', '显存'],
       style: '简洁。先讲直觉，再讲机制。',
     },
   },
@@ -114,7 +118,7 @@ const W = 1360, H = 860;
 // The agent-only run screenshots nothing live, so it can play faster and let transcription catch up at the end.
 const SPEED = ONLY_AGENT ? 6 : 3;
 // Vocabulary hints for this meeting's jargon (Settings → Transcription), as a user would add them.
-const GLOSSARY = ['GATA', 'GATA1', 'GATA motif', 'MPRA', 'lentiMPRA', 'E-box', 'CUT&Tag', 'gapped k-mer', 'barcode', 'Poisson', 'negative binomial', 'erythroid'];
+const GLOSSARY = ['DPO', 'LLM judge', 'KV cache', 'citation precision', 'citation recall', 'preference pairs', 'self-preference', 'length bias', 'paired bootstrap', "Cohen's kappa", 'n-gram overlap', 'preprint', 'annotation guidelines'];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = (...a: unknown[]) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...a);
 
@@ -147,8 +151,8 @@ class Page {
     const id = ++this.id;
     return new Promise((r) => { this.waiting.set(id, r); this.ws.send(JSON.stringify({ id, method, params })); });
   }
-  async eval(expr: string): Promise<any> {
-    const r = await this.send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true });
+  async eval(expr: string, userGesture = false): Promise<any> {
+    const r = await this.send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true, userGesture });
     return r.result?.result?.value;
   }
   async measure(sel: string, textRe?: string): Promise<number[] | null> {
@@ -174,23 +178,27 @@ class Page {
 }
 
 const SLIDE_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;width:1280px;height:720px;font-family:-apple-system,Helvetica;background:#fff;display:flex;flex-direction:column">
-<div style="background:#1e3a5f;color:#fff;padding:34px 56px;font-size:40px;font-weight:700">MPRA validation design</div>
+<div style="background:#1e3a5f;color:#fff;padding:34px 56px;font-size:40px;font-weight:700">Evaluation plan: citation model</div>
 <div style="display:flex;flex:1;padding:36px 56px;gap:40px">
  <ul style="font-size:28px;line-height:1.6;color:#1b2033;flex:1;margin:0">
-  <li>~1,500 candidate enhancer variants</li><li>Barcodes per variant: <b>100 vs 200?</b></li><li>3 biological replicates</li>
-  <li>Counts → <b>negative binomial</b> model</li><li>FDR 5% (Benjamini–Hochberg)</li><li>Chromosome-level hold-out for the model</li></ul>
- <svg width="440" height="420" viewBox="0 0 440 420"><text x="220" y="26" font-size="20" text-anchor="middle" fill="#334">Activity (log2 RNA/DNA)</text>
+  <li>~1,000 questions from papers <b>after the training cutoff</b></li><li>n-gram overlap check against preprints</li><li>3 raters per answer, Cohen's κ</li>
+  <li>Human study: <b>500 vs 1,000?</b></li><li>Paired bootstrap, 95% CI</li><li>LLM judge: secondary metric only</li></ul>
+ <svg width="440" height="420" viewBox="0 0 440 420"><text x="220" y="26" font-size="20" text-anchor="middle" fill="#334">Citation precision (3 seeds)</text>
   <line x1="50" y1="380" x2="420" y2="380" stroke="#889"/><line x1="50" y1="40" x2="50" y2="380" stroke="#889"/>
-  ${Array.from({ length: 40 }, (_, i) => `<circle cx="${60 + (i * 9.1) % 350}" cy="${360 - ((i * 37) % 290)}" r="6" fill="${i % 5 === 0 ? '#e0552b' : '#4f46e5'}" opacity=".75"/>`).join('')}
-  <text x="235" y="408" font-size="18" text-anchor="middle" fill="#334">Model prediction</text></svg>
-</div><div style="padding:0 56px 24px;color:#889;font-size:18px">Lab meeting · validation plan (preliminary)</div></body></html>`;
+  ${[['SFT', 61, '#f59e0b'], ['DPO', 74, '#4f46e5'], ['DPO, length-matched', null, '#c7cbe0']].map(([label, v, c], i) => `<rect x="${85 + i * 115}" y="${v ? 380 - (v as number) * 4.2 : 160}" width="80" height="${v ? (v as number) * 4.2 : 220}" fill="${c}" ${v ? '' : 'stroke="#889" stroke-dasharray="6 5"'}/><text x="${125 + i * 115}" y="${v ? 370 - (v as number) * 4.2 : 150}" font-size="22" text-anchor="middle" fill="#223">${v ? `${v}%` : '?'}</text><text x="${125 + i * 115}" y="405" font-size="${i === 2 ? 14 : 18}" text-anchor="middle" fill="#334">${label}</text>`).join('')}
+ </svg>
+</div><div style="padding:0 56px 24px;color:#889;font-size:18px">Lab meeting · evaluation plan (preliminary)</div></body></html>`;
 
 async function main(): Promise<void> {
   if (!CHROME) throw new Error('Google Chrome or Microsoft Edge is needed for screenshots.');
   if (!existsSync(SAMPLE)) throw new Error(`Missing ${SAMPLE}. Run: node scripts/make-sample.mjs --script ${join(SAMPLE_DIR, 'script.json')}`);
   mkdirSync(OUT, { recursive: true });
-  // Scene timing comes from the sample's manifest, so both samples line up.
-  const lines = JSON.parse(readFileSync(join(SAMPLE_DIR, 'manifest.json'), 'utf8')).lines as Array<{ startMs: number; endMs: number }>;
+  // Scene timing comes from the sample's manifest, so both samples line up. Anchors are tags or lines that are the
+  // same in both versions (only Wei's lines differ).
+  const lines = JSON.parse(readFileSync(join(SAMPLE_DIR, 'manifest.json'), 'utf8')).lines as Array<{ startMs: number; endMs: number; text: string; tags: string[] }>;
+  const lineOf = (re: RegExp) => { const l = lines.find((x) => re.test(x.text)); if (!l) throw new Error(`no sample line matches ${re}`); return l; };
+  const topic = lines.findIndex((l) => l.tags.includes('topic_change'));
+  const debateEnd = lines.slice(0, topic).filter((l) => l.tags.includes('disagreement')).at(-1)!;
   const regions: Record<string, Record<string, unknown>> = {};
   const server: ChildProcess = spawn(process.execPath, [join(ROOT, 'server/main.ts')], { env: { ...process.env, CHUMI_DEV: '1', CHUMI_NO_HOTKEY: '1', CHUMI_DATA_DIR: DATA, PORT: String(PORT) }, stdio: 'ignore' });
   const stop = () => { chrome.kill('SIGTERM'); server.kill('SIGTERM'); setTimeout(() => { if (!process.env.KEEP_DATA) rmSync(DATA, { recursive: true, force: true }); process.exit(130); }, 1500); };
@@ -215,7 +223,7 @@ async function main(): Promise<void> {
     execFileSync('/usr/bin/sips', ['-s', 'format', 'jpeg', slidePng, '--out', slideJpg], { stdio: 'ignore' });
 
     const project = PROJECT_FOLDER ? (await api('/api/projects', { name: L.project, workspace: PROJECT_FOLDER })).project : null;
-    const { session } = await api('/api/session/start', { title: L.title, type: 'lab_meeting', source: 'file', filePath: SAMPLE, speed: SPEED, project_id: project?.id });
+    const { session } = await api('/api/session/start', { title: L.title, type: 'lab_meeting', source: 'file', filePath: SAMPLE, speed: SPEED, project_id: project?.id, record_audio: true });
     const sid = session.id;
     const lastT = async () => (await api(`/api/sessions/${sid}`)).segments.at(-1)?.t_end ?? 0;
     const segWith = async (re: RegExp) => (await api(`/api/sessions/${sid}`)).segments.find((s: any) => re.test(s.text));
@@ -227,14 +235,14 @@ async function main(): Promise<void> {
     };
 
     if (!ONLY_AGENT) {
-    // Scene 1 — live: catch-up on the GATA disagreement, an explanation, a question.
-    await until(async () => (await lastT()) > lines[51].endMs, 400000, 'transcript past the GATA debate');
+    // Scene 1 — live: catch-up on the judge-bias disagreement, an explanation, a question.
+    await until(async () => (await lastT()) > debateEnd.endMs, 400000, 'transcript past the judge-bias debate');
     await api('/api/session/pause', {});
     log('scene 1: asking');
-    const mpra = await segWith(/MPRA/);
+    const dpo = await segWith(/DPO/);
     const ids1 = [
       (await api('/api/ai/ask', { sessionId: sid, question: L.q1, depth: 'standard' })).id,
-      (await api('/api/ai/explain', { sessionId: sid, term: 'MPRA', selection: mpra ? { fromT: mpra.t_start, toT: mpra.t_end, text: mpra.text } : null, depth: 'quick' })).id,
+      (await api('/api/ai/explain', { sessionId: sid, term: 'DPO', selection: dpo ? { fromT: dpo.t_start, toT: dpo.t_end, text: dpo.text } : null, depth: 'quick' })).id,
       (await api('/api/ai/recap', { sessionId: sid })).id,
     ];
     for (const id of ids1) await done(id);
@@ -249,10 +257,10 @@ async function main(): Promise<void> {
     };
 
     // Scene 2 — window capture: a slide from the shared screen, explained.
-    await until(async () => (await lastT()) > lines[67].endMs, 300000, 'transcript past the barcode discussion');
+    await until(async () => (await lastT()) > lineOf(/fix the comparisons in advance/).endMs, 300000, 'transcript past the statistics plan');
     await api('/api/session/pause', {});
     log('scene 2: slide');
-    const frame = await api('/api/dev/inject-frame', { sessionId: sid, path: slideJpg, t: lines[61].startMs + 11_000 });
+    const frame = await api('/api/dev/inject-frame', { sessionId: sid, path: slideJpg, t: lines[topic + 1].endMs });
     const ids2 = [
       (await api('/api/ai/recap', { sessionId: sid })).id,
       (await api('/api/ai/ask', { sessionId: sid, question: L.slideQ, depth: 'standard', frameIds: [frame.id] })).id,
@@ -263,15 +271,15 @@ async function main(): Promise<void> {
     await shotSession('window-capture');
     regions.win = {
       thumb: await page.measure('.slides .thumb'), card: await page.measure('.card-answer'),
-      hl: await page.measure('.card-answer', '10,000|10000|1,500|1500|一万|万'),
+      hl: await page.measure('.card-answer', '1,000|1000|500|一千|五百|cutoff|截止'),
     };
 
     // Scene 3 — an explanation pitched to the profile (English, or 中文 with English terms kept).
-    await until(async () => (await lastT()) > lines[84].startMs + 10_000, 300000, 'transcript past the count-model discussion');
+    await until(async () => (await lastT()) > lineOf(/eight passages for the main results/).endMs, 300000, 'transcript past the compute plan');
     await api('/api/session/pause', {});
     log('scene 3: explain');
-    const nb = await segWith(/negative binomial/i);
-    const ex = (await api('/api/ai/explain', { sessionId: sid, term: 'negative binomial model', selection: nb ? { fromT: nb.t_start, toT: nb.t_end, text: nb.text } : null, depth: 'standard' })).id;
+    const kv = await segWith(/KV/i);
+    const ex = (await api('/api/ai/explain', { sessionId: sid, term: 'KV cache', selection: kv ? { fromT: kv.t_start, toT: kv.t_end, text: kv.text } : null, depth: 'standard' })).id;
     await done(ex);
     await shotSession('explain');
     regions.explain = { card: await page.measure('.card-explain') };
@@ -286,6 +294,37 @@ async function main(): Promise<void> {
     if (!ONLY_AGENT) {
       await shotSession('summary', true);
       regions.sum = { card: await page.measure('.card-final_summary'), ref: await page.measure('.card-final_summary .ref') };
+
+      // Scene 4b — listen again: the saved session's recording, playing from a transcript line.
+      log('scene 4b: playback');
+      await page.goto(`${B}/?session=${sid}`); await page.waitFor('.audio-player audio');
+      const played = await page.eval(`(async () => {
+        const row = [...document.querySelectorAll('.seg[data-id]')].find((r) => /for the record|not confirmed|没有确认|未确认|不是定论/i.test(r.textContent)) ?? document.querySelectorAll('.seg[data-id]')[12];
+        row.scrollIntoView({ block: 'center' });
+        row.querySelector('.play').click();
+        const a = document.querySelector('.audio-player audio');
+        for (let i = 0; i < 40 && !(a.currentTime > 1.5); i++) await new Promise((r) => setTimeout(r, 100));
+        a.pause();
+        return { t: a.currentTime, playing: !!document.querySelector('.seg.playing') };
+      })()`, true);
+      log('playback', played);
+      await sleep(600);
+      await page.shot('playback');
+      regions.playback = { player: await page.measure('.audio-player'), row: await page.measure('.seg.playing') };
+    }
+
+    if (project && PREPARE) {
+      // Step one of the agent loop: confirm every drafted item, then hand the prompt to a real coding agent.
+      log('preparing the agent loop: handoff');
+      await api(`/api/sessions/${sid}/handoff`, {});
+      const h = await until(async () => { const r = (await api(`/api/sessions/${sid}/handoff`)).handoff; return r && r.status !== 'generating' ? r : null; }, 300000, 'handoff draft');
+      if (h.status === 'error') throw new Error(`handoff draft failed: ${h.error}`);
+      for (const item of h.items) await api(`/api/handoff-items/${item.id}`, { review: 'confirmed' }, 'PATCH');
+      await api(`/api/handoffs/${h.id}/confirm`, {});
+      const { prompt } = await api(`/api/handoffs/${h.id}/continue`, { agent: 'copy' });
+      writeFileSync(join(DATA, 'handoff-prompt.md'), prompt);
+      log(`handoff ${h.id} confirmed with ${h.items.length} items.\n  data folder (kept): ${DATA}\n  prompt: ${join(DATA, 'handoff-prompt.md')}`);
+      return;
     }
 
     if (project) {
@@ -341,6 +380,7 @@ async function main(): Promise<void> {
     await page.goto(`${B}/`);
     await page.waitFor('.recent-list li');
     await page.shot('home');
+    regions.home = { recent: await page.measure('.recent-list li') };
     }
 
     // An agent-only run keeps the boxes measured by the last full run.
@@ -352,7 +392,7 @@ async function main(): Promise<void> {
     chrome.kill('SIGTERM');
     server.kill('SIGTERM');
     await sleep(1500);
-    if (!process.env.KEEP_DATA) rmSync(DATA, { recursive: true, force: true });
+    if (!process.env.KEEP_DATA && !PREPARE) rmSync(DATA, { recursive: true, force: true });
   }
 }
 

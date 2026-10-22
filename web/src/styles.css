@@ -110,6 +110,17 @@ button.badge { cursor: pointer; }
 .seg .ts { border: none; background: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; cursor: pointer; padding: 3px 0 0; align-self: start; }
 .seg .ts:hover { color: var(--accent); }
 .seg.partial .txt { color: var(--partial); font-style: italic; }
+.seg.playing { background: var(--accent-2); }
+/* Saved sessions with a recording: a play button before each line's time. */
+.transcript.playable .seg { grid-template-columns: 64px 1fr; position: relative; }
+.seg .play { position: absolute; left: 2px; top: 6px; display: grid; place-items: center; border: none; background: none; color: var(--accent); cursor: pointer; padding: 2px; border-radius: 4px; opacity: 0; }
+.seg:hover .play, .seg.playing .play, .seg .play:focus-visible { opacity: 1; }
+.audio-player { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.audio-player .play-btn { width: 30px; justify-content: center; }
+.audio-seek { width: clamp(120px, 22vw, 320px); padding: 0; border: none; background: none; accent-color: var(--accent); }
+.audio-time { min-width: 96px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.audio-speed { padding: 2px 4px; font-size: 12px; }
+.tag.audio-tag { display: inline-flex; align-items: center; gap: 3px; }
 .src-tag { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--accent); background: var(--accent-2); border-radius: 4px; padding: 0 4px; margin-right: 6px; }
 .speakers-panel { flex: none; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; font-size: 13px; }
 .speakers-panel > summary { cursor: pointer; }
@@ -400,6 +411,8 @@ section h3 { font-size: 13px; margin: 14px 0 6px; }
 .model-list { list-style: none; margin: 6px 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .model-row { display: flex; gap: 12px; align-items: center; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
 .model-row.active { border-color: var(--accent); background: var(--accent-2); }
+.key-row { align-items: center; }
+.key-row input { flex: 1; min-width: 14em; }
 .model-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .model-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .model-stats { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); align-items: center; }

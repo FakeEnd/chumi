@@ -1,17 +1,13 @@
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
 import type { FrameRow, Store, SessionRow, SegmentRow } from '../db.ts';
-import { AUDIO_DIR } from '../paths.ts';
 import { fmtT, log, now, similarity, uid } from '../util.ts';
 import { FileCapture, HelperCapture, type AudioInput, type SourceName } from '../audio/capture.ts';
 import { Segmenter, type Utterance } from '../audio/vad.ts';
 import { Transcriber, type FinalPiece } from '../asr/transcriber.ts';
-import type { WhisperServer } from '../asr/whisper.ts';
+import type { SpeechService } from '../asr/speech.ts';
 import type { Assistant, Broadcast } from '../ai/assistant.ts';
 import type { AudioSourceMode, SessionType } from '../settings.ts';
-import { WavWriter } from './wavwriter.ts';
 import { ScreenWatcher } from '../screen/watcher.ts';
-import { SpeakerRecorder } from '../speakers/audio.ts';
+import { SpeakerRecorder, recoverOpenTakes } from '../speakers/audio.ts';
 
 export type LiveStatus = 'idle' | 'starting' | 'recording' | 'paused' | 'ending';
 
@@ -20,13 +16,12 @@ interface Run {
   input: AudioInput;
   offsetMs: number;            // session-time of the input clock's zero
   segmenters: Map<SourceName, Segmenter>;
-  writers: Map<SourceName, WavWriter>;
   restarts: number;
-  speakers: SpeakerRecorder | null;
-  rawId: string;
+  /** Timed audio: the session's recording (retained) or a temporary copy for speaker analysis. */
+  recorder: SpeakerRecorder | null;
 }
 
-export interface StartOptions { title: string; type: SessionType; source: AudioSourceMode | 'file'; filePath?: string; speed?: number; window?: { id: number; title?: string; app?: string } | null; projectId?: string | null }
+export interface StartOptions { title: string; type: SessionType; source: AudioSourceMode | 'file'; filePath?: string; speed?: number; window?: { id: number; title?: string; app?: string } | null; projectId?: string | null; recordAudio?: boolean }
 
 /**
  * Owns the live session: audio input → per-source segmenter → transcriber → persisted segments.
@@ -34,7 +29,7 @@ export interface StartOptions { title: string; type: SessionType; source: AudioS
  */
 export class SessionManager {
   private store: Store;
-  private whisper: WhisperServer;
+  private speech: SpeechService;
   private assistant: Assistant;
   private broadcast: Broadcast;
   status: LiveStatus = 'idle';
@@ -61,13 +56,13 @@ export class SessionManager {
 
   invalidateDeferredSummary(sessionId: string): void { this.pendingSpeakerSummaries.delete(sessionId); }
 
-  constructor(store: Store, whisper: WhisperServer, assistant: Assistant, broadcast: Broadcast) {
-    this.store = store; this.whisper = whisper; this.assistant = assistant; this.broadcast = broadcast;
+  constructor(store: Store, speech: SpeechService, assistant: Assistant, broadcast: Broadcast) {
+    this.store = store; this.speech = speech; this.assistant = assistant; this.broadcast = broadcast;
     this.transcriber = this.makeTranscriber();
   }
 
   private makeTranscriber(): Transcriber {
-    const t = new Transcriber(this.whisper, () => {
+    const t = new Transcriber(this.speech, () => {
       const s = this.store.getSettings();
       const sessionTerms = this.session ? this.store.explainedTerms(this.session.id).map((x) => x.term) : [];
       return { language: s.asr.language, glossary: [...s.asr.glossary, ...sessionTerms], chineseScript: s.asr.chineseScript };
@@ -88,9 +83,11 @@ export class SessionManager {
     return t;
   }
 
-  /** Mark sessions left open by a crash/quit as interrupted, with a recorded gap marker. */
+  /** Mark sessions left open by a crash/quit as interrupted, with a recorded gap marker; keep the audio captured so far. */
   recoverOnBoot(): void {
     for (const s of this.store.openSessions()) {
+      try { if (recoverOpenTakes(s.id)) log('session', `recovered the audio of ${s.id}`); }
+      catch (e) { log('session', `could not recover the audio of ${s.id}: ${(e as Error).message}`); }
       const lastT = Math.max(this.store.lastSegment(s.id)?.t_end ?? 0, s.duration_ms, (s.last_activity_at ?? s.started_at ?? s.created_at) - (s.started_at ?? s.created_at));
       this.store.updateSession(s.id, { status: 'interrupted', duration_ms: Math.max(s.duration_ms, lastT) });
       this.store.addTimeline(s.id, lastT, 'interrupted', 'The app stopped while recording. Transcript saved up to this point.');
@@ -115,7 +112,7 @@ export class SessionManager {
       levels: this.lastLevels,
       partials: Object.fromEntries(this.partials),
       warnings: this.warnings.slice(-5),
-      asr: { state: this.whisper.state, message: this.whisper.message, latencyMs: this.whisper.lastLatencyMs, backlogSec: Math.round(this.transcriber.backlogSec), pending: this.transcriber.pendingFinals },
+      asr: { state: this.speech.state, message: this.speech.message, latencyMs: this.speech.lastLatencyMs, backlogSec: Math.round(this.transcriber.backlogSec), pending: this.transcriber.pendingFinals },
       file: this.fileOpts,
       droppedDuplicates: this.droppedDuplicates,
       screen: this.screen && this.screen.status !== 'stopped' ? { windowId: this.screen.windowId, title: this.screen.title, app: this.screen.app, status: this.screen.status, frames: this.screen.frameCount, lastCaptureAt: this.screen.lastCaptureAt } : null,
@@ -135,13 +132,13 @@ export class SessionManager {
     if (this.status !== 'idle') throw new Error('A session is already active. End it first.');
     this.status = 'starting'; this.emitState();
     try {
-      await this.whisper.ensure();
+      await this.speech.ensure();
     } catch (e) {
       this.status = 'idle'; this.emitState();
       throw new Error(`Speech recognition is not ready: ${(e as Error).message}`);
     }
     const id = uid('s_');
-    this.session = this.store.createSession({ id, title: o.title || `Session ${new Date().toLocaleString()}`, type: o.type, audio_source: o.source });
+    this.session = this.store.createSession({ id, title: o.title || `Session ${new Date().toLocaleString()}`, type: o.type, audio_source: o.source, record_audio: o.recordAudio ?? this.store.getSettings().audio.saveRawAudio });
     if (o.projectId) { this.store.assignSession(id, o.projectId); this.session = this.store.getSession(id)!; }
     this.source = o.source;
     this.fileOpts = o.source === 'file' && o.filePath ? { path: o.filePath, speed: o.speed ?? 1, posSec: 0 } : null;
@@ -172,8 +169,9 @@ export class SessionManager {
     } else {
       input = new HelperCapture({ source: this.source, micDeviceUid: s.audio.micDeviceUid, aec: s.audio.aec });
     }
-    const run: Run = { index: ++this.runCount, input, offsetMs, segmenters: new Map(), writers: new Map(), restarts: 0,
-      rawId: uid(), speakers: s.asr.diarization && this.session ? new SpeakerRecorder(this.session.id, s.audio.saveRawAudio) : null };
+    const retain = !!this.session?.record_audio;
+    const run: Run = { index: ++this.runCount, input, offsetMs, segmenters: new Map(), restarts: 0,
+      recorder: (retain || s.asr.diarization) && this.session ? new SpeakerRecorder(this.session.id, retain) : null };
     const seg = (src: SourceName): Segmenter => {
       let sg = run.segmenters.get(src);
       if (!sg) {
@@ -197,22 +195,13 @@ export class SessionManager {
         run.segmenters.delete(src);
         this.notice('warning', 'segmenter_reset', 'A transcription hiccup occurred; a fraction of a second of audio may be missing. Recording continues.');
       }
-      if (run.speakers) {
-        try { run.speakers.write(src, run.offsetMs + ts * 1000, samples); }
+      if (run.recorder) {
+        try { run.recorder.write(src, run.offsetMs + ts * 1000, samples); }
         catch (error) {
-          try { run.speakers.close(); } catch { /* Preserve transcription even if storage is full. */ }
-          run.speakers = null;
-          this.notice('warning', 'speaker_capture_failed', `Speaker audio could not be saved: ${(error as Error).message}`);
+          try { run.recorder.close(); } catch { /* Preserve transcription even if storage is full. */ }
+          run.recorder = null;
+          this.notice('warning', 'audio_capture_failed', `Audio could not be saved: ${(error as Error).message}. Transcription continues.`);
         }
-      }
-      if (s.audio.saveRawAudio && !s.asr.diarization && this.session) {
-        let w = run.writers.get(src);
-        if (!w) {
-          const dir = join(AUDIO_DIR, this.session.id); mkdirSync(dir, { recursive: true });
-          w = new WavWriter(join(dir, `run${run.index}-${run.rawId}-${src}.wav`));
-          run.writers.set(src, w);
-        }
-        w.write(samples);
       }
     });
     input.on('level', (src, rms, peak) => {
@@ -281,9 +270,8 @@ export class SessionManager {
     if (run.input instanceof FileCapture && this.fileOpts) this.fileOpts.posSec = run.input.positionSec;
     await run.input.stop();
     for (const sg of run.segmenters.values()) sg.flush();
-    for (const w of run.writers.values()) w.close();
-    try { run.speakers?.close(); }
-    catch (error) { this.notice('warning', 'speaker_capture_failed', `Speaker audio could not be saved: ${(error as Error).message}`); }
+    try { run.recorder?.close(); }
+    catch (error) { this.notice('warning', 'audio_capture_failed', `Audio could not be saved: ${(error as Error).message}`); }
     this.partials.clear();
   }
 
@@ -344,7 +332,7 @@ export class SessionManager {
     let resumed = false;
     try {
       await this.beforeResume?.(sessionId);
-      await this.whisper.ensure();
+      await this.speech.ensure();
       this.fileOpts = file ? { path: file.path, speed: file.speed, posSec: 0 } : null; this.warnings = []; this.transcriber.reset();
       const lastT = Math.max(s.duration_ms, this.store.lastSegment(s.id)?.t_end ?? 0);
       const offset = Math.max(now() - (s.started_at ?? s.created_at), lastT + 1000);
@@ -399,7 +387,7 @@ export class SessionManager {
     this.heartbeat = setInterval(() => {
       if (this.session && this.status === 'recording') {
         this.store.touchSession(this.session.id, this.nowT());
-        this.broadcast('tick', { nowT: this.nowT(), asr: { backlogSec: Math.round(this.transcriber.backlogSec), latencyMs: this.whisper.lastLatencyMs, state: this.whisper.state } });
+        this.broadcast('tick', { nowT: this.nowT(), asr: { backlogSec: Math.round(this.transcriber.backlogSec), latencyMs: this.speech.lastLatencyMs, state: this.speech.state } });
       }
     }, 2000);
   }

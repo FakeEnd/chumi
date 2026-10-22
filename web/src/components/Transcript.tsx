@@ -6,6 +6,8 @@ import { msg, t } from '../i18n.ts';
 import type { SpeakerView } from '../../../shared/speakers.ts';
 import type { Frame, Segment, TimelineEvent } from '../types.ts';
 import { SpeakerControl, SpeakersPanel } from './Speakers.tsx';
+import { playFrom } from './AudioPlayer.tsx';
+import { IconPlay } from './icons.tsx';
 
 type Item = { kind: 'seg'; seg: Segment } | { kind: 'mark'; ev: TimelineEvent } | { kind: 'frame'; f: Frame };
 
@@ -18,9 +20,10 @@ const MARK_TEXT: Record<string, (e: TimelineEvent) => string> = {
   window: (e) => t('{detail} (from {t})', { detail: e.detail ?? t('Window capture'), t: fmtT(e.t) }),
 };
 
-const Row = memo(function Row({ seg, hl, showSource, speakerView }: { seg: Segment; hl: boolean; showSource: boolean; speakerView?: SpeakerView }) {
+const Row = memo(function Row({ seg, hl, showSource, speakerView, playable, playing }: { seg: Segment; hl: boolean; showSource: boolean; speakerView?: SpeakerView; playable: boolean; playing: boolean }) {
   return (
-    <div className={`seg${hl ? ' hl' : ''}`} data-seg="" data-t={seg.t_start} data-tend={seg.t_end} lang={seg.lang === 'zh' ? 'zh-CN' : seg.lang ?? undefined}>
+    <div className={`seg${hl ? ' hl' : ''}${playing ? ' playing' : ''}`} data-seg="" data-id={seg.id} data-t={seg.t_start} data-tend={seg.t_end} lang={seg.lang === 'zh' ? 'zh-CN' : seg.lang ?? undefined}>
+      {playable && <button className="play" title={t('Play from here')} aria-label={t('Play from {t}', { t: fmtT(seg.t_start) })} onClick={() => playFrom(seg.t_start)}><IconPlay width={10} height={10} /></button>}
       <button className="ts" title={t('Attach this line to a question')} onClick={() => setState({ attached: { fromT: seg.t_start, toT: seg.t_end, text: seg.text } })}>{fmtT(seg.t_start)}</button>
       <span className="txt">
         {showSource && seg.source === 'system' && <span className="src-tag">{t('computer')}</span>}
@@ -38,7 +41,11 @@ export function Transcript() {
   const partials = useStore((s) => s.partials);
   const focus = useStore((s) => s.focus);
   const defaultDepth = useStore((s) => s.settings?.assist.defaultDepth ?? 'standard');
+  const playingSeg = useStore((s) => s.playingSeg);
   const isLive = !!data && live?.session?.id === data.session.id;
+  const playable = !isLive && !!data?.hasAudio;
+  /** Wheel, touch or keyboard scrolling pauses following the playback for a few seconds. */
+  const userScrollAt = useRef(0);
   const scroller = useRef<HTMLDivElement>(null);
   // Opened from an evidence link: start at the passage, not at the newest line.
   const [follow, setFollow] = useState(() => !getState().focus);
@@ -111,6 +118,18 @@ export function Transcript() {
     return () => clearTimeout(timer);
   }, [focus?.nonce]);
 
+  // Keep the line being heard in view, unless the reader just scrolled somewhere else.
+  useEffect(() => {
+    const host = scroller.current;
+    const el = playingSeg != null ? host?.querySelector(`[data-id="${playingSeg}"]`) : null;
+    if (!host || !el || Date.now() - userScrollAt.current < 4000) return;
+    const r = el.getBoundingClientRect(), h = host.getBoundingClientRect();
+    if (r.top >= h.top && r.bottom <= h.bottom) return;
+    setFollow(false);
+    jumpingUntil.current = Date.now() + 1200;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [playingSeg]);
+
   const onMouseUp = () => {
     const sel = window.getSelection();
     const text = sel?.toString().trim() ?? '';
@@ -132,12 +151,13 @@ export function Transcript() {
     <>
     <SpeakersPanel key={data.session.id} />
     <div className="transcript-wrap">
-      <div className="transcript" ref={scroller} onScroll={onScroll} onMouseUp={onMouseUp} role="log" aria-live="off" aria-label={t('Transcript')}>
+      <div className={`transcript${playable ? ' playable' : ''}`} ref={scroller} onScroll={onScroll} onMouseUp={onMouseUp} role="log" aria-live="off" aria-label={t('Transcript')}
+        onWheel={() => { userScrollAt.current = Date.now(); }} onTouchMove={() => { userScrollAt.current = Date.now(); }} onKeyDown={() => { userScrollAt.current = Date.now(); }}>
         {items.length === 0 && partialList.length === 0 && (
           <p className="empty-state">{isLive ? (live?.status === 'paused' ? t('Paused.') : t('Listening… the transcript appears here a second or two after speech.')) : t('No transcript in this session.')}</p>
         )}
         {items.map((it) => it.kind === 'seg'
-          ? <Row key={`s${it.seg.id}`} seg={it.seg} hl={hl.has(it.seg.id)} showSource={showSource} speakerView={data.speakerView} />
+          ? <Row key={`s${it.seg.id}`} seg={it.seg} hl={hl.has(it.seg.id)} showSource={showSource} speakerView={data.speakerView} playable={playable} playing={playingSeg === it.seg.id} />
           : it.kind === 'frame'
             ? <button key={`f${it.f.id}`} className="frame-marker" onClick={() => setState({ dialog: 'frame', frameView: it.f.id })} title={t('Screen changed here. Click to view.')}>
                 <span className="ts">{fmtT(it.f.t)}</span><img src={frameUrl(it.f.id)} alt="" loading="lazy" /><span className="muted small">{t('Screen changed')}</span>

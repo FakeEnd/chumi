@@ -78,7 +78,7 @@ const guard = async <T>(p: Promise<T>): Promise<T | undefined> => {
   try { return await p; } catch (e) { notify('error', (e as Error).message, 'action'); return undefined; }
 };
 
-export async function startSession(o: { title: string; type: string; source: string; filePath?: string; speed?: number; window?: { id: number; title: string; app: string } | null; project_id?: string | null }): Promise<boolean> {
+export async function startSession(o: { title: string; type: string; source: string; filePath?: string; speed?: number; window?: { id: number; title: string; app: string } | null; project_id?: string | null; record_audio?: boolean }): Promise<boolean> {
   if (o.source === 'mic' || o.source === 'both') {
     const perm = await api<Record<string, string>>('/api/audio/permissions').catch(() => ({} as Record<string, string>));
     if (perm.microphone === 'denied' || perm.microphone === 'restricted') {
@@ -133,6 +133,13 @@ export async function deleteSession(id: string): Promise<boolean> {
 /** Every session list (Home, History) reloads when this changes. */
 export const bumpSessions = () => setState((s) => ({ sessionsRev: s.sessionsRev + 1 }));
 export function exportUrl(id: string, format: 'md' | 'txt'): string { return `/api/sessions/${id}/export?format=${format}`; }
+/** Encoding a long recording takes a few seconds: prepare it first (with errors shown), then download it. */
+export async function exportAudio(id: string): Promise<void> {
+  if (!await guard(api(`/api/sessions/${id}/audio/export`, { body: {} }))) return;
+  const a = document.createElement('a');
+  a.href = `/api/sessions/${id}/audio/export`; a.download = '';
+  document.body.append(a); a.click(); a.remove();
+}
 export async function refreshProvider(): Promise<void> { const p = await guard(api('/api/provider/status?refresh=1')); if (p) setState({ provider: p }); }
 
 // Speaker updates replace annotations without resetting the viewed passage or attached question.
