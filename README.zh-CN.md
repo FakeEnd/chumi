@@ -24,7 +24,7 @@
     <a href="https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc"><img src="docs/assets/chumi-promo-zh-poster.jpg" width="760" alt="观看 59 秒 Chumi 介绍视频：NLP 组会中帮我跟上和按你的水平解释、从某一行回放录音、审核过的交接、Claude Code 通过 Chumi 的 MCP 服务接着干，以及下一个问题引用 agent 之前的会话"></a>
   </video>
 </p>
-<p align="center"><sub>▶ 59 秒介绍视频（有背景音乐）· <a href="https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d">English version</a> · 快剪版下载：<a href="docs/assets/chumi-promo-zh-1.5x.mp4">40 秒</a>、<a href="docs/assets/chumi-promo-zh-2x.mp4">30 秒</a></sub></p>
+<p align="center"><sub>▶ 59 秒介绍视频（有背景音乐）· 播放器打不开？<a href="https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc">直接打开视频</a> · <a href="https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d">English version</a> · 快剪版下载：<a href="docs/assets/chumi-promo-zh-1.5x.mp4">40 秒</a>、<a href="docs/assets/chumi-promo-zh-2x.mp4">30 秒</a></sub></p>
 
 ---
 
