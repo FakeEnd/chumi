@@ -118,7 +118,7 @@ function Delivery({ h }: { h: Handoff }) {
   );
 }
 
-/** The handoff as one toolbar button that shows its state; the dialog holds the items, warnings and delivery. */
+/** The handoff as one header button that shows its state; the dialog holds the items, warnings and delivery. */
 export function HandoffButton() {
   const data = useStore((s) => s.data);
   const live = useStore((s) => s.live);

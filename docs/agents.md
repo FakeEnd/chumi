@@ -40,7 +40,7 @@ If Chumi lives in `~/Documents`, macOS may ask once whether Terminal or the agen
 ## Use it
 
 1. **Assign the meeting.** Choose the project when you start a session, or later from the project menu in the top bar. Quick start never asks. A meeting belongs to at most one project, and a title or keyword never assigns it.
-2. **Prepare a handoff.** Click **Prepare handoff** in the toolbar above the assistant column once the meeting has content and is not recording. The same button then shows the handoff's state (drafting, items to review, confirmed) and opens it. Your AI provider drafts decisions, actions and open questions from the transcript, each with time citations. Items are labelled by origin:
+2. **Prepare a handoff.** Click **Prepare handoff** in the top bar (on a narrow window, the toolbar below it) once the meeting has content and is not recording. The same button then shows the handoff's state (drafting, items to review, confirmed) and opens it. Your AI provider drafts decisions, actions and open questions from the transcript, each with time citations. Items are labelled by origin:
    - **Agreed in the meeting:** someone committed to it, or the group agreed.
    - **Suggested, not agreed:** raised but not settled.
    - **Proposed by Chumi:** not said in the meeting. Acceptance checks are always Chumi's proposals.

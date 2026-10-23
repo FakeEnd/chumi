@@ -48,7 +48,8 @@ export function ProviderBadge() {
   const cls = p.state === 'ready' ? (p.billing === 'api' || p.billing === 'credits' || nearLimit ? 'badge warn' : 'badge ok') : p.state === 'quota_blocked' ? 'badge warn' : 'badge bad';
   const reset = p.quota.windows?.find((w) => w.usedPercent >= 100)?.resetsAt;
   const name = providerShort(p.label);
-  const text = p.state === 'ready' ? `${name} · ${billingWord(p.billing)}${nearLimit ? ` · ${t('{n}% used', { n: maxUsed })}` : ''}`
+  // The billing word can be hidden when the header is crowded; the tooltip keeps it.
+  const text = p.state === 'ready' ? <>{name}<span className="badge-extra"> · {billingWord(p.billing)}</span>{nearLimit ? ` · ${t('{n}% used', { n: maxUsed })}` : ''}</>
     : p.state === 'quota_blocked' ? `${t('AI paused: limit')}${reset ? ` · ${t('resets {date}', { date: new Date(reset).toLocaleDateString(locale(), { month: 'short', day: 'numeric' }) })}` : ''}`
     : p.state === 'signed_out' ? t('AI: not signed in') : p.state === 'disabled' ? t('AI: disabled') : t('AI: unavailable');
   return <button className={cls} title={`${p.label}\n${p.billingLabel}\n${p.quota.summary}${p.message ? `\n${p.message}` : ''}`} onClick={() => setState({ dialog: 'settings', settingsTab: 'ai' })}><span className="dot" /><span className="badge-label">{text}</span></button>;
@@ -79,7 +80,7 @@ export function TopBar() {
   const goHome = () => setState({ viewId: null, data: null, deltas: {}, focus: null, attached: null });
 
   return (
-    <header className="topbar">
+    <header className={`topbar ${data ? 'in-session' : ''}`}>
       <button className="brand" onClick={goHome} title={t('Home')}><img src="/logo.svg" alt="" /><span className="brand-name">Chumi</span></button>
       <div className="session-meta">
         {data ? (
@@ -115,6 +116,8 @@ export function TopBar() {
           )}
         </div>
 
+        <SessionActions />
+
         <div className="right">
           <AsrBadge />
           <ProviderBadge />
@@ -129,28 +132,25 @@ export function TopBar() {
   );
 }
 
-/** Tier 2 (session view): audio levels, window capture, and the assistance controls. */
-/** The session's AI actions, kept in the toolbar so the assistant column is left to questions and answers. */
-function SessionActions() {
+/** Catch-up and handoff for the open session, so the assistant column is left to questions and answers.
+ *  Rendered in the header next to the recording controls and in the toolbar; CSS shows the toolbar copy only when the header is too narrow. */
+function SessionActions({ sep }: { sep?: boolean }) {
   const data = useStore((s) => s.data);
-  const live = useStore((s) => s.live);
-  const [scope, setScope] = useState<'2m' | '5m' | 'all'>('2m');
+  const scope = useStore((s) => s.catchupScope);
   if (!data) return null;
-  const isLive = live?.session?.id === data.session.id;
-  const ended = data.session.status === 'ended' || data.session.status === 'interrupted';
-  const hasSummary = data.outputs.some((o) => o.kind === 'final_summary' && o.status !== 'error');
   return (
     <div className="session-actions">
       <button className="btn small catchup" onClick={() => catchup(scope)} disabled={!data.segments.length}>{t('Catch me up')}</button>
       <div className="seg-control small" role="group" aria-label={t('Catch-up scope')}>
-        {([['2m', msg('2 min'), msg('The last 2 minutes')], ['5m', msg('5 min'), msg('The last 5 minutes')], ['all', msg('So far'), msg('The whole session so far')]] as const).map(([k, l, tip]) => <button key={k} className={scope === k ? 'on' : ''} title={t(tip)} onClick={() => setScope(k)}>{t(l)}</button>)}
+        {([['2m', msg('2 min'), msg('The last 2 minutes')], ['5m', msg('5 min'), msg('The last 5 minutes')], ['all', msg('So far'), msg('The whole session so far')]] as const).map(([k, l, tip]) => <button key={k} className={scope === k ? 'on' : ''} title={t(tip)} onClick={() => setState({ catchupScope: k })}>{t(l)}</button>)}
       </div>
-      {!isLive && ended && !hasSummary && data.segments.length > 0 && <button className="btn small" onClick={() => summarize()}>{t('Generate final summary')}</button>}
       <HandoffButton />
+      {sep && <span className="toolbar-sep" aria-hidden="true" />}
     </div>
   );
 }
 
+/** Tier 2 (session view): audio levels, window capture, and the assistance controls. */
 export function SessionToolbar() {
   const live = useStore((s) => s.live);
   const data = useStore((s) => s.data);
@@ -162,6 +162,8 @@ export function SessionToolbar() {
   // While a session is starting or ending its audio is still being written; the player waits until it is saved.
   const active = live?.session?.id === data.session.id && status !== 'idle';
   const src = live?.source ?? settings.audio.source;
+  const ended = data.session.status === 'ended' || data.session.status === 'interrupted';
+  const canSummarize = live?.session?.id !== data.session.id && ended && data.segments.length > 0 && !data.outputs.some((o) => o.kind === 'final_summary' && o.status !== 'error');
   return (
     <div className="toolbar">
       <div className="toolbar-left">
@@ -180,8 +182,8 @@ export function SessionToolbar() {
           : <span className="muted small">{t('Saved session · ask questions, explain passages or regenerate the summary')}</span>}
       </div>
       <div className="toolbar-right">
-        <SessionActions />
-        <span className="toolbar-sep" aria-hidden="true" />
+        <SessionActions sep />
+        {canSummarize && <><button className="btn small" onClick={() => summarize()}>{t('Generate final summary')}</button><span className="toolbar-sep" aria-hidden="true" /></>}
         <label className="switch" title={t('Automatically show short background cards for unfamiliar concepts')}>
           <input type="checkbox" checked={settings.assist.autoExplain} onChange={(e) => saveSettings({ assist: { autoExplain: e.target.checked } })} />
           <span className="slider" /> <IconSpark width={13} height={13} /> {t('Auto-explain')}
