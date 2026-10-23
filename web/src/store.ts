@@ -42,12 +42,14 @@ export interface AppState {
   asrDownload: { id: string; received: number; total: number; status: string; error?: string } | null;
   /** Transcript line at the saved recording's playback position. */
   playingSeg: number | null;
+  /** Card tags (stripe colours) hidden in the assistant column; kept while the app is open. */
+  hiddenCards: string[];
 }
 
 let state: AppState = {
   connected: false, loaded: false, settings: null, profile: null, provider: null, live: null, liveReceivedAt: 0, levels: {}, partials: {},
   devMode: false, helperBuilt: false, platform: '', appMode: false, dataDir: '', samples: [], viewId: null, data: null, deltas: {}, notices: [],
-  dialog: null, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [], sessionsRev: 0, playingSeg: null,
+  dialog: null, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [], sessionsRev: 0, playingSeg: null, hiddenCards: [],
 };
 const listeners = new Set<() => void>();
 

@@ -118,34 +118,36 @@ function Delivery({ h }: { h: Handoff }) {
   );
 }
 
-export function HandoffBox() {
+/** The handoff as one toolbar button that shows its state; the dialog holds the items, warnings and delivery. */
+export function HandoffButton() {
   const data = useStore((s) => s.data);
   const live = useStore((s) => s.live);
   if (!data || !data.segments.length) return null;
   const h = data.handoff;
   const recording = live?.session?.id === data.session.id && live.status === 'recording';
-  const pending = h?.items.filter((i) => i.review === 'pending').length ?? 0;
-  const actions = h?.items.filter((i) => i.kind === 'action' && i.review === 'confirmed').length ?? 0;
+  if (!h) {
+    return (
+      <button className="btn small primary" disabled={recording} onClick={() => void prepareHandoff(data.session.id)}
+        title={recording ? t('When the meeting ends, turn its decisions and actions into a reviewed handoff for your coding agent.') : t('Turn this meeting\'s decisions and actions into a reviewed handoff for your coding agent.')}>{t('Prepare handoff')}</button>
+    );
+  }
+  if (h.status === 'generating') return <button className="btn small handoff-btn" disabled><span className="spinner" /> {t('Drafting…')}</button>;
+  if (h.status === 'error') return <button className="btn small handoff-btn" title={h.error ?? ''} onClick={() => void prepareHandoff(data.session.id)}><span className="tag tag-warn">{t('Failed')}</span> {t('Try again')}</button>;
+  const confirmed = h.status === 'confirmed';
+  const pending = h.items.filter((i) => i.review === 'pending').length;
+  const actions = h.items.filter((i) => i.kind === 'action' && i.review === 'confirmed').length;
+  const stale = confirmed && h.freshness.stale;
+  const tip = [
+    `${confirmed ? plural(actions, '{n} confirmed action', '{n} confirmed actions') : pending ? plural(pending, '{n} item to review', '{n} items to review') : t('All items reviewed.')}${h.project ? ` · ${h.project.name}` : ''}`,
+    h.project_mismatch ? t('The meeting moved to another project. Review the handoff again before using it.') : '',
+    stale ? `${t('The meeting changed since you confirmed:')} ${changes(h).join(' · ')}` : '',
+  ].filter(Boolean).join('\n');
   return (
-    <div className="handoff-box">
-      <div className="handoff-head">
-        <b>{t('Handoff to your project')}</b>
-        {h && <span className={`tag ${h.status === 'confirmed' ? 'tag-ok' : h.status === 'error' ? 'tag-warn' : ''}`}>{h.status === 'confirmed' ? t('Confirmed') : h.status === 'generating' ? t('Drafting…') : h.status === 'error' ? t('Failed') : t('Draft')}</span>}
-      </div>
-      {!h && <p className="small muted">{recording ? t('When the meeting ends, turn its decisions and actions into a reviewed handoff for your coding agent.') : t('Turn this meeting\'s decisions and actions into a reviewed handoff for your coding agent.')}</p>}
-      {h?.project_mismatch && <p className="small warn-text">{t('The meeting moved to another project. Review the handoff again before using it.')}</p>}
-      {h?.status === 'confirmed' && h.freshness.stale && <p className="small warn-text">{t('The meeting changed since you confirmed:')} {changes(h).join(' · ')}</p>}
-      {h?.status === 'error' && <p className="small error-text">{h.error}</p>}
-      {h && h.status !== 'generating' && h.status !== 'error' && (
-        <p className="small">{h.status === 'confirmed' ? plural(actions, '{n} confirmed action', '{n} confirmed actions') : pending ? plural(pending, '{n} item to review', '{n} items to review') : t('All items reviewed.')}{h.project ? ` · ${h.project.name}` : ''}</p>
-      )}
-      {h && <Delivery h={h} />}
-      <div className="btn-row">
-        {!h && <button className="btn small primary" disabled={recording} onClick={() => void prepareHandoff(data.session.id)}>{t('Prepare handoff')}</button>}
-        {h?.status === 'error' && <button className="btn small" onClick={() => void prepareHandoff(data.session.id)}>{t('Try again')}</button>}
-        {h && h.status !== 'generating' && <button className="btn small" onClick={() => setState({ dialog: 'handoff' })}>{h.status === 'confirmed' ? t('Open handoff') : t('Review')}</button>}
-      </div>
-    </div>
+    <button className="btn small handoff-btn" title={tip} onClick={() => setState({ dialog: 'handoff' })}>
+      {confirmed ? t('Open handoff') : t('Review handoff')}
+      {confirmed ? <span className="tag tag-ok">{t('Confirmed')}</span> : pending > 0 && <span className="tag">{pending}</span>}
+      {(h.project_mismatch || stale) && <span className="tag tag-warn" aria-label={t('Needs review')}>!</span>}
+    </button>
   );
 }
 

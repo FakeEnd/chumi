@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { setState, useStore } from '../store.ts';
-import { assignProject, endSession, openSession, pauseSession, quickStart, renameSession, resumeLive, saveProfile, saveSettings } from '../actions.ts';
+import { assignProject, catchup, endSession, openSession, pauseSession, quickStart, renameSession, resumeLive, saveProfile, saveSettings, summarize } from '../actions.ts';
 import { ProjectSelect } from './Projects.tsx';
 import { SessionTypeSelect } from './SessionTypes.tsx';
 import { fmtT, sourceLabel } from '../util.ts';
@@ -8,6 +8,7 @@ import { locale, msg, t } from '../i18n.ts';
 import type { Depth } from '../types.ts';
 import { IconBolt, IconClock, IconGear, IconSpark, IconUser, IconWave, IconWindow } from './icons.tsx';
 import { AudioPlayer } from './AudioPlayer.tsx';
+import { HandoffButton } from './Handoff.tsx';
 
 export const DEPTH_LABEL: Record<Depth, string> = { quick: msg('Quick'), standard: msg('Standard'), deep: msg('Deep') };
 
@@ -129,6 +130,27 @@ export function TopBar() {
 }
 
 /** Tier 2 (session view): audio levels, window capture, and the assistance controls. */
+/** The session's AI actions, kept in the toolbar so the assistant column is left to questions and answers. */
+function SessionActions() {
+  const data = useStore((s) => s.data);
+  const live = useStore((s) => s.live);
+  const [scope, setScope] = useState<'2m' | '5m' | 'all'>('2m');
+  if (!data) return null;
+  const isLive = live?.session?.id === data.session.id;
+  const ended = data.session.status === 'ended' || data.session.status === 'interrupted';
+  const hasSummary = data.outputs.some((o) => o.kind === 'final_summary' && o.status !== 'error');
+  return (
+    <div className="session-actions">
+      <button className="btn small catchup" onClick={() => catchup(scope)} disabled={!data.segments.length}>{t('Catch me up')}</button>
+      <div className="seg-control small" role="group" aria-label={t('Catch-up scope')}>
+        {([['2m', msg('2 min'), msg('The last 2 minutes')], ['5m', msg('5 min'), msg('The last 5 minutes')], ['all', msg('So far'), msg('The whole session so far')]] as const).map(([k, l, tip]) => <button key={k} className={scope === k ? 'on' : ''} title={t(tip)} onClick={() => setScope(k)}>{t(l)}</button>)}
+      </div>
+      {!isLive && ended && !hasSummary && data.segments.length > 0 && <button className="btn small" onClick={() => summarize()}>{t('Generate final summary')}</button>}
+      <HandoffButton />
+    </div>
+  );
+}
+
 export function SessionToolbar() {
   const live = useStore((s) => s.live);
   const data = useStore((s) => s.data);
@@ -158,6 +180,8 @@ export function SessionToolbar() {
           : <span className="muted small">{t('Saved session · ask questions, explain passages or regenerate the summary')}</span>}
       </div>
       <div className="toolbar-right">
+        <SessionActions />
+        <span className="toolbar-sep" aria-hidden="true" />
         <label className="switch" title={t('Automatically show short background cards for unfamiliar concepts')}>
           <input type="checkbox" checked={settings.assist.autoExplain} onChange={(e) => saveSettings({ assist: { autoExplain: e.target.checked } })} />
           <span className="slider" /> <IconSpark width={13} height={13} /> {t('Auto-explain')}
