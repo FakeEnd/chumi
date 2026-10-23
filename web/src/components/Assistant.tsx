@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { setState, useStore } from '../store.ts';
-import { ask, cancelOutput, catchup, explain, refreshOutput, summarize } from '../actions.ts';
+import { ask, cancelOutput, explain, refreshOutput } from '../actions.ts';
 import { fmtClock, fmtT, parseT } from '../util.ts';
 import { msg, plural, t } from '../i18n.ts';
 import { DEPTH_LABEL } from './TopBar.tsx';
 import { Markdown } from './Markdown.tsx';
 import { focusTime } from './Transcript.tsx';
 import type { Depth, Effort, Output } from '../types.ts';
-import { HandoffBox } from './Handoff.tsx';
 import { ProjectContextNote, ProjectContextSources, ProjectContextToggle } from './ProjectContext.tsx';
 import { splitCategory, type QuestionCategory } from '../../../shared/question-category.ts';
 
@@ -43,6 +42,14 @@ const CATEGORY_TAG: Record<QuestionCategory, { label: string; tip: string }> = {
   meeting: { label: msg('Meeting'), tip: msg('Chumi classified this question as about the meeting discussion') },
   tangent: { label: msg('Tangent'), tip: msg('Chumi classified this question as going beyond the meeting discussion') },
 };
+
+/** Filter chips above the cards, one per stripe colour. */
+const FILTERS: Array<{ key: Stripe; label: string; tip: string }> = [
+  { key: 'meeting', label: msg('Meeting'), tip: msg('Catch-ups and questions about the meeting discussion') },
+  { key: 'tangent', label: msg('Tangent'), tip: msg('Questions that go beyond the meeting discussion') },
+  { key: 'background', label: msg('Background'), tip: msg('Explanations and automatic background cards') },
+  { key: 'summary', label: msg('Summary'), tip: msg('The final summary') },
+];
 
 function stripeOf(o: Output, category: QuestionCategory | null): Stripe | null {
   switch (o.kind) {
@@ -187,10 +194,8 @@ function AskBox() {
 
 export function AssistantPanel() {
   const data = useStore((s) => s.data);
-  const live = useStore((s) => s.live);
   const depth = useStore((s) => s.settings?.assist.defaultDepth ?? 'standard');
-  const [scope, setScope] = useState<'2m' | '5m' | 'all'>('2m');
-  const isLive = !!data && live?.session?.id === data.session.id;
+  const hidden = useStore((s) => s.hiddenCards);
   const cards = useMemo(() => {
     if (!data) return [];
     const outs = data.outputs.filter((o) => ['catchup', 'answer', 'explain', 'auto_explain', 'final_summary'].includes(o.kind));
@@ -210,22 +215,28 @@ export function AssistantPanel() {
   const overrides = manual.current === currentId ? manual.open : {};
   const isOpen = (id: string) => overrides[id] ?? id === currentId;
   if (!data) return <aside className="assistant"><p className="muted pad">{t('No session open.')}</p></aside>;
-  const ended = data.session.status === 'ended' || data.session.status === 'interrupted';
-  const hasSummary = data.outputs.some((o) => o.kind === 'final_summary' && o.status !== 'error');
+  // The filter never hides the card you just asked for or one still being written, so a new answer cannot vanish.
+  const stripes = new Map(cards.map((o) => [o.id, stripeOf(o, o.data?.category ?? null)]));
+  const counts = new Map<Stripe, number>();
+  for (const k of stripes.values()) if (k) counts.set(k, (counts.get(k) ?? 0) + 1);
+  const shown = cards.filter((o) => o.id === currentId || o.status === 'pending' || o.status === 'streaming' || !hidden.includes(stripes.get(o.id) ?? ''));
+  const toggle = (k: Stripe) => setState({ hiddenCards: hidden.includes(k) ? hidden.filter((x) => x !== k) : [...hidden, k] });
   return (
     <aside className="assistant" aria-label={t('Assistant')}>
-      <div className="catchup-box">
-        <button className="btn catchup" onClick={() => catchup(scope)} disabled={!data.segments.length}>{t('Catch me up')}</button>
-        <div className="seg-control" role="group" aria-label={t('Catch-up scope')}>
-          {([['2m', msg('2 min'), msg('The last 2 minutes')], ['5m', msg('5 min'), msg('The last 5 minutes')], ['all', msg('So far'), msg('The whole session so far')]] as const).map(([k, l, tip]) => <button key={k} className={scope === k ? 'on' : ''} title={t(tip)} onClick={() => setScope(k)}>{t(l)}</button>)}
-        </div>
-      </div>
-      {!isLive && ended && !hasSummary && data.segments.length > 0 && <button className="btn small summary-btn" onClick={() => summarize()}>{t('Generate final summary')}</button>}
-      <HandoffBox />
       <AskBox />
+      {cards.length > 0 && (
+        <div className="card-filter" role="group" aria-label={t('Show cards by tag')}>
+          {FILTERS.filter((f) => counts.has(f.key) || hidden.includes(f.key)).map((f) => (
+            <button key={f.key} className={`filter-chip chip-${f.key}`} aria-pressed={!hidden.includes(f.key)} title={t(f.tip)} onClick={() => toggle(f.key)}>
+              <span className="dot" aria-hidden="true" />{t(f.label)}<span className="count">{counts.get(f.key) ?? 0}</span>
+            </button>
+          ))}
+          {shown.length < cards.length && <button className="link-btn small" onClick={() => setState({ hiddenCards: [] })}>{t('{n} hidden · Show all', { n: cards.length - shown.length })}</button>}
+        </div>
+      )}
       <div className="cards">
         {cards.length === 0 && <p className="muted pad small">{t('Answers, catch-ups and background cards appear here. They stay put while the transcript keeps moving. Use Refresh to update a catch-up.')}</p>}
-        {cards.map((o) => <OutputCard key={o.id} o={o} depth={depth} open={isOpen(o.id)} onToggle={() => setManual({ current: currentId, open: { ...overrides, [o.id]: !isOpen(o.id) } })} />)}
+        {shown.map((o) => <OutputCard key={o.id} o={o} depth={depth} open={isOpen(o.id)} onToggle={() => setManual({ current: currentId, open: { ...overrides, [o.id]: !isOpen(o.id) } })} />)}
       </div>
     </aside>
   );
