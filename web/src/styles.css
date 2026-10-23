@@ -85,7 +85,8 @@ button.badge { cursor: pointer; }
 .saved-banner { margin: 6px 14px 0; padding: 6px 10px; background: var(--panel-2); border-radius: 8px; font-size: 12px; color: var(--muted); display: flex; gap: 10px; align-items: center; }
 
 /* layout */
-.main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) clamp(320px, 34vw, 440px); gap: 12px; padding: 10px 14px 14px; min-height: 0; }
+/* The assistant column is what people read most, so it gets the larger share; the transcript stays readable at 340px. */
+.main { flex: 1; display: grid; grid-template-columns: minmax(340px, 5fr) minmax(400px, 7fr); gap: 12px; padding: 10px 14px 14px; min-height: 0; }
 .left { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 @media (max-width: 860px) { .main { grid-template-columns: 1fr; grid-template-rows: auto auto; overflow: auto; } .left { min-height: 72vh; } }
 
