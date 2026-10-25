@@ -154,7 +154,8 @@ macOS attributes privacy permissions to the *responsible* process:
 * Polls `/api/health` every 250 ms for up to 30 s, then loads `http://127.0.0.1:<port>/`. On failure
   it shows an alert with the log tail and offers Quit / Open Log / Try Again. If the server dies later,
   it offers Restart Server / Quit.
-* On quit: SIGTERM to the server, wait up to 3 s, then SIGKILL.
+* On quit: during a recording it asks first (Keep Recording / Save and Quit) and then shows "Saving the meeting…".
+  Off the main thread, it sends SIGTERM to the server, waits up to 12 s while the server saves, then sends SIGKILL.
 * WKWebView: Web Inspector enabled (right-click → Inspect Element); JS alert/confirm/prompt as NSAlert
   sheets; `target=_blank` / `window.open` and external links open in the default browser; `<input
   type=file>` via NSOpenPanel; downloads (attachment / non-displayable responses / `download` links /

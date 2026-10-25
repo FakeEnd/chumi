@@ -33,6 +33,13 @@ final class ServerManager: @unchecked Sendable {
 
     var baseURL: URL { URL(string: "http://127.0.0.1:\(port)/")! }
 
+    /// True while the server this app started is running (quitting then stops it).
+    var ownsRunningServer: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return ownsServer && process?.isRunning == true
+    }
+
     // MARK: - Paths
 
     var repoPath: String {
@@ -77,7 +84,12 @@ final class ServerManager: @unchecked Sendable {
 
     /// GET /api/health with a short timeout. Returns (HTTP status, parsed JSON object) or nil.
     static func health(port: Int, timeout: TimeInterval = 1.0) -> (Int, [String: Any]?)? {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/api/health") else { return nil }
+        get(port: port, path: "/api/health", timeout: timeout)
+    }
+
+    /// GET a JSON endpoint of the local server with a short timeout. Returns (HTTP status, parsed JSON object) or nil.
+    static func get(port: Int, path: String, timeout: TimeInterval) -> (Int, [String: Any]?)? {
+        guard let url = URL(string: "http://127.0.0.1:\(port)\(path)") else { return nil }
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
         req.httpMethod = "GET"
         let config = URLSessionConfiguration.ephemeral
@@ -240,7 +252,16 @@ final class ServerManager: @unchecked Sendable {
         return .failed("The Chumi server did not become ready within 30 seconds.\n\nLast lines of \(logURL.path):\n\n\(logTail())")
     }
 
-    /// SIGTERM the server we started, wait up to 3 s, then SIGKILL.
+    /// True if the server we started is recording a meeting. Asks with a short timeout; false if it does not answer.
+    func isRecording() -> Bool {
+        guard ownsRunningServer,
+              let live = ServerManager.get(port: port, path: "/api/state", timeout: 2)?.1?["live"] as? [String: Any] else { return false }
+        return live["status"] as? String == "recording"
+    }
+
+    /// SIGTERM the server we started, wait up to 12 s, then SIGKILL. The server needs up to ~9 s to save the
+    /// meeting's last transcript lines and close the database (`shutdown()` in server/main.ts); the Windows shell
+    /// waits 12 s too.
     func stop() {
         lock.lock()
         let p = process
@@ -249,7 +270,7 @@ final class ServerManager: @unchecked Sendable {
         guard ownsServer, let p, p.isRunning else { return }
         let pid = p.processIdentifier
         kill(pid, SIGTERM)
-        let deadline = Date().addingTimeInterval(3)
+        let deadline = Date().addingTimeInterval(12)
         while p.isRunning && Date() < deadline { usleep(50_000) }
         if p.isRunning {
             kill(pid, SIGKILL)
