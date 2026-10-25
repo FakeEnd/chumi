@@ -1,13 +1,13 @@
 # Continue meeting work in your coding agent
 
-Chumi connects a meeting to the project you work on with a coding agent: Claude Code, Codex, opencode, Qwen Code or Antigravity. You assign the meeting to a project, review a handoff of the work it implies, and continue in your agent. The agent reads the confirmed work and the original evidence through Chumi's local MCP server, so you don't paste the transcript or brief it again.
+Chumi connects a meeting to the project you work on with a coding agent: Codex app, Claude Code, Codex in Terminal, opencode, Qwen Code or Antigravity. Assign the meeting to a project, review a handoff of the work it implies, and choose where to continue. Codex app and **Copy instructions** work without a CLI or an MCP connection. Connecting Chumi's local MCP server also lets an agent fetch the original transcript passages and captures behind the handoff.
 
-This is the P0 scope of [project-integration-prd.md](project-integration-prd.md). Project briefs before a meeting, execution results and decision history (P1), and live access during a meeting (P2) are not built yet.
+The P0 handoff flow and part of P1 in [project-integration-prd.md](project-integration-prd.md) are implemented: manually maintained action progress and result links, plus a project brief with a saved agenda and recent meeting decisions. Automatic progress collection, a full decision history and live access during a meeting (P2) are not implemented.
 
 ## Set up
 
-1. **Create a project.** Go to **Settings → Projects**, give it a name, and choose its folder: the directory where you run your agent (`claude`, `codex`, `opencode`, `qwen` or `agy`). It does not need to be a Git repository; if it is, Chumi records the branch and remote.
-2. **Connect your agents.** In **Settings → Coding agents**, click **Connect** for each agent you use. This adds a server named `chumi` to the agent's user settings: `~/.claude.json`, `~/.codex/config.toml`, `~/.qwen/settings.json`, `~/.gemini/config/mcp_config.json` (Antigravity), or the `mcp` section of `~/.config/opencode/opencode.json`. opencode has no command for adding a local server, so Chumi edits that file itself. It does so only when the file is plain JSON, writes atomically, keeps the file's permissions, and leaves the previous version as `opencode.json.bak`. If the file has comments, Chumi leaves it alone and shows the entry to add. opencode also reads `opencode.jsonc`, which Chumi never changes. **Disconnect** removes the entry. The same tab shows the commands (and opencode's entry) if you prefer to do it yourself:
+1. **Create a project.** Go to **Settings → Projects**, give it a name, and choose its folder: the directory you want the agent to work in. It does not need to be a Git repository; if it is, Chumi records the branch and remote. For the default desktop destination, install Codex app so the operating system can open its `codex://` links; Chumi does not require the `codex` command or install software for you.
+2. **Optionally connect agents for MCP evidence access.** In **Settings → Coding agents**, click **Connect** for each CLI you use. This adds a server named `chumi` to the agent's user settings: `~/.claude.json`, `~/.codex/config.toml`, `~/.qwen/settings.json`, `~/.gemini/config/mcp_config.json` (Antigravity), or the `mcp` section of `~/.config/opencode/opencode.json`. This setup is separate from opening a handoff in Codex app or copying its instructions. opencode has no command for adding a local server, so Chumi edits that file itself. It does so only when the file is plain JSON, writes atomically, keeps the file's permissions, and leaves the previous version as `opencode.json.bak`. If the file has comments, Chumi leaves it alone and shows the entry to add. opencode also reads `opencode.jsonc`, which Chumi never changes. **Disconnect** removes the entry. The same tab shows the commands (and opencode's entry) if you prefer to do it yourself:
 
    ```bash
    claude mcp add --scope user chumi -- /opt/homebrew/bin/node /path/to/Chumi/server/mcp/main.ts
@@ -27,7 +27,7 @@ This is the P0 scope of [project-integration-prd.md](project-integration-prd.md)
 
    **Antigravity** means the Antigravity CLI, `agy`. Install it with `curl -fsSL https://antigravity.google/cli/install.sh | bash`, which puts `agy` in `~/.local/bin`. Then run `agy` once to sign in with your Google account. According to Google's documentation, the Antigravity desktop app reads the same `~/.gemini/config/mcp_config.json`, so connecting the CLI makes Chumi available there as well (not checked yet). Antigravity cannot ask for approval during a non-interactive run, so **Connect** also adds `mcp(chumi/chumi_connection_check)` to `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`. That pre-approves only the read check's tool: Antigravity still asks before any other Chumi tool. Chumi edits that file only when it is plain JSON, keeps your other settings and rules, and leaves `settings.json.bak`. **Disconnect** removes both entries.
 
-3. **Check the connection.** The tab reports four things separately, and shows "unknown" or "not verified" rather than guessing:
+3. **If using MCP, check the connection.** The tab reports four things separately, and shows "unknown" or "not verified" rather than guessing:
    - **Local:** Chumi starts its own MCP server and reads the database.
    - **Registered:** the agent's configuration contains Chumi, pointing at this copy of Chumi.
    - **Client health:** the agent's own server check (`claude mcp get`, `opencode mcp list`, `qwen mcp list`). Codex and Antigravity do not report one.
@@ -48,9 +48,30 @@ If Chumi lives in `~/Documents`, macOS may ask once whether Terminal or the agen
 
    Owners and deadlines are filled in only when someone stated them; otherwise they read "not stated". Citations that match no transcript line are dropped, and an item without evidence says so.
 3. **Review.** Edit, confirm or reject every item, then **Confirm handoff**. Only confirmed actions are requested work. Open questions travel as unresolved context, never as tasks. **Redraft** replaces only items you have not touched.
-4. **Continue.** **Continue in Claude Code** or **Continue in Codex** opens a Terminal window in the project folder running the agent with the confirmed work as its first message. Other installed agents (opencode, Qwen Code, Antigravity) are in the **Continue in another agent…** menu. Antigravity starts as `agy -i` with the handoff as its first message. **Copy instructions** gives the same text for an IDE, the desktop apps or another terminal. The agent looks at the project, proposes a plan and works under its own permission prompts.
+4. **Continue.** Choose a destination in **Continue in**, then click **Continue**. The default is **Codex app**; Chumi remembers your later choice in this browser or app profile.
 
-Chumi shows when a handoff was made available and when an agent read it. It never marks the work done: check that in the agent.
+   - **Codex app:** opens a `codex://new?path=…&prompt=…` deep link for the project folder, with a short instruction already in the composer. Review it in Codex and click **Send** to begin. Opening the link does not send the message or execute work. Chumi reports only that opening was requested, not that a conversation was created or the handoff was read. If opening fails, choose **Copy instructions**.
+   - **Codex in Terminal** and **Claude Code in Terminal:** open the CLI in the project folder with the handoff as its first message. Other installed agents (opencode, Qwen Code and Antigravity) remain available in the same selector. Antigravity starts as `agy -i`.
+   - **Copy instructions:** copies the handoff for an IDE, desktop app or another terminal. If clipboard access fails, Chumi shows selectable text to copy manually.
+
+Each Codex app launch saves a separate, immutable UTF-8 snapshot at `DATA_DIR/handoffs/<handoff-id>-codex-app-<random-token>.md`, written atomically with mode `0600` (owner-only POSIX permissions). Only the absolute file path, handoff ID and short instruction go into the deep link, so long handoffs do not make long URLs. Sending an older prepared composer still reads its original snapshot even if the handoff later changes or moves to another project. The instruction asks the agent to read the file, inspect the project, propose a plan and wait for your go-ahead before changing files.
+
+Chumi records delivery separately from execution progress. An MCP read can establish that an agent read the data; opening an app or copying instructions cannot. Neither action automatically marks work complete.
+
+## Track results and prepare for the next meeting
+
+In a confirmed handoff, use **Update progress** on a confirmed action to set **Not started**, **In progress**, **Blocked** or **Completed**. Add a progress note and up to eight labelled result links. Links can be HTTP(S) references such as commits, pull requests or reports, or an existing `codex://threads/<id>` conversation. These are references you enter yourself; Chumi does not inspect the destination, fetch agent progress or verify the result. Check the result yourself before marking the action **Completed**.
+
+Progress is separate from confirming what the meeting agreed. It does not change the item's review state. Completed actions are separated as context in continuation instructions and MCP handoffs, with an explicit instruction not to repeat them; they are no longer listed as requested unfinished work. Reopening a handoff hides its actionable work until review is complete. Changing an action's text or project does not silently carry the old completion and result links into the new work.
+
+From **Home → Before your next meeting**, or a project's **Prepare for a meeting** button in Settings, open the project brief. It shows:
+
+- The latest meeting and all unfinished confirmed actions, with blocked work first. Unfinished work is not truncated.
+- Up to 20 recent completed actions, 20 decisions and 20 open questions, with counts for omitted older history. Every item links back to its source meeting and handoff.
+- A warning when handoffs still need review or their meetings changed after confirmation.
+- An editable **Agenda for the next meeting**, saved for that project until you change it. **Start a session for this project** opens the start dialog with the project selected; starting still requires your action.
+
+Open views refresh from server-sent events (SSE), and reconnecting reloads project work. Progress and agenda saves include the version you edited: the server uses compare-and-swap checks (CAS) and rejects an old version instead of overwriting another window's changes. Your unsaved draft is kept so you can refresh, compare the latest saved text and explicitly keep or revise your edits.
 
 ## What the agent can read
 
@@ -61,7 +82,7 @@ The MCP server is read-only and works whether or not the Chumi app is running. E
 | `chumi_list_projects` | Projects with their folders; pass `cwd` to get the project for the agent's working directory | none |
 | `chumi_search_meetings` | Meetings in one project, newest first, optionally matching a query; paginated | `project_id` required |
 | `chumi_get_meeting` | State, revision, the AI summary (labelled generated), topics, captures and the handoff | the named meeting |
-| `chumi_get_handoff` | The reviewed handoff: confirmed decisions and actions with conditions and evidence, plus open questions | the named handoff or meeting |
+| `chumi_get_handoff` | The reviewed handoff: confirmed decisions, unfinished actions with conditions and evidence, separate completed actions with user-reported progress and results, plus open questions | the named handoff or meeting |
 | `chumi_get_passages` | Original speech-recognition lines by time range or segment id, with times and links; paginated | the named meeting |
 | `chumi_get_frame` | One captured slide or screen as an image, with its capture time, or "not available" if the file is gone | the named frame |
 | `chumi_connection_check` | Confirms the agent can read Chumi; used by the read check | none |
@@ -79,8 +100,10 @@ Each meeting has a **revision**. It increases with new transcript lines, capture
 
 ## Privacy
 
-- Everything stays on your Mac. The MCP server reads Chumi's local database, and agents receive meeting content only when they call Chumi's tools.
-- Each read is logged locally (client, tool, meeting, revision) so the status can show it. The log keeps the most recent 2,000 reads.
+- Chumi stores meetings, progress, agendas and handoff snapshots locally. Generating a handoff sends meeting context to your selected AI provider. Continuing gives the reviewed handoff, including its progress notes and result references, to the destination you choose; that agent's model and data settings then apply.
+- An MCP call is not required to receive the handoff. Terminal launches pass its text directly, **Copy instructions** puts it on the clipboard (or shows it for manual copying), and Codex app receives a file pointer in its prepared composer. When you send that message, Codex can read the saved snapshot. An MCP connection is an additional way to retrieve the handoff and original evidence.
+- Desktop snapshots are stored under Chumi's data directory (`~/Library/Application Support/Chumi` on macOS, `%LOCALAPPDATA%\Chumi` on Windows, or `CHUMI_DATA_DIR` when configured). The `0600` file mode provides owner-only access on systems that honor POSIX permissions; Windows file access follows its filesystem permissions. These snapshots are separate from the meeting database: deleting a meeting does not retract previously saved snapshots, copied text or content already received by an agent.
+- Each MCP read is logged locally (client, tool, meeting, revision) so the status can show it. The log keeps the most recent 2,000 reads. File reads by Codex app and clipboard pastes are not MCP reads and do not produce that verification.
 - Meetings without a project, and anything outside the requested project, are not returned by project searches.
 - When Chumi exports to mybot, the export now includes the project folder (`cwd`), stable segment, output and frame ids, frame metadata, and only a confirmed handoff.
 
@@ -136,8 +159,16 @@ Also checked by hand on a sample project:
   - **Continue in…** was checked with a stand-in command (`tests/agent-integration.test.ts`): `agy -i` starts in the project folder with the handoff unchanged.
   - Not yet run: **Test a real agent read** and a full handoff with a signed-in Antigravity, and the Antigravity desktop app.
 
+- **Desktop handoff and project work (automated simulation, October 25, 2026).** These checks used temporary files, isolated databases and injected app openers or UI stubs. They did not open the user's Codex app, send a message, create a real conversation or call a model.
+  - `tests/desktop-handoff.test.ts` checks Unicode paths, query encoding, full text preservation, private file modes on macOS, immutable snapshots across repeated launches and project changes, invalid folders, and failed app opening.
+  - `tests/native-external-links.test.ts` checks the actual Windows desktop routing functions with an Electron stub, and compiles and runs the macOS URL validator. Only the allowed Codex composer and existing-chat links pass; unrelated Codex actions are blocked. This is not a Windows runtime or installed-Codex validation.
+  - `tests/project-work-routes.test.ts` checks that desktop opening is awaited, failures do not mark delivery, copying remains available, and progress and agenda updates reach the project brief.
+  - `tests/project-work.test.ts` checks migration of existing data, separate review and progress states, stale-version rejection, project boundaries, result-link validation, deletion, and bounded historical lists without truncating unfinished work.
+  - `tests/project-work-ui.test.ts` exercises progress and agenda editors with simulated responses, including conflicts and preservation of unsaved edits. Full desktop handoff validation with an installed Codex app remains a separate manual check.
+
 ## Not in this release
 
-- Project briefs given to Chumi before a meeting, linking actions to results (commits, pull requests, reports), and decision history (P1).
+- Automatic collection of agent execution state, result verification or completion. Progress and links are maintained by the user.
+- Importing project documents or code as Chumi's pre-meeting context, and a complete decision history beyond the recent confirmed items in the project brief (remaining P1 scope).
 - Incremental access to a meeting in progress, and clarification prompts during the meeting (P2).
 - One meeting serving several projects: handoff items carry their own project id, so this can follow without a data change.

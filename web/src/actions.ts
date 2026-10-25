@@ -6,6 +6,7 @@ import { t } from './i18n.ts';
 import { emptySnapshotChanges, mergeSnapshotChanges, snapshotDeltas, type SnapshotChanges } from './sessionSnapshot.ts';
 import type { SpeakerAnnotation, SpeakerCorrection, SpeakerView } from '../../shared/speakers.ts';
 import type { AgentId } from '../../shared/agents.ts';
+import type { ActionProgress } from '../../shared/project-work.ts';
 import type { Depth, Effort, Frame, Handoff, Output, Profile, Project, Segment, SessionData, Settings, SpeakerUpdate, WindowInfo } from './types.ts';
 
 let navigationVersion = 0;
@@ -155,7 +156,7 @@ export function connectEvents(): () => void {
     'session-ended': (e) => { invalidateSnapshot(e.sessionId); void refreshSession(e.sessionId).catch((err) => notify('error', (err as Error).message)); bumpSessions(); notify('info', t('Session saved. Preparing the final summary…'), 'ended'); },
     'session-updated': (sess) => {
       invalidateSnapshot(sess.id);
-      setState((s) => ({ sessionsRev: s.sessionsRev + 1, ...(s.data && s.data.session.id === sess.id ? { data: { ...s.data, session: sess } } : {}) }));
+      setState((s) => ({ sessionsRev: s.sessionsRev + 1, projectWorkRev: s.projectWorkRev + 1, ...(s.data && s.data.session.id === sess.id ? { data: { ...s.data, session: sess } } : {}) }));
     },
     'session-deleted': (e: { id: string }) => {
       if (sessionRequest?.id === e.id) { sessionRequest.controller.abort(); sessionRequest = null; }
@@ -165,8 +166,9 @@ export function connectEvents(): () => void {
     handoff: (e: { sessionId: string; handoff: Handoff | null }) => setHandoff(e.sessionId, e.handoff),
     speakers: (e: SpeakerUpdate) => mergeSpeakerUpdate(e),
     projects: () => void loadProjects(),
+    'project-work': () => setState((s) => ({ projectWorkRev: s.projectWorkRev + 1 })),
   }, (ok) => {
-    setState({ connected: ok });
+    setState((s) => ({ connected: ok, ...(ok ? { projectWorkRev: s.projectWorkRev + 1 } : {}) }));
     if (ok) void loadState().catch((e) => notify('error', (e as Error).message));
     else { ++stateRequest; if (sessionRequest) sessionRequest.retry = true; }
   });
@@ -185,7 +187,7 @@ export async function startSession(o: { title: string; type: string; source: str
     }
   }
   const r = await guard(api('/api/session/start', { body: o }));
-  if (r) { setState({ dialog: null }); await openSession(r.session.id); }
+  if (r) { setState({ dialog: null, startProjectId: null }); await openSession(r.session.id); }
   return !!r;
 }
 export async function quickStart(): Promise<void> {
@@ -245,7 +247,7 @@ export async function deleteSession(id: string): Promise<boolean> {
   return !!r;
 }
 /** Every session list (Home, History) reloads when this changes. */
-export const bumpSessions = () => setState((s) => ({ sessionsRev: s.sessionsRev + 1 }));
+export const bumpSessions = () => setState((s) => ({ sessionsRev: s.sessionsRev + 1, projectWorkRev: s.projectWorkRev + 1 }));
 /** Compact view on or off (the session view only: the home page always shows the header). */
 export function setCompact(on: boolean): void { saveCompact(on); setState({ compact: on }); }
 export function exportUrl(id: string, format: 'md' | 'txt'): string { return `/api/sessions/${id}/export?format=${format}`; }
@@ -292,7 +294,7 @@ export const correctSpeaker = (sessionId: string, segmentId: number, correction:
 // ---------------------------------------------------------------- projects
 export async function loadProjects(): Promise<void> {
   const r = await api<{ projects: Project[] }>('/api/projects?archived=1').catch(() => null);
-  if (r) setState({ projects: r.projects });
+  if (r) setState((s) => ({ projects: r.projects, projectWorkRev: s.projectWorkRev + 1 }));
 }
 export async function createProject(name: string, workspace: string): Promise<Project | undefined> {
   const r = await guard(api<{ project: Project }>('/api/projects', { body: { name, workspace } }));
@@ -317,7 +319,17 @@ export async function assignProject(sessionId: string, projectId: string | null)
 // ---------------------------------------------------------------- reviewed handoff
 function setHandoff(sessionId: string, handoff: Handoff | null): void {
   invalidateSnapshot(sessionId);
-  setState((s) => (s.data && s.data.session.id === sessionId ? { data: { ...s.data, handoff } } : {}));
+  setState((s) => {
+    if (!s.data || s.data.session.id !== sessionId) return { projectWorkRev: s.projectWorkRev + 1 };
+    const current = s.data.handoff;
+    // Delivery responses may arrive after a newer progress event. Never roll a saved action back.
+    const merged = handoff && current?.id === handoff.id ? { ...handoff, items: handoff.items.map((item) => {
+      const previous = current.items.find((old) => old.id === item.id);
+      return item.progress && previous?.progress && previous.project_id === item.project_id && previous.text === item.text
+        && previous.progress.version > item.progress.version ? { ...item, progress: previous.progress } : item;
+    }) } : handoff;
+    return { data: { ...s.data, handoff: merged }, projectWorkRev: s.projectWorkRev + 1 };
+  });
 }
 async function withHandoff<T extends { handoff: Handoff | null }>(p: Promise<T>): Promise<T | undefined> {
   const r = await guard(p);
@@ -330,7 +342,18 @@ export const addHandoffItem = (handoffId: string, kind: string, text: string) =>
 export const confirmHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/confirm`, { body: {} }));
 export const reopenHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/reopen`, { body: {} }));
 export const retargetHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/retarget`, { body: {} }));
-export async function continueHandoff(handoffId: string, agent: AgentId | 'copy'): Promise<{ prompt: string; launched: boolean } | undefined> {
+export async function continueHandoff(handoffId: string, agent: AgentId | 'copy' | 'codex-app'): Promise<{ prompt: string; launched: boolean } | undefined> {
   const r = await withHandoff(api<{ prompt: string; launched: boolean; handoff: Handoff }>(`/api/handoffs/${handoffId}/continue`, { body: { agent } }));
   return r ? { prompt: r.prompt, launched: r.launched } : undefined;
+}
+
+export async function updateActionProgress(itemId: string, patch: Pick<ActionProgress, 'status' | 'note' | 'results'> & { expectedVersion: number }): Promise<ActionProgress | null> {
+  try {
+    const r = await api<{ progress: ActionProgress; sessionId: string; handoff: Handoff }>(`/api/handoff-items/${encodeURIComponent(itemId)}/progress`, { method: 'PATCH', body: patch });
+    setHandoff(r.sessionId, r.handoff);
+    return r.progress;
+  } catch (error) {
+    notify('error', t((error as Error).message), 'action-progress');
+    return null;
+  }
 }

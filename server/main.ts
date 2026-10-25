@@ -43,6 +43,8 @@ import { DESKTOP } from './desktop.ts';
 import { acquireDataDirectoryLock } from './instance-lock.ts';
 import { speechEngineChanged, speechRestartRequired } from './asr/settings-guard.ts';
 import { finishShutdown, SHUTDOWN_GRACE_MS } from './shutdown.ts';
+import { ProjectWorkService, ProjectWorkError } from './projects/work.ts';
+import { launchCodexDesktop } from './projects/desktop-handoff.ts';
 
 const PORT = Number(process.env.PORT || 4777);
 const HOST = '127.0.0.1';
@@ -101,6 +103,7 @@ assistant.onOutputDone = (row) => { if (row.kind !== 'digest' && row.kind !== 'o
 // Projects and reviewed handoffs to Claude Code / Codex (docs/project-integration-prd.md).
 const handoffs = new HandoffService(store, assistant, (sessionId) => { broadcast('handoff', { sessionId, handoff: handoffs.view(sessionId) }); syncMybot(sessionId); });
 const agents = new AgentIntegration(store);
+const projectWork = new ProjectWorkService(store);
 const speakers = new SpeakerService(store, (id) => {
   broadcast('speakers', speakerUpdate(id));
   syncMybot(id);
@@ -512,6 +515,12 @@ function checkWorkspace(raw: unknown): string {
 }
 const projectPublic = (p: ReturnType<typeof store.listProjects>[number]) => ({ ...p, repo: p.repo_json ? JSON.parse(p.repo_json) : null, repo_json: undefined, workspace_exists: workspaceExists(p) });
 route('GET', '/api/projects', (_req, _res, _p, url) => ({ projects: store.listProjects(url.searchParams.get('archived') === '1').map(projectPublic) }));
+route('GET', '/api/projects/:id/brief', (_req, _res, p) => projectWork.brief(p.id));
+route('PATCH', '/api/projects/:id/agenda', async (req, _res, p) => {
+  const agenda = projectWork.updateAgenda(p.id, await readJson(req));
+  broadcast('project-work', { projectId: p.id });
+  return { agenda };
+});
 route('POST', '/api/projects', async (req) => {
   const b = await readJson(req);
   const name = String(b.name ?? '').trim().slice(0, 80);
@@ -553,6 +562,14 @@ route('POST', '/api/sessions/:id/project', async (req, _res, p) => {
 // ---------------------------------------------------------------- reviewed handoff
 route('GET', '/api/sessions/:id/handoff', (_req, _res, p) => ({ handoff: handoffs.view(p.id) }));
 route('POST', '/api/sessions/:id/handoff', (_req, _res, p) => { handoffs.generate(p.id); return { handoff: handoffs.view(p.id) }; });
+route('PATCH', '/api/handoff-items/:id/progress', async (req, _res, p) => {
+  const result = projectWork.updateProgress(p.id, await readJson(req));
+  const handoff = handoffs.view(result.sessionId);
+  broadcast('handoff', { sessionId: result.sessionId, handoff });
+  broadcast('project-work', { projectId: result.projectId });
+  syncMybot(result.sessionId);
+  return { ...result, handoff };
+});
 route('PATCH', '/api/handoff-items/:id', async (req, _res, p) => {
   const b = await readJson(req);
   const sid = handoffs.updateItem(p.id, {
@@ -570,14 +587,18 @@ route('POST', '/api/handoffs/:id/retarget', (_req, _res, p) => { handoffs.retarg
 route('POST', '/api/handoffs/:id/continue', async (req, _res, p) => {
   const b = await readJson(req);
   const via = String(b.agent ?? 'copy');
-  if (via !== 'copy' && !AGENTS.includes(via as AgentId)) throw new HttpError(400, 'Unknown agent');
+  if (via !== 'copy' && via !== 'codex-app' && !AGENTS.includes(via as AgentId)) throw new HttpError(400, 'Unknown agent');
   const h = store.getHandoff(p.id);
   if (!h) throw new HttpError(404, 'Handoff not found');
   const prompt = handoffs.continuationPrompt(p.id, chumiLink(), store.getProfile().explanationLanguage !== 'English');
   let launched = false;
   if (via !== 'copy') {
     const project = store.getProject(h.project_id!)!;
-    try { agents.launch(via as AgentId, h.id, project.workspace, prompt); launched = true; } catch (e) { throw new HttpError(400, (e as Error).message); }
+    try {
+      if (via === 'codex-app') await launchCodexDesktop(h.id, project.workspace, prompt);
+      else agents.launch(via as AgentId, h.id, project.workspace, prompt);
+      launched = true;
+    } catch (e) { throw new HttpError(400, (e as Error).message); }
   }
   handoffs.markDelivered(p.id, via);
   return { prompt, launched, handoff: handoffs.view(h.session_id) };
@@ -841,7 +862,7 @@ server.on('request', async (req, res) => {
     }
     send(res, 404, { error: 'Not found' });
   } catch (e) {
-    const status = e instanceof HttpError || e instanceof HandoffError ? e.status : 500;
+    const status = e instanceof HttpError || e instanceof HandoffError || e instanceof ProjectWorkError ? e.status : 500;
     if (status === 500) log('http', (e as Error).stack ?? e);
     if (!res.headersSent) send(res, status, { error: (e as Error).message });
   }

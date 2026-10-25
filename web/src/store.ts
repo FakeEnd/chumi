@@ -24,7 +24,10 @@ export interface AppState {
   data: SessionData | null;
   deltas: Record<string, string>;
   notices: Notice[];
-  dialog: null | 'profile' | 'settings' | 'history' | 'start' | 'window' | 'frame' | 'handoff';
+  dialog: null | 'profile' | 'settings' | 'history' | 'start' | 'window' | 'frame' | 'handoff' | 'project-brief';
+  briefProjectId: string | null;
+  startProjectId: string | null;
+  projectWorkRev: number;
   /** All projects, including archived ones (pickers hide archived). */
   projects: Project[];
   /** Bumped when any saved session is added, renamed, reassigned or deleted, so every session list reloads. */
@@ -54,7 +57,7 @@ export interface AppState {
 let state: AppState = {
   connected: false, loaded: false, settings: null, profile: null, provider: null, live: null, liveReceivedAt: 0, levels: {}, partials: {},
   devMode: false, helperBuilt: false, platform: '', appMode: false, dataDir: '', samples: [], viewId: null, data: null, deltas: {}, notices: [],
-  dialog: null, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [], sessionsRev: 0, playingSeg: null, hiddenCards: [], catchupScope: '2m', compact: loadCompact(),
+  dialog: null, briefProjectId: null, startProjectId: null, projectWorkRev: 0, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [], sessionsRev: 0, playingSeg: null, hiddenCards: [], catchupScope: '2m', compact: loadCompact(),
 };
 const listeners = new Set<() => void>();
 

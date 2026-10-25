@@ -7,7 +7,7 @@ import type { Assistant } from '../ai/assistant.ts';
 import { ProviderError } from '../ai/provider.ts';
 import { z } from 'zod';
 import { fmtT, parseT, similarity, uid } from '../util.ts';
-import { handoffPublic, parseJson, type EvidenceRef, type HandoffSource, type LinkFn } from './handoff-model.ts';
+import { handoffProjectMismatch, handoffPublic, parseJson, type EvidenceRef, type HandoffSource, type LinkFn } from './handoff-model.ts';
 
 export class HandoffError extends Error {
   status: number;
@@ -198,8 +198,8 @@ export class HandoffService {
     const session = this.store.getSession(h.session_id);
     if (!session) throw new HandoffError(404, 'The meeting was deleted.');
     if (h.status === 'generating') throw new HandoffError(409, 'Wait for the draft to finish.');
-    if (h.project_id !== session.project_id) throw new HandoffError(409, 'This meeting moved to another project. Review the handoff for the new project first.');
     const items = this.store.handoffItems(handoffId);
+    if (handoffProjectMismatch(h, session.project_id, items)) throw new HandoffError(409, 'This meeting moved to another project. Review the handoff for the new project first.');
     const pending = items.filter((i) => i.review === 'pending').length;
     if (pending) throw new HandoffError(400, `Review every item first: ${pending} still need a decision (confirm or reject).`);
     if (!items.some((i) => i.review === 'confirmed')) throw new HandoffError(400, 'Confirm at least one item.');
@@ -236,13 +236,25 @@ export class HandoffService {
     const h = this.must(handoffId);
     const session = this.store.getSession(h.session_id);
     const project = h.project_id ? this.store.getProject(h.project_id) : null;
-    if (session && h.project_id !== session.project_id) throw new HandoffError(409, 'This meeting moved to another project. Review the handoff for the new project first.');
+    const rows = this.store.handoffItems(h.id);
+    if (session && handoffProjectMismatch(h, session.project_id, rows)) throw new HandoffError(409, 'This meeting moved to another project. Review the handoff for the new project first.');
     if (!session || !project) throw new HandoffError(400, 'Assign the meeting to a project first.');
     if (h.status !== 'confirmed') throw new HandoffError(400, 'Confirm the handoff first.');
-    const items = this.store.handoffItems(h.id);
+    const items = rows.filter((i) => i.project_id === session.project_id);
     const evText = (i: HandoffItemRow) => parseJson<EvidenceRef[]>(i.evidence_json, []).map((e) => (e.kind === 'transcript' ? (e.from_ms === e.to_ms ? fmtT(e.from_ms) : `${fmtT(e.from_ms)}–${fmtT(e.to_ms)}`) : `screen capture ${e.frame_id} at ${fmtT(e.t)}`)).join(', ');
     const originText = { agreed: 'agreed in the meeting', suggested: 'suggested in the meeting (not agreed), confirmed by me', chumi: 'proposed by Chumi, confirmed by me', user: 'added by me' } as Record<string, string>;
-    const actions = items.filter((i) => i.kind === 'action' && i.review === 'confirmed');
+    const confirmedActions = items.filter((i) => i.kind === 'action' && i.review === 'confirmed');
+    const progress = new Map(confirmedActions.map((i) => [i.id, this.store.actionProgress(i)]));
+    const actions = confirmedActions.filter((i) => progress.get(i.id)!.status !== 'completed');
+    const completed = confirmedActions.filter((i) => progress.get(i.id)!.status === 'completed');
+    const progressText = (i: HandoffItemRow) => {
+      const p = progress.get(i.id)!;
+      return [
+        `   Progress reported by the user: ${p.status}.`,
+        ...(p.note ? [`   Progress note: ${p.note}`] : []),
+        ...p.results.map((r) => `   Result reference: ${r.label} — ${r.url}`),
+      ];
+    };
     const decisions = items.filter((i) => i.kind === 'decision' && i.review === 'confirmed');
     const questions = items.filter((i) => i.kind === 'question' && i.review !== 'rejected');
     const date = new Date(session.started_at ?? session.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
@@ -252,7 +264,7 @@ export class HandoffService {
       `Project: ${project.name} (${project.workspace})`,
       `Meeting: "${session.title}", ${date}. Chumi handoff ${h.id}, confirmed at meeting revision ${h.confirmed_revision}.`,
       '',
-      actions.length ? 'Confirmed actions:' : 'There are no confirmed actions; the decisions and questions below are context.',
+      actions.length ? 'Confirmed actions:' : 'There are no unfinished confirmed actions; the items below are context.',
       ...actions.flatMap((a, n) => {
         const cond = parseJson<string[]>(a.conditions_json, []), acc = parseJson<string[]>(a.acceptance_json, []);
         return [
@@ -261,9 +273,11 @@ export class HandoffService {
           ...(cond.length ? [`   Unresolved: ${cond.join('; ')}`] : []),
           ...(acc.length ? [`   Possible checks (proposed by Chumi, not from the meeting): ${acc.join('; ')}`] : []),
           `   Owner: ${a.owner ?? 'not stated'}. Deadline: ${a.due ?? 'not stated'}.`,
+          ...progressText(a),
           ...(evText(a) ? [`   Evidence: ${evText(a)}`] : []),
         ];
       }),
+      ...(completed.length ? ['', 'Completed actions (reported by the user; context only, do not repeat):', ...completed.flatMap((a) => [`- ${a.text}`, ...progressText(a)])] : []),
       ...(decisions.length ? ['', 'Decisions (context):', ...decisions.map((d) => `- ${d.text}${evText(d) ? ` [${evText(d)}]` : ''}`)] : []),
       ...(questions.length ? ['', 'Open questions (unresolved, not tasks):', ...questions.map((q) => `- ${q.text}${evText(q) ? ` [${evText(q)}]` : ''}`)] : []),
       '',

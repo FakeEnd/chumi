@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useStore } from '../store.ts';
+import { useEffect, useState } from 'react';
+import { getState, setState, useStore } from '../store.ts';
 import { startSession } from '../actions.ts';
 import { DEFAULT_SESSION_TYPES } from '../../../shared/session-types.ts';
 import { SessionTypeSelect } from './SessionTypes.tsx';
@@ -25,7 +25,11 @@ export function StartDialog() {
   const [busy, setBusy] = useState(false);
   const [capture, setCapture] = useState(false);
   const [win, setWin] = useState<WindowInfo | null>(null);
-  const [projectId, setProjectId] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(() => {
+    const s = getState();
+    return s.projects.some((p) => p.id === s.startProjectId && !p.archived_at) ? s.startProjectId : null;
+  });
+  useEffect(() => { setState({ startProjectId: null }); }, []);
   const [record, setRecord] = useState(settings?.audio.saveRawAudio ?? false);
   const go = async () => {
     setBusy(true);

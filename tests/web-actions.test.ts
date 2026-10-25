@@ -238,3 +238,19 @@ test('a quick suggestion does not discard an unrelated draft', async () => {
   assert.equal((await h.actions.submitQuestion('What is the key point?', 'ask', 'standard')).accepted, true);
   assert.equal(h.get().askDraft, 'Still composing this question');
 });
+
+test('handoff progress merging keeps newer saves but respects hidden or reassigned progress', () => {
+  const progress = { status: 'completed', note: 'Private result from project A', results: [], updatedAt: 1, version: 7 };
+  const handoff = (patch: Record<string, unknown> = {}) => ({ id: 'h', session_id: 'a', items: [{ id: 'item', project_id: 'project-a', text: 'Original task', progress, ...patch }] }) as unknown as NonNullable<SessionData['handoff']>;
+  const data = session(); data.handoff = handoff();
+  const h = harness({ data });
+  h.emit('handoff', { sessionId: 'a', handoff: handoff({ progress: { ...progress, note: 'Older save', version: 6 } }) });
+  assert.equal(h.get().data?.handoff?.items[0].progress?.version, 7);
+  h.emit('handoff', { sessionId: 'a', handoff: handoff({ progress: null }) });
+  assert.equal(h.get().data?.handoff?.items[0].progress, null, 'server eligibility removal must not restore old progress');
+  for (const patch of [{ project_id: 'project-b' }, { text: 'A different task' }]) {
+    h.set({ data: { ...data, handoff: handoff() } });
+    h.emit('handoff', { sessionId: 'a', handoff: handoff({ ...patch, progress: { ...progress, note: '', version: 0 } }) });
+    assert.equal(h.get().data?.handoff?.items[0].progress?.note, '', 'old progress belongs to the original project and task');
+  }
+});

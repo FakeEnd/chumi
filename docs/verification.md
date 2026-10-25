@@ -1,5 +1,20 @@
 # Verification log
 
+## Desktop handoff and project work — 2026-10-25
+
+On the development Mac. All new workflow checks use synthetic meetings, temporary or in-memory databases, and injected desktop openers.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects and translation checks pass; **280 / 280 tests pass** in the current working tree. Coverage includes schema migration, project isolation, mixed-project redrafting and explicit retargeting, version conflicts, draft preservation, late responses, completed-action context, clipboard fallback, and immutable desktop handoff snapshots. |
+| Desktop links | Injected openers verify the workspace and prefilled prompt without opening Codex. Windows tests run the actual navigation/IPC callbacks; a compiled Swift harness checks allowed and rejected Codex links. Unsupported actions and malformed URLs are refused. |
+| `npm run build:web` | Production build passes. The existing JavaScript chunk-size warning remains. |
+| `bash native/build.sh app` | Mac helper and application rebuild successfully using temporary compiler caches; code-signature verification passes. |
+| Browser smoke test | Final production bundle in Chrome with an isolated memory fixture: save and reopen a project agenda; preserve an action draft across a simulated update from another window; compare and explicitly accept the new version; save completed status and a result link; reopen persisted results; navigate to the source handoff; verify the default Codex app destination and mocked launch request; verify project preselection in Start session. No recording was started. |
+| `git diff --check` | Passes. |
+
+The desktop launch was simulated: this pass did not open a real Codex conversation, send a model request, or run the Windows desktop application. A successful OS open request means the composer was requested, not that work started or completed. Progress remains user-maintained; project agendas are saved notes and are not automatically injected into meeting AI context. The Mac bundle was built but not launched over any existing session.
+
 ## Startup, shutdown and settings reliability — 2026-10-25
 
 On the development Mac. Tests use synthetic audio, temporary or in-memory databases, and stub AI and speech providers.

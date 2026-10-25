@@ -94,9 +94,10 @@ export interface Project {
 }
 export type EvidenceRef = { kind: 'transcript'; segment_ids: number[]; from_ms: number; to_ms: number } | { kind: 'frame'; frame_id: number; t: number };
 export interface HandoffItem {
-  id: string; kind: 'decision' | 'action' | 'question'; text: string; rationale: string | null;
+  id: string; project_id: string | null; kind: 'decision' | 'action' | 'question'; text: string; rationale: string | null;
   origin: 'agreed' | 'suggested' | 'chumi' | 'user'; owner: string | null; due: string | null;
   conditions: string[]; acceptance: string[]; evidence: EvidenceRef[]; review: 'pending' | 'confirmed' | 'rejected'; edited: boolean; position: number;
+  progress?: import('../../shared/project-work.ts').ActionProgress | null;
 }
 export interface Handoff {
   id: string; session_id: string; project_id: string | null; status: 'generating' | 'draft' | 'confirmed' | 'error';

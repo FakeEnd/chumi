@@ -50,9 +50,7 @@ export function TranscriptionTab() {
 
   return (
     <section>
-      <p className="small">{settings.asr.engine === 'whisper'
-        ? t('Speech recognition runs on this computer with whisper.cpp. It is free, needs no network, and keeps running when the AI provider is unavailable.')
-        : t('Speech recognition is independent of the AI provider: it keeps running when the AI is unavailable.')}</p>
+      <p className="small">{t('Speech recognition is independent of the AI provider: it keeps running when the AI is unavailable.')}</p>
 
       <SpeechEngineSettings />
 

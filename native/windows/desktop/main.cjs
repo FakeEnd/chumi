@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
 const { once } = require('node:events');
+const { isDesktopRequestUrl, isExternalNavigationUrl } = require('./external-links.cjs');
 
 const root = path.resolve(__dirname, '../../..');
 const dataDir = process.env.CHUMI_DATA_DIR || path.join(process.env.LOCALAPPDATA || path.join(app.getPath('home'), 'AppData', 'Local'), 'Chumi');
@@ -105,7 +106,7 @@ async function onServerMessage(message) {
       case 'notify':
         new Notification({ title: 'Chumi', body: message.payload.text }).show(); value = true; break;
       case 'open-url':
-        if (!/^https?:\/\//i.test(message.payload.url)) throw new Error('Unsupported link.');
+        if (!isDesktopRequestUrl(message.payload.url)) throw new Error('Unsupported link.');
         await shell.openExternal(message.payload.url); break;
       case 'credential-read': case 'credential-write': case 'credential-delete': {
         const account = createHash('sha256').update(message.payload.service + '\0' + message.payload.account).digest('hex');
@@ -165,9 +166,9 @@ function isAppUrl(value) {
   try { return new URL(value).origin === baseUrl; } catch { return false; }
 }
 function openLink(value) {
-  if (!/^https?:|^mailto:/i.test(value)) return;
+  if (!isExternalNavigationUrl(value)) return;
   if (isAppUrl(value)) void window.loadURL(value);
-  else void shell.openExternal(value);
+  else void shell.openExternal(value).catch((error) => dialog.showErrorBox('Could not open link', error.message));
 }
 
 function makeWindow() {

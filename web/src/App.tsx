@@ -14,6 +14,7 @@ import { HistoryDialog } from './components/HistoryDialog.tsx';
 import { Notices } from './components/Notices.tsx';
 import { FrameViewer, SlideStrip, WindowDialog } from './components/Slides.tsx';
 import { HandoffDialog } from './components/Handoff.tsx';
+import { ProjectBriefDialog } from './components/ProjectBrief.tsx';
 import { SessionColumns } from './components/SessionColumns.tsx';
 import { resolveLang, setLang, t } from './i18n.ts';
 
@@ -63,6 +64,7 @@ export function App() {
       {dialog === 'window' && <WindowDialog />}
       {dialog === 'frame' && <FrameViewer />}
       {dialog === 'handoff' && <HandoffDialog />}
+      {dialog === 'project-brief' && <ProjectBriefDialog />}
     </div>
   );
 }

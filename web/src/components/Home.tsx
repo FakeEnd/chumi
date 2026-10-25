@@ -28,6 +28,8 @@ export function Home() {
   const asr = useStore((s) => s.live?.asr);
   const live = useStore((s) => s.live);
   const hotkey = useStore((s) => s.hotkey);
+  const projects = useStore((s) => s.projects);
+  const [briefProject, setBriefProject] = useState('');
   const windows = useStore((s) => s.platform) === 'win32';
   const [recent, setRecent] = useState<Session[] | null>(null);
   const sessionsRev = useStore((s) => s.sessionsRev);
@@ -42,6 +44,8 @@ export function Home() {
   const aiReady = provider?.state === 'ready';
   const topDomains = (profile?.domains ?? []).slice().sort((a, b) => b.level - a.level).slice(0, 6);
   const srcName = getLang() === 'zh' ? sourceLabel(quickSrc) : sourceLabel(quickSrc).toLowerCase();
+  const activeProjects = projects.filter((p) => !p.archived_at);
+  const prepareProject = activeProjects.find((p) => p.id === briefProject) ?? activeProjects[0];
 
   return (
     <div className="home">
@@ -90,6 +94,17 @@ export function Home() {
               <span className="start-sub">{windows ? t('The room plus remote speakers, with microphone and computer audio') : t('The room plus remote speakers, with echo-cancelled mic and computer audio')}</span>
             </button>
           </section>
+
+          {prepareProject && <section className="panel meeting-prep-entry">
+            <div className="panel-head"><h2>{t('Before your next meeting')}</h2></div>
+            <p className="small muted">{t('Review open actions, recent results and decisions, then write what you want to discuss.')}</p>
+            <div className="field-row">
+              <select className="grow" aria-label={t('Project for meeting preparation')} value={prepareProject.id} onChange={(e) => setBriefProject(e.target.value)}>
+                {activeProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <button className="btn primary" onClick={() => setState({ briefProjectId: prepareProject.id, dialog: 'project-brief' })}>{t('Prepare for a meeting')}</button>
+            </div>
+          </section>}
 
           <section className="panel">
             <div className="panel-head">
