@@ -3,7 +3,7 @@ import { setState, useStore } from '../store.ts';
 import { assignProject, catchup, endSession, openSession, pauseSession, quickStart, renameSession, resumeLive, saveProfile, saveSettings, summarize } from '../actions.ts';
 import { ProjectSelect } from './Projects.tsx';
 import { SessionTypeSelect } from './SessionTypes.tsx';
-import { fmtT, sourceLabel } from '../util.ts';
+import { fmtDate, fmtT, sourceLabel } from '../util.ts';
 import { locale, msg, t } from '../i18n.ts';
 import type { Depth } from '../types.ts';
 import { IconBolt, IconClock, IconGear, IconSpark, IconUser, IconWave, IconWindow } from './icons.tsx';
@@ -163,10 +163,11 @@ export function SessionToolbar() {
   const active = live?.session?.id === data.session.id && status !== 'idle';
   const src = live?.source ?? settings.audio.source;
   const ended = data.session.status === 'ended' || data.session.status === 'interrupted';
+  const saved = `${t('Saved session')} · ${fmtDate(data.session.started_at ?? data.session.created_at)} · ${fmtT(data.session.duration_ms)}${data.session.status === 'interrupted' ? ` · ${t('recording was interrupted (see gap markers)')}` : ''}`;
   const canSummarize = live?.session?.id !== data.session.id && ended && data.segments.length > 0 && !data.outputs.some((o) => o.kind === 'final_summary' && o.status !== 'error');
   return (
     <div className="toolbar">
-      <div className="toolbar-left">
+      <div className={`toolbar-left ${!isLive && !data.hasAudio ? 'text-only' : ''}`}>
         {isLive ? (
           <>
             <span className="source-label">{sourceLabel(src)}</span>
@@ -178,8 +179,12 @@ export function SessionToolbar() {
               <IconWindow width={14} height={14} /> {live?.screen ? `${live.screen.app}${live.screen.frames ? ` · ${live.screen.frames}` : ''}` : t('Capture window')}
             </button>
           </>
-        ) : data.hasAudio && !active ? <AudioPlayer key={data.session.id} sessionId={data.session.id} />
-          : <span className="muted small">{t('Saved session · ask questions, explain passages or regenerate the summary')}</span>}
+        ) : !active && (
+          <>
+            <span className="saved-info" title={saved}>{saved}</span>
+            {data.hasAudio && <AudioPlayer key={data.session.id} sessionId={data.session.id} />}
+          </>
+        )}
       </div>
       <div className="toolbar-right">
         <SessionActions sep />

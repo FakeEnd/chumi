@@ -103,13 +103,19 @@ button.badge { cursor: pointer; }
 .notice { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: var(--r-md); font-size: var(--fs-md); background: var(--accent-2); }
 .notice > span { flex: 1; }
 .notice.warning { background: var(--warn-bg); color: var(--warn); } .notice.error { background: var(--bad-bg); color: var(--bad); }
-.saved-banner { margin: 6px 16px 0; padding: 6px 12px; background: var(--panel-2); border-radius: var(--r-md); font-size: var(--fs-sm); color: var(--muted); display: flex; gap: 12px; align-items: center; }
 
 /* layout */
-/* The assistant column is what people read most, so it gets the larger share; the transcript stays readable at 340px. */
-.main { flex: 1; display: grid; grid-template-columns: minmax(340px, 5fr) minmax(400px, 7fr); gap: 16px; padding: 8px 16px 16px; min-height: 0; }
+/* The assistant column is what people read most, so it gets the larger share (5:7); the transcript stays readable at 340px.
+   The 16px divider between them drags to change the split (SessionColumns sets --split-left/right; the floors match columnSplit.ts). */
+.main { flex: 1; display: grid; grid-template-columns: minmax(340px, var(--split-left, 5fr)) 16px minmax(400px, var(--split-right, 7fr)); gap: 16px; column-gap: 0; padding: 8px 16px 16px; min-height: 0; }
 .left { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-@media (max-width: 860px) { .main { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; overflow: auto; } .left { min-height: 72vh; } }
+/* A short grip at rest, a full-height accent line on hover, focus and while dragging. */
+.col-divider { position: relative; cursor: col-resize; touch-action: none; outline: none; }
+.col-divider::after { content: ''; position: absolute; left: 7px; width: 2px; top: calc(50% - 16px); height: 32px; border-radius: 1px; background: var(--muted); opacity: .35; transition: background .15s, opacity .15s, top .15s, height .15s; }
+.col-divider:hover::after, .col-divider:focus-visible::after, .col-resizing .col-divider::after { top: 8px; height: calc(100% - 16px); background: var(--accent); opacity: 1; }
+/* While dragging, keep the resize cursor over buttons and links and don't select transcript text. */
+.col-resizing, .col-resizing * { cursor: col-resize !important; user-select: none; }
+@media (max-width: 860px) { .main { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; overflow: auto; } .left { min-height: 72vh; } .col-divider { display: none; } }
 
 /* overview */
 .overview { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 8px 12px; }
@@ -344,12 +350,18 @@ section h3 { font-size: var(--fs-md); margin: 16px 0 8px; }
 
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; flex-wrap: wrap; }
 .toolbar-left, .toolbar-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-/* On a narrow window (or beside the audio player) the right group wraps to a second row, kept on the right above the assistant. */
+/* On a narrow window (or beside the audio player) the right group wraps to a second row, kept on the right above the assistant.
+   A saved session's date line gives way first: it shortens with an ellipsis so the toolbar stays one row. */
 .toolbar-right { margin-left: auto; justify-content: flex-end; }
+.toolbar-left { min-width: 0; }
+.toolbar-left.text-only { flex: 1 1 0; min-width: 140px; }
+.saved-info { color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* One height for the toolbar and header action controls, so buttons, segments and the handoff line up. */
+.toolbar .btn, .toolbar .seg-control, .session-actions .btn, .session-actions .seg-control { height: var(--control-h-sm); }
 /* Catch-up and handoff sit in the header next to the recording controls, so the assistant column starts with the question box.
    In a session the header makes room for them; below 1400px they move to the toolbar row instead. */
 .session-actions { display: flex; align-items: center; gap: 8px; flex: none; flex-wrap: nowrap; }
-.btn.catchup.small { font-size: var(--fs-md); padding: 4px 12px; }
+.btn.catchup.small { font-size: var(--fs-md); padding: 0 12px; }
 .toolbar .session-actions { display: none; }
 @media (min-width: 1401px) and (max-width: 1600px) {
   .topbar.in-session .brand-name, .topbar.in-session .kbd, .topbar.in-session .speech-badge .badge-label, .topbar.in-session .badge-extra { display: none; }
@@ -367,7 +379,7 @@ section h3 { font-size: var(--fs-md); margin: 16px 0 8px; }
 .askbox { border-radius: var(--r-lg); }
 .overview { border-left: 3px solid transparent; border-image: none; position: relative; }
 .overview::before { content: ''; position: absolute; left: -1px; top: 12px; bottom: 12px; width: 3px; border-radius: var(--r-full); background: var(--grad); }
-.main { padding: 4px 16px 16px; gap: 16px; }
+.main { padding: 4px 16px 16px; }
 .btn.catchup { background: linear-gradient(var(--primary), var(--primary-strong)); box-shadow: var(--shadow-1); }
 .btn.catchup:hover:not(:disabled) { background: var(--primary-strong); box-shadow: var(--shadow-2); }
 .card { transition: box-shadow .15s; }
@@ -399,7 +411,6 @@ section h3 { font-size: var(--fs-md); margin: 16px 0 8px; }
 .card.open .card-chev { transform: rotate(90deg); }
 .card-title { min-width: 0; }
 .card:not(.open) .card-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 400; }
-.saved-banner { margin: 0 16px 6px; }
 
 /* ===================== Home ===================== */
 .home-wrap { flex: 1; overflow-y: auto; }
