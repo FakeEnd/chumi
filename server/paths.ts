@@ -20,6 +20,12 @@ export function ensureDirs(): void {
   for (const d of [DATA_DIR, MODELS_DIR, AUDIO_DIR, FRAMES_DIR, CODEX_WORKDIR, LOG_DIR]) mkdirSync(d, { recursive: true });
 }
 
+/** The folder Claude Code and Codex run in, created if missing: a spawn whose cwd doesn't exist fails with ENOENT, as if the CLI weren't installed. */
+export function aiWorkdir(): string {
+  mkdirSync(CODEX_WORKDIR, { recursive: true });
+  return CODEX_WORKDIR;
+}
+
 /** Locate the native audio helper: explicit env (set by Chumi.app), then the dev build. */
 export function findAudioHelper(): string | null {
   const candidates = [
