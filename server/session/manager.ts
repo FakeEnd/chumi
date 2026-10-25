@@ -16,10 +16,18 @@ interface Run {
   input: AudioInput;
   offsetMs: number;            // session-time of the input clock's zero
   segmenters: Map<SourceName, Segmenter>;
+  /** Restarts since the input last ran for STABLE_RUN_MS; the pending restart, if one is scheduled. */
   restarts: number;
+  startedAt: number;
+  restartTimer: NodeJS.Timeout | null;
   /** Timed audio: the session's recording (retained) or a temporary copy for speaker analysis. */
   recorder: SpeakerRecorder | null;
 }
+
+/** A capture helper that keeps failing is restarted with backoff, then the session is paused instead of silently not recording. */
+const RESTART_LIMIT = 3;
+const RESTART_BASE_MS = 1500;
+const STABLE_RUN_MS = 60_000;
 
 export interface StartOptions { title: string; type: SessionType; source: AudioSourceMode | 'file'; filePath?: string; speed?: number; window?: { id: number; title?: string; app?: string } | null; projectId?: string | null; recordAudio?: boolean }
 
@@ -170,7 +178,7 @@ export class SessionManager {
       input = new HelperCapture({ source: this.source, micDeviceUid: s.audio.micDeviceUid, aec: s.audio.aec });
     }
     const retain = !!this.session?.record_audio;
-    const run: Run = { index: ++this.runCount, input, offsetMs, segmenters: new Map(), restarts: 0,
+    const run: Run = { index: ++this.runCount, input, offsetMs, segmenters: new Map(), restarts: 0, startedAt: now(), restartTimer: null,
       recorder: (retain || s.asr.diarization) && this.session ? new SpeakerRecorder(this.session.id, retain) : null };
     const seg = (src: SourceName): Segmenter => {
       let sg = run.segmenters.get(src);
@@ -216,6 +224,25 @@ export class SessionManager {
       else if (ev.type === 'ready') { this.broadcast('capture', ev); if (Array.isArray(ev.pending) && ev.pending.length) this.notice('warning', 'system_permission_pending', `Waiting for macOS permission for: ${ev.pending.join(', ')}. Look for a permission dialog and allow it.`); }
       else if (ev.type === 'source_started') this.notice('info', 'source_started', `${ev.source === 'system' ? 'Computer audio' : 'Microphone'} capture started.`);
     });
+    const captureFailed = (reason: string) => {
+      // A helper that exits while restarting also rejects its start(): one failure, one restart.
+      if (this.run !== run || this.status !== 'recording' || run.restartTimer) return;
+      const t = this.nowT();
+      if (now() - run.startedAt >= STABLE_RUN_MS) run.restarts = 0; // It had been running fine: not a crash loop.
+      const giveUp = run.restarts >= RESTART_LIMIT;
+      if (this.session) this.store.addTimeline(this.session.id, t, 'gap', `Audio capture stopped: ${reason}${giveUp ? `. It failed ${RESTART_LIMIT + 1} times in a row, so the session was paused.` : ''}`);
+      if (giveUp) { void this.captureGaveUp(reason); return; }
+      this.notice('error', 'capture_stopped', `Audio capture stopped unexpectedly (${reason}). Trying to restart…`);
+      run.restartTimer = setTimeout(() => {
+        run.restartTimer = null;
+        if (this.run !== run || this.status !== 'recording') return;
+        for (const sg of run.segmenters.values()) sg.flush();
+        run.segmenters.clear();
+        run.offsetMs = this.nowT(); // A restarted helper starts its input clock at zero again.
+        run.startedAt = now();
+        void run.input.start().catch((e) => captureFailed(`restart failed: ${(e as Error).message}`));
+      }, RESTART_BASE_MS * 2 ** run.restarts++);
+    };
     input.on('exit', (_code, reason) => {
       if (this.run !== run) return;
       if (input instanceof FileCapture && reason === 'file finished') {
@@ -223,18 +250,7 @@ export class SessionManager {
         this.fileOpts && (this.fileOpts.posSec = input.positionSec);
         return;
       }
-      if (this.status === 'recording' && reason !== 'stopped') {
-        const t = this.nowT();
-        this.notice('error', 'capture_stopped', `Audio capture stopped unexpectedly (${reason}). Trying to restart…`);
-        if (this.session) this.store.addTimeline(this.session.id, t, 'gap', `Audio capture stopped: ${reason}`);
-        if (run.restarts++ < 3) setTimeout(() => {
-          if (this.run !== run || this.status !== 'recording') return;
-          for (const sg of run.segmenters.values()) sg.flush();
-          run.segmenters.clear();
-          run.offsetMs = this.nowT(); // A restarted helper starts its input clock at zero again.
-          void run.input.start().catch((e) => this.notice('error', 'capture_restart_failed', (e as Error).message));
-        }, 1500);
-      }
+      if (reason !== 'stopped') captureFailed(reason);
     });
     this.run = run;
     try { await input.start(); }
@@ -264,9 +280,17 @@ export class SessionManager {
     return this.screen.snapshot();
   }
 
+  /** Restarting did not help: keep everything captured so far and pause, so the session no longer claims to be recording. */
+  private async captureGaveUp(reason: string): Promise<void> {
+    this.notice('error', 'capture_gave_up', `Audio capture keeps stopping (${reason}), so the session is paused. Everything captured so far is saved. Check the audio device, then resume.`);
+    try { await this.pause(); }
+    catch (e) { log('session', `could not pause after capture failed: ${(e as Error).message}`); }
+  }
+
   private async endRun(): Promise<void> {
     const run = this.run;
     if (!run) return;
+    if (run.restartTimer) { clearTimeout(run.restartTimer); run.restartTimer = null; }
     if (run.input instanceof FileCapture && this.fileOpts) this.fileOpts.posSec = run.input.positionSec;
     await run.input.stop();
     for (const sg of run.segmenters.values()) sg.flush();
