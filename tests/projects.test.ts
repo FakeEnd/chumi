@@ -236,3 +236,30 @@ test('MCP server: an agent reads a confirmed handoff, passages and frames, and t
   assert.ok(reads.some((r) => r.tool === 'get_handoff' && r.handoff_id === h.id));
   after.close();
 });
+
+test('a handoff drafting when the app stopped is not stuck after a restart', () => {
+  const path = join(DATA, 'stale-handoff.db');
+  const before = new Store(path);
+  meeting(before, 's_new', [[0, 'Let us add a noise ceiling.']]);
+  meeting(before, 's_redo', [[0, 'Let us add a noise ceiling.']]);
+  before.createHandoff({ id: 'hf_new', session_id: 's_new', project_id: null, status: 'generating' });
+  before.createHandoff({ id: 'hf_redo', session_id: 's_redo', project_id: null, status: 'generating' });
+  before.insertHandoffItem({ id: 'hi_kept', handoff_id: 'hf_redo', project_id: null, kind: 'action', position: 0, text: 'Add a noise ceiling', rationale: null, conditions_json: '[]', acceptance_json: '[]', origin: 'user', owner: null, due: null, evidence_json: '[]', review: 'confirmed', edited: 1 });
+  before.close();
+
+  const store = new Store(path);
+  store.failStaleOutputs();
+  const fresh = store.getHandoff('hf_new')!;
+  assert.equal(fresh.status, 'error', 'a first draft with nothing to review fails');
+  assert.match(fresh.error!, /Interrupted/);
+  const redo = store.getHandoff('hf_redo')!;
+  assert.equal(redo.status, 'draft', 'a redraft keeps the items already reviewed');
+  assert.match(redo.error!, /Interrupted/);
+  assert.equal(store.handoffItems('hf_redo').length, 1);
+
+  // Both can be drafted again and edited instead of waiting forever.
+  const svc = new HandoffService(store, fakeAssistant({ decisions: [], actions: [{ text: 'Plot the ceiling', origin: 'agreed', evidence: ['0:00'] }], open_questions: [] }) as never, () => {});
+  assert.equal(svc.generate('s_new').status, 'draft');
+  svc.updateItem('hi_kept', { text: 'Add a noise ceiling line' });
+  store.close();
+});
