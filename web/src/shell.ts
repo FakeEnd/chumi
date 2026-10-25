@@ -4,14 +4,29 @@
  * from its empty parts. The page reports where the top bar and its controls are; in a normal
  * browser there is no message handler and this does nothing.
  */
+import { openSession } from './actions.ts';
+
 type Handler = { postMessage(message: unknown): void };
 
 const INTERACTIVE = ['button', 'input', 'select', 'textarea', 'a', 'label', '[role=button]', '[tabindex]'].map((s) => `.topbar ${s}`)
   .concat(['.dialog', '.notice', '.sel-toolbar']).join(',');
 
+/** Page → app message for the desktop pet (Settings → Desktop pet). False outside Chumi.app. */
+export function petShell(type: 'pet-reset'): boolean {
+  const handler = (window as unknown as { webkit?: { messageHandlers?: Record<string, Handler> } }).webkit?.messageHandlers?.chumiShell;
+  handler?.postMessage({ type });
+  return !!handler;
+}
+
 export function startShellBridge(): void {
   const handler = (window as unknown as { webkit?: { messageHandlers?: Record<string, Handler> } }).webkit?.messageHandlers?.chumiShell;
   if (!handler) return;
+  // App → page: the desktop pet opens a meeting here, optionally at a transcript time.
+  (window as unknown as { chumiOpen: unknown }).chumiOpen = (o: { session?: unknown; t?: unknown; t2?: unknown }) => {
+    if (typeof o?.session !== 'string') return;
+    const t = Number(o.t), t2 = Number(o.t2);
+    void openSession(o.session, Number.isFinite(t) && o.t != null ? { t, t2: Number.isFinite(t2) && o.t2 != null ? t2 : undefined } : undefined);
+  };
   let last = '';
   let timer = 0;
   const send = () => {

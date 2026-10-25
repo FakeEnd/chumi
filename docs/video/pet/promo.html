@@ -1,0 +1,145 @@
+<!doctype html>
+<!--
+  Desktop-pet promo video. Every frame is a function of time: render(t) in promo.ts sets the scene.
+  On the desk, the pet is live footage of the real pet page (scripts/record-footage.ts → dist/footage/<lang>/): its
+  toolbar, the catch-up and the answer streaming into its card, recorded while a sample meeting played. The intro and
+  outro draw the same character with its own code (web/src/pet/). The call window and desktop are drawn here.
+  Rendered by scripts/make-pet-video.ts (Vite + headless Chrome + ffmpeg). ?lang=en for the English cut.
+-->
+<html><head><meta charset="utf-8">
+<script>
+  window.FOOT = '/dist/footage/' + (new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'zh') + '/';
+  for (const c of ['pet-start', 'pet-catchup', 'pet-end']) document.write('<script src="' + window.FOOT + c + '/clip.js"><\/script>');
+</script>
+<style>
+  @font-face { font-family: "Chumi Rounded"; src: local("SF Pro Rounded"), url("/@fs/System/Library/Fonts/SFNSRounded.ttf"); font-weight: 100 1000; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: #fdf2f8; }
+  body { font-family: "Chumi Rounded", -apple-system, "PingFang SC", sans-serif; color: #2E2A78; -webkit-font-smoothing: antialiased; }
+  #stage { position: absolute; inset: 0; overflow: hidden; }
+  .layer { position: absolute; inset: 0; }
+
+  /* pastel intro / outro */
+  #pastel { background: radial-gradient(900px 700px at 15% 20%, #fbcfe8 0%, transparent 70%), radial-gradient(1000px 800px at 90% 85%, #a5f3fc 0%, transparent 70%),
+    radial-gradient(800px 600px at 80% 10%, #ddd6fe 0%, transparent 70%), linear-gradient(135deg, #fdf2f8, #eef2ff 55%, #ecfeff); }
+  .blob { position: absolute; border-radius: 50%; filter: blur(2px); }
+  .twinkle { position: absolute; width: 56px; height: 56px; }
+  .title { position: absolute; left: 0; right: 0; text-align: center; font-weight: 900; }
+  #introTitle { top: 790px; font-size: 118px; letter-spacing: -2px; color: #2E2A78; }
+  #introTitle b { background: linear-gradient(90deg, #6366F1, #06B6D4); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #introSub { top: 935px; font-size: 44px; font-weight: 800; color: #6D5BD0; }
+  html[lang="zh"] #introTitle { letter-spacing: 2px; }
+  #outro { position: absolute; left: 1010px; top: 300px; width: 820px; }
+  #outroLogo { width: 150px; height: 150px; filter: drop-shadow(0 18px 30px rgba(79,70,229,.35)); }
+  #outroWord { font-size: 150px; font-weight: 900; letter-spacing: -5px; line-height: 1; margin-top: 18px; }
+  #outroTag { font-size: 56px; font-weight: 900; margin-top: 22px; color: #4F46E5; }
+  #outroSub { font-size: 32px; font-weight: 700; margin-top: 16px; color: #6B6A9A; }
+  #outroUrl { display: inline-block; margin-top: 34px; padding: 14px 30px; border-radius: 999px; background: #fff; border: 4px solid #2E2A78; font: 800 34px ui-monospace, "SF Mono", Menlo, monospace; color: #2E2A78; box-shadow: 0 6px 0 rgba(46,42,120,.18); }
+  #outroFine { font-size: 24px; font-weight: 700; margin-top: 22px; color: #8B89B8; }
+
+  /* the desktop */
+  #desk { background: linear-gradient(160deg, #c7d2fe 0%, #bae6fd 45%, #fbcfe8 100%); }
+  #wall1 { position: absolute; left: -200px; top: 420px; width: 1300px; height: 900px; border-radius: 50%; background: radial-gradient(closest-side, rgba(255,255,255,.55), transparent); }
+  #wall2 { position: absolute; left: 1100px; top: -300px; width: 1200px; height: 900px; border-radius: 50%; background: radial-gradient(closest-side, rgba(167,139,250,.35), transparent); }
+  #menubar { position: absolute; left: 0; right: 0; top: 0; height: 36px; background: rgba(255,255,255,.55); backdrop-filter: blur(20px); display: flex; align-items: center; gap: 28px; padding: 0 22px;
+    font: 600 19px -apple-system, "PingFang SC", sans-serif; color: #1f2937; }
+  #menubar .app { font-weight: 800; }
+  #menubar .right { margin-left: auto; display: flex; align-items: center; gap: 22px; }
+  #rec { display: flex; align-items: center; gap: 8px; padding: 3px 12px 3px 6px; border-radius: 999px; background: #fff; color: #be123c; font-weight: 800; box-shadow: 0 1px 3px rgba(0,0,0,.12); transform-origin: 50% 50%; }
+  #rec img { width: 22px; height: 22px; }
+  #rec i { width: 10px; height: 10px; border-radius: 50%; background: #e11d48; display: block; }
+
+  .win { position: absolute; border-radius: 16px; overflow: hidden; box-shadow: 0 40px 90px rgba(30,27,75,.35), 0 0 0 1px rgba(0,0,0,.08); }
+  .bar { height: 42px; display: flex; align-items: center; gap: 9px; padding: 0 16px; font: 600 17px -apple-system, "PingFang SC", sans-serif; }
+  .bar i { width: 13px; height: 13px; border-radius: 50%; display: block; }
+  .bar span { margin-left: 14px; }
+  #call { left: 150px; top: 100px; width: 1280px; height: 730px; background: #171a24; }
+  #call .bar { background: #232736; color: #c3c8da; }
+  #slide { position: absolute; left: 22px; top: 62px; width: 900px; height: 560px; border-radius: 10px; background: #fff; padding: 46px 54px; color: #1e1b4b; font-family: -apple-system, "PingFang SC", sans-serif; }
+  #slide h2 { font-size: 44px; font-weight: 800; letter-spacing: -.5px; }
+  #slide .who { font-size: 22px; color: #6b7280; margin-top: 8px; }
+  #slide ul { margin: 34px 0 0 30px; font-size: 28px; line-height: 1.75; color: #374151; }
+  #slide .chart { position: absolute; right: 60px; bottom: 54px; width: 270px; height: 230px; display: flex; align-items: flex-end; gap: 34px; border-bottom: 3px solid #cbd5e1; padding: 0 26px; }
+  #slide .chart div { flex: 1; border-radius: 8px 8px 0 0; position: relative; }
+  #slide .chart span { position: absolute; top: -36px; left: 0; right: 0; text-align: center; font-size: 22px; font-weight: 800; color: #4b5563; }
+  #slide .chart em { position: absolute; bottom: -34px; left: -10px; right: -10px; text-align: center; font-size: 18px; font-style: normal; color: #6b7280; }
+  .tile { position: absolute; left: 944px; width: 316px; height: 128px; border-radius: 10px; background: linear-gradient(135deg, #2b3044, #20243a); border: 3px solid transparent; }
+  .tile .av { position: absolute; left: 50%; top: 50%; width: 66px; height: 66px; margin: -40px 0 0 -33px; border-radius: 50%; display: grid; place-items: center; font: 800 28px -apple-system, sans-serif; color: #fff; }
+  .tile .nm { position: absolute; left: 10px; bottom: 7px; font: 600 16px -apple-system, "PingFang SC", sans-serif; color: #e5e7eb; background: rgba(0,0,0,.35); padding: 1px 8px; border-radius: 6px; }
+  .tile.on { border-color: #4ade80; }
+  #callbar { position: absolute; left: 0; right: 0; bottom: 0; height: 66px; background: #1f2330; display: flex; justify-content: center; align-items: center; gap: 18px; }
+  #callbar b { width: 46px; height: 46px; border-radius: 50%; background: #343a4f; display: block; }
+  #callbar b.end { width: 86px; border-radius: 23px; background: #ef4444; }
+
+  #dock { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); height: 84px; padding: 10px 14px; display: flex; gap: 12px; border-radius: 26px;
+    background: rgba(255,255,255,.42); backdrop-filter: blur(18px); border: 1px solid rgba(255,255,255,.6); }
+  #dock div { width: 64px; height: 64px; border-radius: 16px; }
+  #dock img { width: 64px; height: 64px; }
+
+  #petFoot { position: absolute; left: 0; top: 0; transform-origin: 0 0; opacity: 0; }
+
+  /* overlays */
+  #petLayer { position: absolute; inset: 0; pointer-events: none; }
+  #petLayer .chumi-pet-view { position: absolute; width: 0; height: 0; }
+  #cursor { position: absolute; left: 0; top: 0; width: 46px; height: 46px; opacity: 0; filter: drop-shadow(0 4px 5px rgba(0,0,0,.3)); z-index: 30; }
+  #ripple { position: absolute; width: 30px; height: 30px; border-radius: 50%; border: 4px solid #6366F1; opacity: 0; z-index: 29; }
+  #caption { position: absolute; left: 50%; top: 74px; z-index: 25; padding: 18px 40px 20px; border-radius: 28px; background: #fff; border: 5px solid #2E2A78;
+    box-shadow: 0 8px 0 rgba(46,42,120,.2); text-align: center; white-space: nowrap; opacity: 0; transform-origin: 50% 0; }
+  #capMain { font-size: 54px; font-weight: 900; color: #2E2A78; letter-spacing: -.5px; }
+  html[lang="zh"] #capMain { letter-spacing: 1px; }
+  #capSub { font-size: 30px; font-weight: 700; color: #6D5BD0; margin-top: 6px; }
+  #capSub:empty { display: none; }
+  /* the desktop, the pet and the cursor move together when the camera pushes in */
+  #camera { position: absolute; inset: 0; transform-origin: 0 0; }
+</style></head>
+<body><div id="stage">
+
+  <div class="layer" id="pastel">
+    <div id="blobs"></div>
+    <div class="title" id="introTitle"></div>
+    <div class="title" id="introSub"></div>
+    <div id="outro">
+      <img id="outroLogo" src="../../../assets/logo.svg">
+      <div id="outroWord">Chumi</div>
+      <div id="outroTag"></div>
+      <div id="outroSub"></div>
+      <div id="outroUrl">github.com/FakeEnd/chumi</div>
+      <div id="outroFine"></div>
+    </div>
+  </div>
+
+  <div id="camera">
+  <div class="layer" id="desk">
+    <div id="wall1"></div><div id="wall2"></div>
+    <div id="menubar"><span class="app" data-t="callApp"></span><span data-t="m1"></span><span data-t="m2"></span><span data-t="m3"></span><span data-t="m4"></span>
+      <div class="right"><div id="rec"><img src="../../../assets/logo.svg"><i></i><span id="recTime">00:00</span></div><span data-t="clock"></span></div></div>
+    <div class="win" id="call">
+      <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span data-t="callTitle"></span></div>
+      <div id="slide">
+        <h2 data-t="slideTitle"></h2><div class="who" data-t="slideWho"></div>
+        <ul><li data-t="b1"></li><li data-t="b2"></li><li data-t="b3"></li></ul>
+        <div class="chart"><div style="height:61%;background:#a5b4fc"><span>61%</span><em>SFT</em></div><div style="height:74%;background:#6366f1"><span>74%</span><em>+DPO</em></div></div>
+      </div>
+      <div class="tile on" id="tMaya" style="top:62px"><div class="av" style="background:#ec4899">M</div><div class="nm">Maya</div></div>
+      <div class="tile" style="top:202px"><div class="av" style="background:#8b5cf6">PI</div><div class="nm" data-t="pi"></div></div>
+      <div class="tile" style="top:342px"><div class="av" style="background:#0ea5e9">S</div><div class="nm">Sam</div></div>
+      <div class="tile" style="top:482px"><div class="av" style="background:#f59e0b">W</div><div class="nm">Wei</div></div>
+      <div id="callbar"><b></b><b></b><b></b><b class="end"></b></div>
+    </div>
+    <div id="dock">
+      <div style="background:linear-gradient(135deg,#60a5fa,#2563eb)"></div><div style="background:linear-gradient(135deg,#fbbf24,#f97316)"></div>
+      <div style="background:linear-gradient(135deg,#34d399,#059669)"></div><div style="background:linear-gradient(135deg,#f472b6,#db2777)"></div>
+      <div style="background:linear-gradient(135deg,#a78bfa,#7c3aed)"></div><div style="background:linear-gradient(135deg,#94a3b8,#475569)"></div>
+      <img src="../../../assets/logo.svg">
+    </div>
+    <img id="petFoot">
+  </div>
+
+  <div id="petLayer"></div>
+  <div id="ripple"></div>
+  <svg id="cursor" viewBox="0 0 32 32"><path d="M6 3 L6 25 L11.5 19.8 L15.4 28.6 L19.2 27 L15.4 18.4 L23 18.4 Z" fill="#111" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>
+  </div>
+  <div id="caption"><div id="capMain"></div><div id="capSub"></div></div>
+</div>
+<script type="module" src="./promo.ts"></script>
+</body></html>

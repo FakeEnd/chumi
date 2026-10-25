@@ -3,7 +3,8 @@
   Chumi promo video source. Every frame is a pure function of time: render(t) sets the scene.
   Rendered to MP4 by scripts/make-video.ts (headless Chrome + ffmpeg).  ?lang=zh for the Chinese version.
   Screenshots and their element boxes (regions.js) come from scripts/demo-shoot.ts: docs/assets/screens/ (English)
-  and docs/assets/screens/zh/ (中文). The coding-agent terminal is drawn here from a real Claude Code run on the
+  and docs/assets/screens/zh/ (中文). The catch-up, the explanation and the desktop pet are live footage from
+  scripts/record-footage.ts (dist/footage/<lang>/): the real window and pet, recorded while the answers streamed in. The coding-agent terminal is drawn here from a real Claude Code run on the
   sample project (condensed from its English answer; translated for the Chinese cut).
 -->
 <html><head><meta charset="utf-8">
@@ -11,6 +12,8 @@
   const LANG = new URLSearchParams(location.search).get('lang') === 'zh' ? 'zh' : 'en';
   const SHOTS = '../assets/screens/' + (LANG === 'zh' ? 'zh/' : '');
   document.write('<script src="' + SHOTS + 'regions.js"><\/script>');
+  const FOOT = '../../dist/footage/' + LANG + '/';
+  for (const c of ['main-catchup', 'main-explain', 'pet-catchup']) document.write('<script src="' + FOOT + c + '/clip.js"><\/script>');
 </script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -54,7 +57,9 @@
   .progress span.on { background: linear-gradient(90deg, #8f8bff, #4fd1e8); }
 
   /* trust */
-  .cards { position: absolute; left: 160px; right: 160px; top: 230px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px; }
+  .trustTitle { position: absolute; left: 0; right: 0; top: 250px; text-align: center; font-size: 60px; font-weight: 800; letter-spacing: -1.6px; opacity: 0; }
+  html[lang="zh"] .trustTitle { letter-spacing: 0; }
+  .cards { position: absolute; left: 160px; right: 160px; top: 420px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px; }
   .tcard { border-radius: 26px; padding: 40px 38px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.10); opacity: 0; }
   .ticon { width: 74px; height: 74px; border-radius: 20px; display: grid; place-items: center; background: linear-gradient(135deg, #4f46e5, #0e9fb8); }
   .ticon svg { width: 38px; height: 38px; }
@@ -65,7 +70,7 @@
   .term-bar { height: 44px; background: #23252f; display: flex; align-items: center; gap: 9px; padding: 0 18px; color: #9aa0b8; font-size: 16px; }
   .term-bar i { width: 13px; height: 13px; border-radius: 50%; display: block; }
   .term-bar span { margin-left: 14px; }
-  .term-body { padding: 24px 30px; font-size: 21px; line-height: 1.62; color: #e6e8f2; white-space: pre-wrap; }
+  .term-body { padding: 28px 34px; font-size: 24px; line-height: 1.62; color: #e6e8f2; white-space: pre-wrap; }
   .tl { min-height: 1.62em; }
   .tl.cmd { color: #9aa0b8; } .tl.cmd b { color: #7ee2a8; font-weight: 500; }
   .tl.you { color: #c9c7ff; } .tl.tool b { color: #4fd1e8; font-weight: 600; } .tl.res { color: #8b91a8; }
@@ -85,6 +90,20 @@
   #loopSvg { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
   .ctx { position: absolute; font-size: 22px; font-weight: 700; color: #4fd1e8; letter-spacing: .5px; opacity: 0; }
 
+  /* the desktop pet scene: a desk with a call window and the recorded pet */
+  .desk { position: absolute; inset: 0; z-index: 3; overflow: hidden; opacity: 0; }
+  #deskCam { position: absolute; left: 0; top: 0; width: 1240px; height: 784px; transform-origin: 0 0; }
+  .dwall { position: absolute; inset: 0; background: radial-gradient(700px 500px at 20% 90%, rgba(255,255,255,.55), transparent 70%), linear-gradient(160deg, #c7d2fe, #bae6fd 45%, #fbcfe8); }
+  .dcall { position: absolute; left: 44px; top: 142px; width: 790px; height: 500px; border-radius: 14px; overflow: hidden; background: #171a24; box-shadow: 0 30px 70px rgba(30,27,75,.35); }
+  .dcall .dbar { height: 34px; background: #232736; display: flex; align-items: center; gap: 8px; padding: 0 14px; color: #c3c8da; font-size: 14px; }
+  .dcall .dbar i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+  .dslide { position: absolute; left: 14px; top: 48px; width: 560px; height: 386px; border-radius: 8px; background: #fff; color: #1e1b4b; padding: 30px 34px; }
+  .dslide b { display: block; font-size: 27px; } .dslide p { margin-top: 18px; font-size: 18px; line-height: 1.7; color: #374151; white-space: pre-line; }
+  .dtile { position: absolute; left: 588px; width: 188px; height: 90px; border-radius: 8px; background: #262b3d; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 22px; }
+  .dtile.on { box-shadow: inset 0 0 0 3px #4ade80; }
+  .dctl { position: absolute; left: 0; right: 0; bottom: 0; height: 50px; background: #1f2330; display: flex; justify-content: center; align-items: center; gap: 14px; }
+  .dctl b { width: 34px; height: 34px; border-radius: 50%; background: #343a4f; display: block; } .dctl b.end { width: 64px; border-radius: 17px; background: #ef4444; }
+  #petFoot { position: absolute; left: 850px; top: 120px; width: 361px; height: 722px; }
   #play { position: absolute; left: 50%; top: 50%; width: 170px; height: 170px; margin: -85px 0 0 -85px; border-radius: 50%; z-index: 20;
     background: rgba(14,16,32,.62); border: 3px solid rgba(255,255,255,.9); backdrop-filter: blur(6px); display: none; place-items: center; box-shadow: 0 20px 50px rgba(0,0,0,.5); }
   #play svg { width: 70px; height: 70px; margin-left: 10px; }
@@ -133,14 +152,22 @@
 
   <div class="scene" id="app">
     <div class="cap"><div class="kick" id="kick"></div><div class="ctitle" id="ctitle"></div><div class="csub" id="csub"></div></div>
-    <div class="progress"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="progress"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
     <div class="window" id="win">
       <div class="viewport" id="vp">
-        <img class="shot" data-shot="live" data-file="live.png">
+        <img class="shot" data-shot="foot" id="foot">
+        <img class="shot" data-shot="foot2" id="foot2" style="opacity:0">
+        <img class="shot" data-shot="live" data-file="live.png" style="opacity:0">
         <img class="shot" data-shot="explain" data-file="explain.png" style="opacity:0">
         <img class="shot" data-shot="playback" data-file="playback.png" style="opacity:0">
         <img class="shot" data-shot="handoff" data-file="handoff.png" style="opacity:0">
         <img class="shot" data-shot="pc" data-file="project-context.png" style="opacity:0">
+        <div class="desk" id="desk"><div id="deskCam"><div class="dwall"></div>
+          <div class="dcall"><div class="dbar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span data-t="dcall"></span></div>
+            <div class="dslide"><b data-t="dslide"></b><p data-t="dslideBody"></p></div>
+            <div class="dtile on" style="top:48px">Maya</div><div class="dtile" style="top:146px">PI</div><div class="dtile" style="top:244px">Sam</div><div class="dtile" style="top:342px">Wei</div>
+            <div class="dctl"><b></b><b></b><b></b><b class="end"></b></div></div>
+          <img id="petFoot"></div></div>
         <div class="term" id="term"><div class="term-bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>citation-rag — claude</span></div><div class="term-body" id="termBody"></div></div>
         <div class="hl" id="hl"></div>
         <div class="ripple" id="ripple"></div>
@@ -150,6 +177,7 @@
   </div>
 
   <div class="scene" id="trust">
+    <div class="trustTitle" data-t="trustTitle"></div>
     <div class="cards">
       <div class="tcard"><div class="ticon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div><div class="ttitle" data-t="t1"></div><div class="tsub" data-t="t1s"></div></div>
       <div class="tcard"><div class="ticon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c0 5 2 7 7 7-5 0-7 2-7 7 0-5-2-7-7-7 5 0 7-2 7-7z"/></svg></div><div class="ttitle" data-t="t2"></div><div class="tsub" data-t="t2s"></div></div>
@@ -159,11 +187,13 @@
 
   <div class="scene" id="loop">
     <div class="loopTitle" data-t="loopTitle"></div>
-    <svg id="loopSvg" viewBox="0 0 1920 1080"><defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8f8bff"/></marker></defs>
-      <g fill="none" stroke="#8f8bff" stroke-width="4" stroke-linecap="round" marker-end="url(#ah)">
-        <path class="arc" d="M1145 385 Q1420 400 1440 470"/><path class="arc" d="M1440 650 Q1420 720 1145 735"/>
-        <path class="arc" d="M775 735 Q500 720 480 650"/><path class="arc" d="M480 470 Q500 400 775 385"/>
-      </g></svg>
+    <!-- Clockwise, from the side of one stage to the next: meeting → handoff → agent → memory → meeting. -->
+    <svg id="loopSvg" viewBox="0 0 1920 1080">
+      <g fill="none" stroke="#8f8bff" stroke-width="4" stroke-linecap="round">
+        <path class="arc" d="M1158 385 Q1440 385 1440 462"/><path class="arc" d="M1440 658 Q1440 735 1170 735"/>
+        <path class="arc" d="M762 735 Q480 735 480 658"/><path class="arc" d="M480 462 Q480 385 750 385"/>
+      </g>
+      <g fill="#8f8bff"><path class="tip" d="M2 0L-14 -9L-10 0L-14 9z"/><path class="tip" d="M2 0L-14 -9L-10 0L-14 9z"/><path class="tip" d="M2 0L-14 -9L-10 0L-14 9z"/><path class="tip" d="M2 0L-14 -9L-10 0L-14 9z"/></g></svg>
     <div class="ring">
       <div class="hub grad" id="hub">Chumi</div>
       <div class="node" data-i="0" style="left:0;top:-175px"><div class="ntitle" data-t="n1"></div><div class="nsub" data-t="n1s"></div></div>
@@ -171,7 +201,7 @@
       <div class="node" data-i="2" style="left:0;top:175px"><div class="ntitle" data-t="n3"></div><div class="nsub" data-t="n3s"></div></div>
       <div class="node" data-i="3" style="left:-480px;top:0"><div class="ntitle" data-t="n4"></div><div class="nsub" data-t="n4s"></div></div>
     </div>
-    <div class="ctx" id="ctx" style="left:410px;top:388px" data-t="ctx"></div>
+    <div class="ctx" id="ctx" style="right:1465px;top:402px;text-align:right" data-t="ctx"></div>
   </div>
 
   <div id="play"><svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="#fff"/></svg></div>
@@ -217,7 +247,7 @@
 <script>
 const lang = LANG;
 document.documentElement.lang = lang;
-for (const img of document.querySelectorAll('.shot')) img.src = SHOTS + img.dataset.file;
+for (const img of document.querySelectorAll('.shot')) if (img.dataset.file) img.src = SHOTS + img.dataset.file;
 document.getElementById('blurshot').style.backgroundImage = `url(${SHOTS}live.png)`;
 const TXT = {
   en: {
@@ -226,6 +256,7 @@ const TXT = {
     s: [
       ['During the meeting', 'Lost the thread?\nCatch me up.', 'What you missed and what is being argued now. Every point cited.'],
       ['Explained for you', 'Answers at\nyour level.', 'Select any term. Chumi explains it for your background.'],
+      ['On your desktop', 'Never leave\nyour call.', 'A small Chumi floats above Zoom. Catch up from its toolbar, and the answer streams into its card.'],
       ['After the meeting', 'Listen again,\nfrom any line.', 'The recording stays on your Mac. Click ▶ on a line to hear that moment, or export the meeting as one audio file.'],
       ['Hand it on', 'A handoff\nyou review.', 'Agreed, only suggested, or proposed by Chumi, each cited. Only what you confirm becomes work.'],
       ['In your project', 'Your coding agent\npicks it up.', 'Claude Code, Codex, opencode, Qwen Code or Antigravity reads the handoff and the original lines over MCP, then proposes a plan.'],
@@ -247,10 +278,12 @@ const TXT = {
       ['say', '  Checked against the transcript: #6 (a second judge) was only suggested.'],
       ['say', '  Before I start: what should the n-gram check compare against?'],
     ],
+    dcall: 'Lab meeting · NLP group', dslide: 'Teaching a 7B model to cite', dslideBody: 'SFT on 40k examples → DPO on 60k pairs\nCitation precision 61% → 74%\nJudged by an LLM: is the gain real?',
     loopTitle: 'One loop, not a pile of notes.',
     n1: 'Meeting', n1s: 'listen · catch up · explain', n2: 'Reviewed handoff', n2s: 'cited · you confirm',
     n3: 'Coding agent', n3s: 'Claude Code · Codex · and more', n4: 'Project memory', n4s: 'agent sessions, via mybot',
     ctx: 'Project context',
+    trustTitle: 'Safe to rely on.',
     t1: 'Audio stays on your Mac', t1s: 'Local whisper.cpp transcription by default. Recordings never leave this computer.',
     t2: 'Uses the plan you have', t2s: 'Your ChatGPT or Claude subscription, or a local model. No surprise bills.',
     t3: 'You decide what agents do', t3s: 'Only confirmed work is handed on, and the agent proposes a plan first.',
@@ -262,6 +295,7 @@ const TXT = {
     s: [
       ['会议进行中', '跟丢了？\n帮我跟上。', '你错过了什么、现在在争论什么，每一点都有出处。'],
       ['为你解释', '按你的水平讲解。', '选中任何术语，Chumi 按你的背景用中文解释，保留英文术语。'],
+      ['桌面上', '不用离开\n会议窗口。', '一只小 Chumi 浮在会议窗口上面。在它的工具栏上点一下跟上，回答当场写进它下面的卡片。'],
       ['会议结束后', '从任意一句\n再听一遍。', '录音只保存在你的 Mac 上。点某一行的 ▶ 就能回放那一刻，也能把整场会议导出成一个音频文件。'],
       ['交接', '一份由你审核的\n交接。', '区分“已商定”“仅建议”和“Chumi 提议”，每条都有出处。只有你确认的才会交出去。'],
       ['在你的项目里', '编程智能体\n接着干。', 'Claude Code、Codex、opencode、Qwen Code 或 Antigravity 通过 MCP 读取交接和原始转写，先给出计划。'],
@@ -283,10 +317,12 @@ const TXT = {
       ['say', '  对照转录：#6（换一个 judge）在会上只是建议，没有商定。'],
       ['say', '  开始之前：n-gram 检查要和什么语料比？'],
     ],
+    dcall: '组会 · NLP 实验室', dslide: '用 DPO 教 7B 模型引用来源', dslideBody: 'SFT 4 万条 → DPO 6 万偏好对\n引用精确率 61% → 74%\n由 LLM 打分：提升是真的吗？',
     loopTitle: '一个闭环，而不是一堆纪要。',
     n1: '会议', n1s: '听懂 · 跟上 · 解释', n2: '审核过的交接', n2s: '有出处 · 由你确认',
     n3: '编程智能体', n3s: 'Claude Code · Codex 等', n4: '项目记忆', n4s: 'agent 会话，通过 mybot',
     ctx: '项目上下文',
+    trustTitle: '用得放心。',
     t1: '音频留在你的 Mac', t1s: '默认本地 whisper.cpp 转写，录音只保存在本机。',
     t2: '用你已有的订阅', t2s: 'ChatGPT 或 Claude 订阅，或本地模型。不会突然扣费。',
     t3: 'agent 做什么由你决定', t3s: '只有你确认的工作才会交出去，agent 先给计划。',
@@ -326,13 +362,26 @@ const B = {
   pcToggle: box(G.pc?.toggle, [1150, 300, 130, 26]), pcCard: box(G.pc?.card, [904, 400, 436, 440]), pcSources: box(G.pc?.sources, [912, 430, 200, 24]),
 };
 const R = {
-  transcript: focus(B.transcript, .98), card: focus(B.card, .96), explain: focus(B.explain, .96),
-  pb: focus([B.pbPlayer[0], B.pbPlayer[1] - 12, Math.max(B.pbPlayer[2], B.pbRow[0] + B.pbRow[2] - B.pbPlayer[0]), B.pbRow[1] + B.pbRow[3] + 12 - (B.pbPlayer[1] - 12)], .96),
   hDialog: focus(B.hDialog, .98), hItem: focus([B.hItem[0] - 20, B.hItem[1] - 30, B.hItem[2] + 40, B.hItem[3] + 60], .95),
-  hCont: focus([B.hCont[0] - 660, B.hCont[1] - 250, 880, 330], 1),
-  pcAsk: focus([B.pcToggle[0] - 330, B.pcToggle[1] - 150, 470, 260], 1), pcCard: focus(B.pcCard, .96),
+  // The dialog's whole width (no item cut at the edge), down to its Continue button.
+  hCont: focus([B.hDialog[0], B.hCont[1] - 330, B.hDialog[2], B.hCont[3] + 350], 1),
+
 };
 const center = (r) => [r[0] + r[2] / 2, r[1] + r[3] / 2];
+/** Chumi's answer column from page y `top` down, its left edge in the gap between the columns. `card` is the
+ *  column's card in page CSS px. Fitted to the card's text (at most 35em wide), not its full width, so the view is
+ *  not half empty on the right. */
+function column(card, top) {
+  const z = VW / Math.min(card[2] + 20, 640);
+  return { z, x: clamp(-(card[0] - 10) * z, VW - IW * z, 0), y: clamp(-top * z, VH - IH * z, 0) };
+}
+/** How far the camera follows a card down as it streams in: its final height beyond what the column view shows. */
+const follow = (card, z) => Math.max(0, card[3] + 30 - VH / z);
+/** The explanation's column view, k of the way down the card (0 at its top, 1 when it has finished streaming). */
+function explainView(k) {
+  const card = (CL['main-explain']?.box.card ?? [0, 0, 1280, 1200]).map((x) => x / 2), z = column(card, 0).z;
+  return column(card, card[1] - 14 + follow(card, z) * k);
+}
 // All screenshots are loaded up front and crossfaded (never re-sourced) so no frame shows a half-loaded image.
 function setShots(a, b, k) {
   for (const img of document.querySelectorAll('.shot')) {
@@ -345,16 +394,69 @@ function applyView(v) { for (const img of document.querySelectorAll('.shot')) im
 const toVp = (v, px, py) => [v.x + px * v.z, v.y + py * v.z];
 const hlBox = (v, r, k) => { const [x1, y1] = toVp(v, r[0], r[1]); const [x2, y2] = toVp(v, r[0] + r[2], r[1] + r[3]); return [x1, y1, x2 - x1, y2 - y1, k]; };
 
-// ---------- timeline (seconds): about 59 s. D shifts everything after the Listen again scene.
-const D = 5.4;
-const APP = [[8.0, 14.2], [14.2, 19.6], [19.6, 19.6 + D], [19.6 + D, 26.2 + D], [26.2 + D, 33.0 + D], [33.0 + D, 39.8 + D]];
-const T = { introEnd: 3.2, probEnd: 8.0, appEnd: 39.8 + D, loopEnd: 45.0 + D, trustEnd: 49.6 + D, end: 53.6 + D };
-window.DURATION = T.end;
-window.CLICKS = [11.2, 21.9, 25.2 + D];
-window.APP_WINDOW = [T.probEnd, T.appEnd];
-window.POSTER_T = 32.1 + D;
-window.PREVIEW_T = [1.6, 6.4, 9.4, 12.6, 16.8, 20.4, 22.2, 24.2, ...[21.2, 23.0, 25.3, 28.6, 32.1, 34.4, 36.4, 38.4, 41.0, 43.6, 47.4, 51.4].map((x) => +(x + D).toFixed(1))];
+// ---------- live footage: Chumi's window and the desktop pet, recorded by scripts/record-footage.ts
+const CL = window.CLIPS ?? {};
+const mark = (c, name, fb) => c?.events.find((e) => e.type === 'mark' && e.name === name)?.t ?? fb;
+/** The file of the clip's last frame at or before clip time ct. */
+function frameAt(c, ct) {
+  const f = c.frames; let lo = 0, hi = f.length - 1;
+  if (ct <= f[0][0]) return FOOT + c.name + '/' + f[0][1];
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (f[m][0] <= ct) lo = m; else hi = m - 1; }
+  return FOOT + c.name + '/' + f[lo][1];
+}
+/** Scene time → clip time through [scene time, clip time] keys: real time where it matters, faster through waits. */
+function remap(keys, u) {
+  if (u <= keys[0][0]) return keys[0][1];
+  for (let i = 1; i < keys.length; i++) if (u <= keys[i][0]) { const [a0, b0] = keys[i - 1], [a1, b1] = keys[i]; return b0 + (b1 - b0) * (u - a0) / (a1 - a0); }
+  return keys.at(-1)[1];
+}
+/** The pointer and clicks recorded with a clip, at clip time ct: [x, y] in captured px and how long since the last click. */
+function pointerAt(c, ct) {
+  let p = null, down = -99;
+  for (const e of c.events) { if (e.t > ct) break; if (e.type === 'move' || e.type === 'down') p = [e.x, e.y]; if (e.type === 'down') down = e.t; }
+  return p && { x: p[0], y: p[1], since: ct - down };
+}
+async function show(img, src) { if (img.dataset.src === src) return; img.dataset.src = src; img.src = src; await img.decode().catch(() => {}); }
 
+// Catch me up: the transcript arriving, the click, the wait (shortened), the answer streaming in (sped up), a pause.
+const MC = CL['main-catchup'], cuClick = mark(MC, 'click', 4), cuStream = mark(MC, 'streaming', cuClick + 3), cuDone = mark(MC, 'done', cuStream + 8);
+const CU_LEAD = 2.4, CU_WAIT = 0.7, CU_STREAM = clamp((cuDone - cuStream) / 3, 2.6, 4), CU_HOLD = 1.2;
+const KEYS_CU = [[0, cuClick - CU_LEAD], [CU_LEAD, cuClick], [CU_LEAD + CU_WAIT, cuStream], [CU_LEAD + CU_WAIT + CU_STREAM, cuDone], [CU_LEAD + CU_WAIT + CU_STREAM + CU_HOLD, cuDone + CU_HOLD]];
+// An explanation for the profile, streaming in.
+const ME = CL['main-explain'], exAsk = mark(ME, 'ask', 1.5), exDone = mark(ME, 'done', exAsk + 8), exStream = mark(ME, 'streaming', exAsk + (exDone - exAsk) * 0.3);
+const EX_STREAM = clamp((exDone - exStream) / 3, 2.4, 3.6);
+const KEYS_EX = [[0, exAsk - 0.6], [0.6, exAsk], [1.1, exStream], [1.1 + EX_STREAM, exDone], [1.1 + EX_STREAM + 1.1, exDone + 1.1]];
+// The desktop pet: the pointer goes to its toolbar, catch up, the card fills in.
+const PC = CL['pet-catchup'], petClick = mark(PC, 'click', 2), petDone = mark(PC, 'done', petClick + 8);
+const PET_LEAD = 1.3, PET_STREAM = clamp((petDone - petClick) / 3, 2.8, 4.2);
+const KEYS_PET = [[0, petClick - PET_LEAD], [PET_LEAD, petClick], [PET_LEAD + PET_STREAM, petDone], [PET_LEAD + PET_STREAM + 1.3, petDone + 1.3]];
+
+// ---------- timeline (seconds). The three live scenes come first; the later scenes keep their timing, shifted.
+const D = 5.4;
+const OLD = [[8.0, 14.2], [14.2, 19.6], [19.6, 19.6 + D], [19.6 + D, 26.2 + D], [26.2 + D, 33.0 + D], [33.0 + D, 39.8 + D]];
+const DUR = [KEYS_CU.at(-1)[0] + 0.4, KEYS_EX.at(-1)[0] + 0.3, KEYS_PET.at(-1)[0] + 0.4, ...OLD.slice(2).map(([a, b]) => b - a)];
+const APP = []; { let at = 8.0; for (const d of DUR) { APP.push([at, at + d]); at += d; } }
+const APP_END = APP.at(-1)[1], SHIFT = APP_END - OLD.at(-1)[1];
+/** A later scene's time on the old timeline its numbers were written for. */
+const oldT = (i, t) => t - APP[i][0] + OLD[i - 1][0];
+// The loop, trust and outro run on their own clock u (u = 39.8 when the app has faded out), 0.4 s early so the
+// loop crossfades with the app rather than after a dark gap.
+const U0 = D + SHIFT - 0.4, atU = (u) => u + U0;
+const T = { introEnd: 3.2, probEnd: 8.0, appEnd: APP_END, end: atU(53.6) };
+window.DURATION = T.end;
+window.CLICKS = [APP[0][0] + CU_LEAD, APP[2][0] + PET_LEAD, APP[3][0] + 21.9 - 19.6, APP[4][0] + 25.2 + D - OLD[3][0]];
+// The music (scripts/soundtrack.ts): bass and snaps with the problem, the full groove with the app, the whistled
+// hook over the loop and the closing cards, the last strum as the outro's logo lands.
+window.MUSIC = { build: 3.2, groove: T.probEnd, hook: [[atU(39.8), atU(50.2)]], end: atU(50.2) };
+window.POSTER_T = +(APP[0][0] + CU_LEAD + CU_WAIT + CU_STREAM + 0.6).toFixed(2);
+window.PREVIEW_T = [1.6, 6.4, ...APP.map(([a, b]) => [a + (b - a) * 0.3, a + (b - a) * 0.75]).flat(), APP_END + 2, APP_END + 7, APP_END + 11].map((x) => +x.toFixed(1));
+
+// First frames up front, so the page is complete before the first render.
+if (MC) $('foot').src = frameAt(MC, 0);
+if (ME) $('foot2').src = frameAt(ME, 0);
+if (PC) $('petFoot').src = frameAt(PC, 0);
+
+const loopTips = [...document.querySelectorAll('#loop .tip')];
 const termBody = $('termBody');
 TXT.term.forEach(([kind, html]) => { const d = document.createElement('div'); d.className = `tl ${kind}`; d.dataset.html = html; termBody.appendChild(d); });
 const termLines = [...termBody.children];
@@ -399,7 +501,7 @@ window.render = function (t) {
   });
 
   // app
-  const appOn = fade(t, 7.8, 8.4, 39.3 + D, 39.8 + D);
+  const appOn = fade(t, 7.8, 8.4, APP_END - 0.5, APP_END);
   $('app').style.opacity = appOn;
   $('win').style.transform = `translateY(${lerp(60, 0, ease(seg(t, 7.8, 8.7)))}px) scale(${lerp(.96, 1, ease(seg(t, 7.8, 8.7)))})`;
   let idx = APP.findIndex(([a, b]) => t >= a && t < b); if (idx < 0) idx = t < APP[0][0] ? 0 : APP.length - 1;
@@ -411,31 +513,68 @@ window.render = function (t) {
   document.querySelector('.cap').style.transform = `translateY(${lerp(18, 0, ease(seg(t, a + .05, a + .6)))}px)`;
   document.querySelectorAll('.progress span').forEach((s, i) => s.classList.toggle('on', i <= idx));
 
-  let v = FULL, hl = null, cur = null, rip = 0, term = 0;
-  if (idx === 0) {            // live transcript, then the cursor clicks Catch me up and the card's covered interval lights up
-    setShots('live', 'live', 0);
-    const v0 = mix(FULL, R.transcript, ease(seg(t, 8.4, 9.8)) * .45);
-    v = mix(mix(v0, FULL, ease(seg(t, 9.8, 10.3))), R.card, ease(seg(t, 11.6, 12.8)));
-    const p = ease(seg(t, 10.0, 11.0));
-    const [bx, by] = toVp(v, ...center(B.catchBtn));
-    cur = [lerp(VW * .55, bx, p), lerp(VH * .9, by, p), fade(t, 9.9, 10.2, 11.5, 11.9)];
-    rip = seg(t, 11.2, 11.9);
-    if (t > 12.8) hl = hlBox(v, B.covers, fade(t, 12.9, 13.2, 13.8, 14.1));
-  } else if (idx === 1) {     // explanation pitched to the profile
-    setShots('live', 'explain', ease(seg(t, 14.2, 14.7)));
-    v = mix(mix(R.card, FULL, ease(seg(t, 14.2, 14.7))), R.explain, ease(seg(t, 14.9, 16.4)));
-  } else if (idx === 2) {     // listen again: the cursor clicks a line's play button, the line lights up, then the player
-    setShots('explain', 'playback', ease(seg(t, 19.6, 20.1)));
-    v = mix(mix(R.explain, FULL, ease(seg(t, 19.6, 20.2))), R.pb, ease(seg(t, 22.5, 23.5)));
+  let v = FULL, hl = null, cur = null, rip = 0, term = 0, desk = 0;
+  const waits = [];
+  const u0 = t - a;
+  if (idx === 0) {            // live: the transcript arrives, the cursor clicks Catch me up, the answer streams in
+    setShots('foot', 'foot', 0);
+    const ct = remap(KEYS_CU, u0);
+    waits.push(show($('foot'), frameAt(MC, ct)));
+    // The whole window while the transcript arrives and the cursor clicks; then the answer column, following the
+    // answer down as it streams in.
+    const btn = MC.box.catchBtn.map((x) => x / 2), card = MC.box.card.map((x) => x / 2);
+    const col = column(card, card[1] - 14), drop = follow(card, col.z);
+    const k = ease(seg(u0, CU_LEAD + CU_WAIT + 0.6, CU_LEAD + CU_WAIT + CU_STREAM + 0.6));
+    v = mix(FULL, column(card, card[1] - 14 + drop * k), ease(seg(u0, CU_LEAD + 0.3, CU_LEAD + 1.3)));
+    const p = ease(seg(u0, CU_LEAD - 1.25, CU_LEAD - 0.2));
+    const [bx, by] = toVp(v, ...center(btn));
+    cur = [lerp(VW * .55, bx, p), lerp(VH * .9, by, p), fade(u0, CU_LEAD - 1.35, CU_LEAD - 1.05, CU_LEAD + 0.5, CU_LEAD + 0.9)];
+    rip = seg(u0, CU_LEAD, CU_LEAD + 0.7);
+  } else if (idx === 1) {     // an explanation pitched to the profile, streaming in
+    const ct = remap(KEYS_EX, u0);
+    waits.push(show($('foot2'), frameAt(ME, ct)));
+    setShots('foot', 'foot2', ease(seg(u0, 0, 0.2)));  // quick: the two recordings differ, and a slow blend ghosts
+    // From where the catch-up ended to the new card at the top of the column, following it down.
+    const cu = MC.box.card.map((x) => x / 2), from = column(cu, cu[1] - 14 + follow(cu, column(cu, 0).z));
+    v = mix(from, explainView(ease(seg(u0, 1.4, 1.1 + EX_STREAM + 0.5))), ease(seg(u0, 0, 0.9)));
+  } else if (idx === 2) {     // the desktop pet over the call: catch up from its toolbar, the card fills in
+    // The desk opens as a circle from the pet and closes back into it. Under it: the explanation's last view as it
+    // opens, the next scene's screenshot as it closes.
+    setShots(u0 < DUR[2] / 2 ? 'foot2' : 'playback', u0 < DUR[2] / 2 ? 'foot2' : 'playback', 0);
+    if (u0 < DUR[2] / 2) { v = explainView(1); waits.push(show($('foot2'), frameAt(ME, KEYS_EX.at(-1)[1]))); }
+    const ct = remap(KEYS_PET, u0);
+    waits.push(show($('petFoot'), frameAt(PC, ct)));
+    // The desk's camera comes in on the pet as the answer arrives.
+    const S = 361 / 1140, px = 850, py = 120;  // #petFoot: 361 px wide for the 1140-px captured page, at (850, 120)
+    // Close enough to read the card as it fills in (page CSS y ≈ 300 is the card under the toolbar).
+    // The whole desk first (the call and the pet), then close in on the pet as it starts writing.
+    const kz = ease(seg(u0, PET_LEAD - 0.2, PET_LEAD + 1.0));
+    const z = lerp(1, 2.0, kz);
+    const fx = px + 190 * 361 / 380, fy = py + lerp(180, 300, kz) * 361 / 380;
+    const cx = clamp(VW / 2 - fx * z, VW - VW * z, 0), cy = clamp(VH / 2 - fy * z, VH - VH * z, 0);
+    $('deskCam').style.transform = `translate(${cx}px, ${cy}px) scale(${z})`;
+    const iris = Math.min(ease(seg(u0, 0, 0.55)), 1 - ease(seg(u0, DUR[2] - 0.5, DUR[2])));
+    desk = iris > 0 ? 1 : 0;
+    $('desk').style.clipPath = `circle(${(iris * 1500).toFixed(1)}px at ${(cx + (px + 180) * z).toFixed(1)}px ${(cy + (py + 150) * z).toFixed(1)}px)`;
+    const ptr = pointerAt(PC, ct);
+    if (ptr) {
+      cur = [cx + (px + ptr.x * S) * z, cy + (py + ptr.y * S) * z, fade(u0, 0.3, 0.6, DUR[2] - 0.8, DUR[2] - 0.4)];
+      rip = ptr.since >= 0 && ptr.since < 0.7 ? ptr.since / 0.7 : 0;
+    }
+  } else if (idx === 3) {     // listen again: the cursor clicks a line's play button, the line lights up, then the player
+    const t = oldT(3, arguments[0]);
+    setShots('playback', 'playback', 1);
+    desk = 0;
+    v = FULL;  // the row's ▶ is at the window's left edge and the player in its top bar: no crop shows both whole
     const p = ease(seg(t, 20.5, 21.6));
     const [bx, by] = toVp(v, B.pbRow[0] + 14, B.pbRow[1] + Math.min(18, B.pbRow[3] / 2));
     cur = [lerp(VW * .5, bx, p), lerp(VH * .85, by, p), fade(t, 20.4, 20.7, 22.4, 22.8)];
     rip = seg(t, 21.9, 22.6);
     if (t > 23.5) hl = hlBox(v, B.pbPlayer, fade(t, 23.6, 23.9, 24.5, 24.9));
-  } else if (idx === 3) {     // the reviewed handoff: an item with its origin and evidence, then Continue in Claude Code
-    const u = t - D;
+  } else if (idx === 4) {     // the reviewed handoff: an item with its origin and evidence, then Continue in Claude Code
+    const t = oldT(4, arguments[0]), u = t - D;
     setShots('playback', 'handoff', ease(seg(u, 19.6, 20.1)));
-    const v1 = mix(R.pb, R.hDialog, ease(seg(u, 19.6, 20.2)));
+    const v1 = mix(FULL, R.hDialog, ease(seg(u, 19.6, 20.2)));
     const v2 = mix(v1, R.hItem, ease(seg(u, 20.4, 21.6)));
     v = mix(v2, R.hCont, ease(seg(u, 23.6, 24.4)));
     if (u > 21.6 && u < 22.7) hl = hlBox(v, B.hOrigin, fade(u, 21.7, 22.0, 22.4, 22.7));
@@ -444,21 +583,25 @@ window.render = function (t) {
     const [bx, by] = toVp(v, B.hCont[0] + B.hCont[2] * .82, B.hCont[1] + B.hCont[3] * .7);
     cur = [lerp(VW * .45, bx, p), lerp(VH * .55, by, p), fade(u, 24.1, 24.4, 25.6, 26.0)];
     rip = seg(u, 25.2, 25.9);
-  } else if (idx === 4) {     // the agent picks it up in the project folder
+  } else if (idx === 5) {     // the agent picks it up in the project folder
+    const t = oldT(5, arguments[0]);
     setShots('handoff', 'handoff', 0);
     v = R.hCont;
     term = seg(t - D, 26.2, 26.7);
   } else {                    // next meeting: Project context on, an answer that cites the earlier agent sessions
-    const u = t - D;
+    const t = oldT(6, arguments[0]), u = t - D;
     setShots('handoff', 'pc', 1);
     term = 1 - seg(u, 33.0, 33.5);
-    v = mix(R.pcAsk, R.pcCard, ease(seg(u, 35.0, 36.4)));
+    // The answer column from the Project context switch down, then the answer and its sources.
+    const pcAsk = column(B.pcCard, B.pcToggle[1] - 150), pcCard = column(B.pcCard, B.pcCard[1] - 14);
+    v = mix(pcAsk, pcCard, ease(seg(u, 35.0, 36.4)));
     if (u > 33.6 && u < 34.9) hl = hlBox(v, B.pcToggle, fade(u, 33.7, 34.0, 34.5, 34.9));
     if (u > 36.4) hl = hlBox(v, B.pcSources, fade(u, 36.6, 36.9, 39.2, 39.6));
   }
   applyView(v);
+  $('desk').style.opacity = desk;
   $('term').style.opacity = term;
-  if (term > 0) renderTerm(t);
+  if (term > 0) renderTerm(oldT(5, t));
   const H = $('hl');
   if (hl) { H.style.left = hl[0] - 6 + 'px'; H.style.top = hl[1] - 4 + 'px'; H.style.width = hl[2] + 12 + 'px'; H.style.height = hl[3] + 8 + 'px'; H.style.opacity = hl[4]; } else H.style.opacity = 0;
   const C = $('cursor');
@@ -467,7 +610,7 @@ window.render = function (t) {
   if (rip > 0 && rip < 1 && cur) { const s = 1 + rip * 4; P.style.transform = `translate(${cur[0] - 10}px, ${cur[1] - 10}px) scale(${s})`; P.style.opacity = 1 - rip; } else P.style.opacity = 0;
 
   // the loop: each stage lights up in turn, and project memory feeds the next meeting
-  const u = t - D;
+  const u = t - U0;
   $('loop').style.opacity = fade(u, 39.8, 40.3, 44.5, 45.0);
   $('loop').querySelector('.loopTitle').style.opacity = seg(u, 40.0, 40.5);
   document.querySelectorAll('#loop .node').forEach((el, i) => {
@@ -476,21 +619,29 @@ window.render = function (t) {
     el.classList.toggle('on', u >= 42.6 && Math.floor((u - 42.6) / .45) % 4 === i);
   });
   document.querySelectorAll('#loop .arc').forEach((el, i) => {
-    const len = el.getTotalLength(), s0 = 40.55 + i * .55;
-    el.style.strokeDasharray = `${len}`; el.style.strokeDashoffset = `${len * (1 - ease(seg(u, s0, s0 + .5)))}`;
+    const len = el.getTotalLength(), s0 = 40.55 + i * .55, k = ease(seg(u, s0, s0 + .5));
+    el.style.strokeDasharray = `${len}`; el.style.strokeDashoffset = `${len * (1 - k)}`;
+    // The arrowhead rides the line's tip, pointing along it, and shows once the line is under way.
+    const p = el.getPointAtLength(len * k), q = el.getPointAtLength(Math.max(0, len * k - 2));
+    const tip = loopTips[i];
+    tip.setAttribute('transform', `translate(${p.x} ${p.y}) rotate(${Math.atan2(p.y - q.y, p.x - q.x) * 180 / Math.PI})`);
+    tip.style.opacity = seg(k, 0.05, 0.2);
   });
   $('ctx').style.opacity = seg(u, 42.4, 42.8);
   $('hub').style.opacity = seg(u, 40.2, 40.7);
 
   // trust
-  $('trust').style.opacity = fade(u, 45.0, 45.4, 49.1, 49.6);
+  // Each closing scene crossfades with the one before it, so no frame is empty.
+  $('trust').style.opacity = fade(u, 44.6, 45.0, 49.2, 49.6);
+  $('trust').querySelector('.trustTitle').style.opacity = seg(u, 44.8, 45.2);
   document.querySelectorAll('.tcard').forEach((el, i) => {
-    const s0 = 45.3 + i * .3;
+    const s0 = 45.0 + i * .25;
     el.style.opacity = seg(u, s0, s0 + .4); el.style.transform = `translateY(${lerp(40, 0, ease(seg(u, s0, s0 + .6)))}px)`;
   });
 
   // outro
-  $('outro').style.opacity = seg(u, 49.6, 50.2) * (1 - seg(u, 52.9, 53.6));
+  $('outro').style.opacity = seg(u, 49.3, 49.8) * (1 - seg(u, 52.9, 53.6));
+  return Promise.all(waits);
 };
 render(0);
 </script>

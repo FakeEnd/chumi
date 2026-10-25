@@ -1,0 +1,92 @@
+/* The desktop pet page: the character on top, its toolbar, then the latest answers. The page is transparent;
+   Chumi.app sizes its panel to #app and lets clicks through everywhere except the pet and the .ui boxes. */
+html, body { margin: 0; overflow: hidden; background: transparent; }
+/* Tag colours, as on the cards in Chumi's window. */
+:root { --t-meeting: #4f46e5; --t-tangent: #a21caf; --t-background: #f59e0b; --t-summary: #15803d; }
+body { font: 13px/1.45 -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif; color: #1f2333; -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none; user-select: none; cursor: default; }
+#app { width: 380px; padding: 0 14px 14px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; }
+#petArea { position: relative; width: 100%; height: 236px; flex: none; }
+#petArea .chumi-pet-view { position: absolute; left: 50%; bottom: 4px; width: 0; height: 0; }
+#app[hidden] { display: none; }
+
+.companion { position: relative; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.bar, .ask, .card { background: rgba(255, 255, 255, .97); box-shadow: 0 4px 13px rgba(30, 27, 75, .15), 0 0 0 .5px rgba(30, 27, 75, .1); }
+
+.bar[hidden] { display: none; }
+.bar { display: flex; align-items: center; height: 48px; padding: 0 6px; border-radius: 999px; }
+.bar button { appearance: none; border: 0; background: transparent; height: 38px; min-width: 44px; padding: 0 11px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center; gap: 7px; color: #2b2d3a; font: 650 13px/1 inherit; font-variant-numeric: tabular-nums; }
+.bar button svg { width: 21px; height: 21px; flex: none; }
+.bar button.hov, .bar button:hover, .bar button.on { background: rgba(99, 102, 241, .11); }
+.bar button:active { background: rgba(99, 102, 241, .2); }
+.bar button:disabled { opacity: .32; background: transparent; }
+.bar button.rec { color: #d61f45; }
+.bar button.paused { color: #b45309; }
+.bar button.confirm { background: #fde2e4; color: #b4162f; font-weight: 750; }
+.bar button.flip svg { transform: rotate(180deg); }
+.bar .dot { width: 9px; height: 9px; border-radius: 50%; background: #e11d48; display: block; animation: pulse 1.6s ease-in-out infinite; }
+.bar .sep { width: 1px; height: 22px; background: rgba(30, 27, 75, .12); flex: none; }
+@keyframes pulse { 50% { opacity: .35; } }
+.spin { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.tip { position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); padding: 4px 9px; border-radius: 7px; background: rgba(28, 29, 38, .92); color: #fff;
+  font-size: 12px; font-weight: 600; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
+.tip.on { opacity: 1; }
+
+.ask { width: 100%; box-sizing: border-box; display: flex; gap: 6px; padding: 6px; border-radius: 18px; }
+.ask[hidden] { display: none; }
+.ask input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 8px 10px; font: 14px inherit; color: inherit; -webkit-user-select: text; user-select: text; }
+.ask button { border: 0; border-radius: 13px; padding: 0 15px; background: #4f46e5; color: #fff; font: 700 13px inherit; }
+
+/* No scroll box: the page drops the oldest cards that would not fit on the screen. */
+.cards { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+.cards[hidden] { display: none; }
+.list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; align-self: stretch; padding: 6px 8px 6px 14px; border-radius: 999px;
+  background: rgba(255, 255, 255, .9); box-shadow: 0 3px 12px rgba(30, 27, 75, .12), 0 0 0 .5px rgba(30, 27, 75, .1); color: #555b70; font-weight: 700; font-size: 12px; }
+.list-head .open { flex: none; padding: 2px 8px; border-radius: 999px; }
+.list-head .chips { display: flex; gap: 4px; min-width: 0; overflow: hidden; }
+.chip { --c: var(--t-meeting); display: inline-flex; align-items: center; gap: 4px; flex: none; border: 1px solid rgba(30, 27, 75, .14); background: #fff; border-radius: 999px;
+  padding: 1px 8px; font: 650 11.5px inherit; color: #2b2d3a; }
+.chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); display: block; }
+.chip .n { color: #8a8fa3; font-variant-numeric: tabular-nums; }
+.chip[aria-pressed="false"] { background: transparent; color: #8a8fa3; border-style: dashed; text-decoration: line-through; }
+.chip[aria-pressed="false"] i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--c); }
+.tag-meeting { --c: var(--t-meeting); } .tag-tangent { --c: var(--t-tangent); } .tag-background { --c: var(--t-background); } .tag-summary { --c: var(--t-summary); }
+.card .head i.tag { width: 9px; height: 9px; margin: 0 2px; border-radius: 50%; background: var(--c); flex: none; display: block; }
+.card { border-radius: 20px; padding: 11px 16px 12px; flex: none; }
+.card.empty { color: #6b7080; text-align: center; }
+.card .head { display: flex; align-items: center; gap: 7px; font-size: 14px; white-space: nowrap; min-width: 0; }
+.card .head svg { width: 18px; height: 18px; flex: none; color: #6366f1; }
+.card .head b { overflow: hidden; text-overflow: ellipsis; font-weight: 750; }
+.card .tm { color: #8a8fa3; flex: none; }
+.card .prev { margin-top: 3px; color: #555b70; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card .prev.err { color: #b45309; }
+.card .md { margin-top: 5px; max-height: 300px; overflow-y: auto; color: #2b2f40; -webkit-user-select: text; user-select: text; cursor: text; }
+.card .md > :first-child { margin-top: 0; }
+.card .md p, .card .md ul, .card .md ol { margin: 0 0 7px; }
+.card .md ul, .card .md ol { padding-left: 18px; }
+.card .md h1, .card .md h2, .card .md h3, .card .md h4 { font-size: 13.5px; margin: 8px 0 4px; }
+.card .md code { font: 12px ui-monospace, "SF Mono", Menlo, monospace; background: rgba(30, 27, 75, .06); border-radius: 4px; padding: 0 3px; }
+.card .md button.ref { border: 0; border-radius: 6px; padding: 0 5px; background: rgba(99, 102, 241, .12); color: #4f46e5; font: 650 11.5px ui-monospace, "SF Mono", Menlo, monospace; }
+.card .foot { margin-top: 4px; display: flex; justify-content: flex-end; }
+button.open { border: 0; background: none; padding: 0; color: #4f46e5; font: 700 12.5px inherit; }
+
+@media (prefers-color-scheme: dark) {
+  :root { --t-meeting: #8b87ff; --t-tangent: #e879f9; --t-summary: #5ccf8b; }
+  body { color: #eceef6; }
+  .chip { background: rgba(255, 255, 255, .06); border-color: rgba(255, 255, 255, .16); color: #e6e8f2; }
+  .bar, .ask, .card { background: rgba(40, 41, 52, .97); box-shadow: 0 4px 13px rgba(0, 0, 0, .4), 0 0 0 .5px rgba(255, 255, 255, .12); }
+  .bar button { color: #e6e8f2; }
+  .bar button.hov, .bar button:hover, .bar button.on { background: rgba(165, 180, 252, .16); }
+  .bar .sep { background: rgba(255, 255, 255, .14); }
+  .bar button.rec { color: #ff6b88; }
+  .bar button.paused { color: #fbbf24; }
+  .bar button.confirm { background: rgba(244, 63, 94, .25); color: #ffd1d8; }
+  .card .prev { color: #b8bccd; } .card .tm, .card.empty { color: #9096ab; } .card .md { color: #dfe2ee; }
+  .card .md code { background: rgba(255, 255, 255, .08); }
+  .card .md button.ref, button.open { color: #a5b4fc; }
+  .card .md button.ref { background: rgba(165, 180, 252, .16); }
+  .list-head { background: rgba(40, 41, 52, .9); color: #b8bccd; box-shadow: 0 3px 12px rgba(0, 0, 0, .35), 0 0 0 .5px rgba(255, 255, 255, .12); }
+}

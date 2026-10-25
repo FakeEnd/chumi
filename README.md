@@ -21,7 +21,7 @@
 
 https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d
 
-<p align="center"><sub>▶ The 59-second tour, with music · <a href="README.zh-CN.md">中文版</a> · player blank or stuck? <a href="docs/assets/chumi-promo.mp4?raw=1">Download the MP4</a> · faster cuts to download: <a href="docs/assets/chumi-promo-1.5x.mp4?raw=1">40 s</a>, <a href="docs/assets/chumi-promo-2x.mp4?raw=1">30 s</a></sub></p>
+<p align="center"><sub>▶ The 69-second tour, with music · <a href="README.zh-CN.md">中文版</a> · player blank or stuck? <a href="docs/assets/chumi-promo.mp4?raw=1">Download the MP4</a> · faster cuts to download: <a href="docs/assets/chumi-promo-1.5x.mp4?raw=1">46 s</a>, <a href="docs/assets/chumi-promo-2x.mp4?raw=1">35 s</a></sub></p>
 
 ---
 
@@ -97,6 +97,15 @@ Turn on **Project context** in the Ask box, and questions also search the projec
 <p align="center">
   <img src="docs/assets/screens/project-context.png" width="900" alt="Project context turned on in the Ask box; the answer draws on the agent session that continued the handoff, cited as P1, next to what was said in the meeting">
 </p>
+
+### A desktop pet that listens with you
+
+Chumi.app can also keep a small Chumi in the corner of your screen. Its toolbar starts, pauses or ends a meeting, catches you up and takes a question, and the card below it shows the latest answer or explanation, so you can follow along without leaving your call. It perks up its ears while it listens and tells you when an answer is ready. Clicks elsewhere pass straight through, and it stays out of screen shares. See [docs/desktop-pet.md](docs/desktop-pet.md).
+
+<p align="center">
+  <a href="docs/assets/chumi-pet.mp4"><img src="docs/assets/chumi-pet-poster.jpg" width="900" alt="Chumi's desktop pet beside a lab-meeting call, saying the catch-up is ready, with a Click to see link"></a>
+</p>
+<p align="center"><sub>▶ <a href="docs/assets/chumi-pet.mp4">60-second video</a> · <a href="docs/assets/chumi-pet-zh.mp4">中文版</a></sub></p>
 
 #### About the screenshots
 
@@ -231,8 +240,9 @@ npm run build:tools                            # rebuild the window-capture and 
 
 1. Render the sample meetings with macOS `say` (about a minute each): `node scripts/make-sample.mjs --script samples/llm-meeting-en/script.json`, and the same for `samples/llm-meeting`.
 2. Agent loop, once: `node scripts/demo-shoot.ts --prepare-agent --project-folder DIR` drafts and confirms a handoff for a project folder and keeps its data folder. Run Claude Code (or Codex) in `DIR` with that prompt and Chumi's MCP server pointed at the kept data folder, and let mybot index the session.
-3. Screenshots: `node scripts/demo-shoot.ts --project-folder DIR` (add `--lang zh` for the Chinese set in `docs/assets/screens/zh/`). It uses about 15 requests on your Claude plan.
-4. Video: `node scripts/make-video.ts` renders `docs/video/promo.html`; add `--lang zh`, or `--speed 1.5` / `--speed 2` for the faster cuts. `bash scripts/make-banner.sh` re-renders the banner.
+3. Screenshots: `node scripts/demo-shoot.ts --project-folder DIR` (add `--lang zh` for the Chinese set in `docs/assets/screens/zh/`). It uses about 15 requests on your Claude plan, or on your ChatGPT plan with `--provider codex`.
+4. Live footage: `node scripts/record-footage.ts` (and `--lang zh`) records the real window and desktop pet while the answers stream in, into `dist/footage/`. It rebuilds the web UI first, then uses about 6 requests (Codex by default; `--provider claude-cli` for your Claude plan).
+5. Video: `node scripts/make-video.ts` renders `docs/video/promo.html`; add `--lang zh`, or `--speed 1.5` / `--speed 2` for the faster cuts. `node scripts/make-pet-video.ts` renders the desktop-pet video (`--lang en` for English). Both need the footage from step 4. `bash scripts/make-banner.sh` re-renders the banner.
 
 </details>
 

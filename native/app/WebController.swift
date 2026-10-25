@@ -9,6 +9,8 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
     let webView: ChumiWebView
     /// Called when the page reports its top bar (CSS px), so the window chrome can follow it.
     var onTopBar: ((CGRect) -> Void)?
+    /// Settings → Desktop pet → Move it back to the corner.
+    var onPetReset: (() -> Void)?
     private(set) var baseURL: URL
     private var downloadDestinations: [ObjectIdentifier: URL] = [:]
 
@@ -35,9 +37,11 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
         webView.customUserAgent = nil
     }
 
-    /// Page → app: {type: 'topbar', bar: [x, y, w, h], noDrag: [[x, y, w, h], …]} in CSS px.
+    /// Page → app: {type: 'topbar', bar: [x, y, w, h], noDrag: [[x, y, w, h], …]} in CSS px, or {type: 'pet-reset'}.
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "chumiShell", let body = message.body as? [String: Any], body["type"] as? String == "topbar" else { return }
+        guard message.name == "chumiShell", let body = message.body as? [String: Any] else { return }
+        if body["type"] as? String == "pet-reset" { onPetReset?(); return }
+        guard body["type"] as? String == "topbar" else { return }
         func rect(_ v: Any?) -> CGRect? {
             guard let a = v as? [NSNumber], a.count == 4 else { return nil }
             return CGRect(x: a[0].doubleValue, y: a[1].doubleValue, width: a[2].doubleValue, height: a[3].doubleValue)
@@ -52,6 +56,15 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
     func setChrome(inset: CGFloat, fullScreen: Bool) {
         let px = Int((inset / max(0.25, webView.pageZoom)).rounded())
         webView.evaluateJavaScript("document.documentElement.style.setProperty('--traffic-inset','\(px)px');document.documentElement.dataset.fullscreen='\(fullScreen ? 1 : 0)';", completionHandler: nil)
+    }
+
+    /// App → page: open a meeting, optionally at a transcript time (from the desktop pet's cards).
+    func open(session: String, t: Double?, t2: Double?) {
+        var args: [String: Any] = ["session": session]
+        if let t { args["t"] = t }
+        if let t2 { args["t2"] = t2 }
+        guard let data = try? JSONSerialization.data(withJSONObject: args), let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.chumiOpen && chumiOpen(\(json))", completionHandler: nil)
     }
 
     func load(_ url: URL) {

@@ -21,7 +21,7 @@
 
 https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc
 
-<p align="center"><sub>▶ 59 秒介绍视频（有背景音乐）· <a href="README.md">English version</a> · 播放器空白或卡住？<a href="docs/assets/chumi-promo-zh.mp4?raw=1">下载 MP4</a> · 快剪版下载：<a href="docs/assets/chumi-promo-zh-1.5x.mp4?raw=1">40 秒</a>、<a href="docs/assets/chumi-promo-zh-2x.mp4?raw=1">30 秒</a></sub></p>
+<p align="center"><sub>▶ 69 秒介绍视频（有背景音乐）· <a href="README.md">English version</a> · 播放器空白或卡住？<a href="docs/assets/chumi-promo-zh.mp4?raw=1">下载 MP4</a> · 快剪版下载：<a href="docs/assets/chumi-promo-zh-1.5x.mp4?raw=1">46 秒</a>、<a href="docs/assets/chumi-promo-zh-2x.mp4?raw=1">35 秒</a></sub></p>
 
 ---
 
@@ -97,6 +97,15 @@ Chumi 起草决定、行动项和待解决问题，每条都有出处，并标�
 <p align="center">
   <img src="docs/assets/screens/zh/project-context.png" width="900" alt="提问框中打开了项目上下文；回答引用了接手交接的 agent 会话（P1），并和会上的原话放在一起">
 </p>
+
+### 陪你开会的桌宠
+
+Chumi.app 还可以在屏幕角落放一只小 Chumi。它下面的工具栏可以开始、暂停或结束会议，帮你跟上，也能直接提问；工具栏下的卡片显示最新的回答或解释，不用离开会议窗口就能跟上。它听会时竖起耳朵，回答好了会告诉你。点不到它的地方照常点，它也不会出现在屏幕共享里。详见 [docs/desktop-pet.md](docs/desktop-pet.md)。
+
+<p align="center">
+  <a href="docs/assets/chumi-pet-zh.mp4"><img src="docs/assets/chumi-pet-zh-poster.jpg" width="900" alt="Chumi 桌宠在组会通话旁边，说刚才讲的已经帮你理好了，并提示点我看看"></a>
+</p>
+<p align="center"><sub>▶ <a href="docs/assets/chumi-pet-zh.mp4">60 秒视频</a> · <a href="docs/assets/chumi-pet.mp4">English</a></sub></p>
 
 #### 关于截图
 
@@ -231,8 +240,9 @@ npm run build:tools                            # 重新编译窗口截图和快�
 
 1. 用 macOS `say` 生成样例会议（每个约一分钟）：`node scripts/make-sample.mjs --script samples/llm-meeting-en/script.json`，`samples/llm-meeting` 同理。
 2. Agent 闭环（只需一次）：`node scripts/demo-shoot.ts --prepare-agent --project-folder DIR` 会为项目文件夹起草并确认一份交接，并保留它的数据文件夹。在 `DIR` 中用这份提示运行 Claude Code（或 Codex），让 Chumi 的 MCP 服务指向保留的数据文件夹，再等 mybot 索引这次会话。
-3. 截图：`node scripts/demo-shoot.ts --project-folder DIR`（加 `--lang zh` 生成 `docs/assets/screens/zh/` 中的中文版），大约使用 15 次 Claude 订阅请求。
-4. 视频：`node scripts/make-video.ts` 渲染 `docs/video/promo.html`；加 `--lang zh` 生成中文版，加 `--speed 1.5` 或 `--speed 2` 生成快剪版。`bash scripts/make-banner.sh` 重新生成横幅。
+3. 截图：`node scripts/demo-shoot.ts --project-folder DIR`（加 `--lang zh` 生成 `docs/assets/screens/zh/` 中的中文版），大约使用 15 次 Claude 订阅请求；加 `--provider codex` 改用 ChatGPT 订阅。
+4. 现场录屏：`node scripts/record-footage.ts`（加 `--lang zh` 录中文）在回答实时生成时录下真实的窗口和桌宠，存到 `dist/footage/`，会先重新构建网页界面，大约使用 6 次请求（默认用 Codex；加 `--provider claude-cli` 改用 Claude 订阅）。
+5. 视频：`node scripts/make-video.ts` 渲染 `docs/video/promo.html`；加 `--lang zh` 生成中文版，加 `--speed 1.5` 或 `--speed 2` 生成快剪版。`node scripts/make-pet-video.ts` 渲染桌宠视频（`--lang en` 生成英文版）。两个都需要第 4 步的录屏。`bash scripts/make-banner.sh` 重新生成横幅。
 
 </details>
 

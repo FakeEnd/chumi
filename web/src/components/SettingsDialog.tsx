@@ -11,11 +11,12 @@ import { AgentsTab, ProjectsTab } from './Projects.tsx';
 import { MybotServerSettings } from './ProjectContext.tsx';
 import { CompatibleProviderSettings } from './CompatibleProviderSettings.tsx';
 import type { ProviderStatus } from '../types.ts';
-import { IconBolt, IconBulb, IconFolder, IconGlobe, IconLink, IconMic, IconShield, IconSpark, IconTerminal, IconWave, IconWindow } from './icons.tsx';
+import { IconBolt, IconBulb, IconFolder, IconGlobe, IconLink, IconMic, IconPet, IconShield, IconSpark, IconTerminal, IconWave, IconWindow } from './icons.tsx';
+import { PetSettings } from './PetSettings.tsx';
 
 /** Sections in the sidebar, grouped. */
 const GROUPS = [
-  { label: msg('General'), tabs: [['language', msg('Language'), IconGlobe], ['audio', msg('Audio'), IconMic], ['session-types', msg('Session types'), IconFolder], ['quick', msg('Quick start'), IconBolt], ['screen', msg('Screen'), IconWindow], ['asr', msg('Transcription'), IconWave]] },
+  { label: msg('General'), tabs: [['language', msg('Language'), IconGlobe], ['audio', msg('Audio'), IconMic], ['session-types', msg('Session types'), IconFolder], ['quick', msg('Quick start'), IconBolt], ['pet', msg('Desktop pet'), IconPet], ['screen', msg('Screen'), IconWindow], ['asr', msg('Transcription'), IconWave]] },
   { label: msg('AI'), tabs: [['ai', msg('AI provider'), IconSpark], ['assist', msg('Assistance'), IconBulb]] },
   { label: msg('Projects'), tabs: [['projects', msg('Projects'), IconFolder], ['agents', msg('Coding agents'), IconTerminal], ['integrations', msg('Integrations'), IconLink]] },
   { label: msg('Data'), tabs: [['privacy', msg('Privacy & data'), IconShield]] },
@@ -80,7 +81,7 @@ export function SettingsDialog() {
         {GROUPS.map((g) => (
           <div key={g.label} className="settings-group">
             <div className="settings-group-label">{t(g.label)}</div>
-            {g.tabs.map(([k, l, Icon]) => (
+            {g.tabs.filter(([k]) => k !== 'pet' || !windows).map(([k, l, Icon]) => (
               <button key={k} className={tab === k ? 'on' : ''} aria-current={tab === k ? 'page' : undefined} onClick={() => setState({ settingsTab: k })}><Icon width={15} height={15} />{t(l)}</button>
             ))}
           </div>
@@ -187,6 +188,8 @@ export function SettingsDialog() {
           <label className="field check"><input type="checkbox" checked={settings.quickStart.notify} onChange={(e) => S({ quickStart: { notify: e.target.checked } })} /> {t('Show a system notification when the shortcut starts, pauses or resumes listening')}</label>
         </section>
       )}
+
+      {tab === 'pet' && <PetSettings />}
 
       {tab === 'screen' && (
         <section>

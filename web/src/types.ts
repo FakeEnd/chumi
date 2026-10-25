@@ -2,6 +2,7 @@ import type { SessionTypeOption } from '../../shared/session-types.ts';
 import type { CompatibleSettings } from '../../shared/compatible-provider.ts';
 import type { SpeakerAnnotation, SpeakerView } from '../../shared/speakers.ts';
 import type { AgentId } from '../../shared/agents.ts';
+import type { Tag, Topic } from './pet/tags.ts';
 
 /** server/asr/engines.ts: 'whisper' runs on this computer; the others are speech services. */
 export type SpeechEngineId = 'whisper' | 'elevenlabs' | 'qwen-cloud' | 'qwen-local';
@@ -31,6 +32,7 @@ export interface Settings {
   integrations: { mybot: { enabled: boolean; exportDir: string; shareWithTeam: boolean; serverUrl: string } };
   screen: { sendImagesToAI: boolean; intervalSec: number };
   ui: { language: 'auto' | 'en' | 'zh'; setupDismissed: boolean };
+  pet: { enabled: boolean; size: number; toolbar: boolean; cards: 'none' | 'latest' | 'recent'; tags: Tag[]; say: Topic[]; inRecordings: boolean };
   devMode: boolean;
 }
 

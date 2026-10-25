@@ -1,5 +1,35 @@
 # Verification log
 
+## Screenshots and promo footage, live — 2026-10-25
+
+On the development Mac, with Codex (the ChatGPT plan) answering.
+
+| Check | Result |
+|---|---|
+| README screenshots | `demo-shoot.ts --provider codex` re-shot 8 screenshots per language from the current interface (top-bar Catch me up, tag chips, the ChatGPT plan). The handoff and project-context screenshots were kept: they need a project folder with real agent sessions. Found and fixed: Catch me up exists twice (one per toolbar layout) and the first is hidden, so its box was measured as null. |
+| Live footage | `record-footage.ts` in both languages: the real window (2×, about 13 frames a second) and the real pet page (3×, 30 frames a second, transparent). An explanation of DPO first, so the answer column is not empty; a real click on 帮我跟上 / Catch me up, and its answer streaming in for about 10 s; an explanation of KV cache; on the pet, catch up from its toolbar, open the card, a typed question answered, the meeting ended with two clicks and the summary. Each run used 6 requests. Found and fixed: the first footage showed an older pet, because the throwaway server serves `web/dist` and that build predated the latest pet changes, so the recorder (and `demo-shoot.ts`) now rebuild it first; a 2× screenshot taken during a pointer event made Chrome read the coordinates at half scale (the click landed on the title field), so pointer events now wait for the screenshot in flight; bringing one tab to the front reset the other tab's emulated screen; the pet page's zoom was set before its root element existed. |
+| Videos | Both promos render from the footage: the Chumi promo (catch-up and explanation streaming in Chumi's window, the pet catching up from its toolbar; 69 s, with 46 s and 35 s cuts) and the pet video (every desk scene is the recorded pet). Frames were checked at one per second in both languages, and the audio runs to the end. Found and fixed after the first cut: the pet video's music stopped at 43 s (both soundtracks now come from `scripts/soundtrack.ts` and play to the end; the promo has a new, livelier track); the camera cut through text and framed half-empty cards (it now fits the answer column to its text and follows the answer down as it streams); the handoff and project-context highlight boxes had lost their measurements (`demo-shoot.ts` now keeps the boxes of scenes it does not shoot); the loop's arrowheads appeared before their lines; dark frames between the closing scenes; answers now stream about three times faster than recorded. |
+
+Not verified: the inline player in the READMEs, which streams a video uploaded to GitHub; the new MP4s are in `docs/assets/` until they are uploaded.
+
+## Desktop pet — 2026-10-24
+
+On the development Mac. Details are in [desktop-pet.md](desktop-pet.md).
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 196 / 196 tests. `tests/pet-recent.test.ts` covers which answers the pet lists and in what order, tags and the tag filter, card titles in both languages, previews and where a card opens. `tests/pet-brain.test.ts` covers listening, pausing and resuming, dozing off and waking; thinking while a requested answer is on its way, then announcing it once; background recaps staying quiet; the summary celebration; rate-limited error notices; catch-up only during a meeting; and giving up on work from a deleted meeting. |
+| Pet page, isolated server | In the browser preview, with the Chinese sample meeting through the file input and the offline test provider: the pet greeted in Chinese and perked up when recording started. Its bars followed the level events and it jotted a note for each new line. Right-click → 帮我跟上 showed it thinking, then "刚才讲的，帮你理好啦！". Found and fixed: level events are in dBFS, not linear RMS. |
+| Toolbar and cards, isolated server | In the browser preview, with a sample meeting and the offline test provider: the toolbar showed the meeting time, and catch-up from it added a *回顾 · 最近 2 分钟* card. A question from the ask box opened its answer card. The recent list showed the meeting's title and cards newest first. Ending took two clicks, after which the toolbar went back to Quick start, Ask and the list, and the summary bubble opened the summary card. Checked in light and dark appearance. Found and fixed: a card re-rendered by its own click also counted as a tap on the pet (browser only). |
+| Settings → Desktop pet, isolated server | The tab saved each choice: a typed size of 80 %, tag chips for cards and for bubbles. The server refused a size outside 50–200 % with HTTP 400, and stores only the current fields. The open pet page followed every change: the toolbar off, the cards off, the latest card, the recent list, and turned off and on again. With 闲聊 off, the greeting stayed silent. |
+| Cards without a meeting | Nothing showed under the toolbar until ⌄, which showed the last meeting's three cards with tag dots (no check icons) and chips *会议内容 2 · 总结 1*. Switching off 总结 hid the summary card and saved the tag list. |
+| Chumi.app, isolated data folder | The panel floated transparently over other windows and took the page's height (380 × 390 pt with one card). Rubbing the cursor over its head gave happy eyes, hearts and "That feels nice~"; hovering the toolbar showed its tooltips (cursor moves only, no clicks). Found and fixed: the page reported its layout on an animation frame, which a panel not yet on screen never runs, so the pet never appeared. |
+| Promo video | Both cuts rendered (44.5 s; 1080p master, 720p in the repository). Frames were checked at one per second, and the soundtrack with a spectrogram (−14 LUFS). |
+
+A code review found and fixed: the level stuck at its loudest with two audio sources, a deleted meeting could leave the pet thinking, ⌘H hid the pet, a resume greeted as a new start, hearts stayed when the cursor stopped on the head, control-click was not a right-click, and an empty meeting promised a summary.
+
+Not verified: clicks, drags, the right-click menu and typing in the ask box in the app's panel (this session could not post input events), the size and on/off settings in the app itself (the user's own Chumi was running on port 4777, so the test build attached to it), quick start with a real microphone, the pet over a full-screen app, and whether screen-sharing apps leave it out.
+
 ## Recording, playback and export — 2026-10-21
 
 On the development Mac. **Record audio** is chosen per session in Start session (on by default; the default is in Settings → Audio).
