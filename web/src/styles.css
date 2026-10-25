@@ -151,9 +151,7 @@ button.badge { cursor: pointer; }
 
 /* assistant */
 .assistant { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: hidden; }
-.catchup-box { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
 .btn.catchup { background: var(--accent); color: #fff; border: none; font-size: 15px; font-weight: 600; padding: 9px 18px; border-radius: 9px; }
-.summary-btn { align-self: flex-start; }
 .askbox { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .askbox textarea { border: none; padding: 4px; background: transparent; outline: none; }
 .ask-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -314,9 +312,25 @@ section h3 { font-size: 13px; margin: 14px 0 6px; }
 
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 18px; flex-wrap: wrap; }
 .toolbar-left, .toolbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* On a narrow window (or beside the audio player) the right group wraps to a second row, kept on the right above the assistant. */
+.toolbar-right { margin-left: auto; justify-content: flex-end; }
+/* Catch-up and handoff sit in the header next to the recording controls, so the assistant column starts with the question box.
+   In a session the header makes room for them; below 1400px they move to the toolbar row instead. */
+.session-actions { display: flex; align-items: center; gap: 8px; flex: none; flex-wrap: nowrap; }
+.btn.catchup.small { font-size: 13px; padding: 5px 14px; box-shadow: 0 2px 8px rgba(79, 70, 229, .25); }
+.toolbar .session-actions { display: none; }
+@media (min-width: 1401px) and (max-width: 1600px) {
+  .topbar.in-session .brand-name, .topbar.in-session .kbd, .topbar.in-session .speech-badge .badge-label, .topbar.in-session .badge-extra { display: none; }
+  .topbar.in-session .session-meta .type-select { width: 112px; }
+}
+@media (max-width: 1400px) {
+  .topbar .session-actions { display: none; }
+  .toolbar .session-actions { display: flex; }
+}
+.toolbar-sep { width: 1px; height: 20px; background: var(--border); }
 .switch { gap: 6px; }
 
-.overview, .transcript, .catchup-box, .askbox, .card, .slides { border-radius: 14px; box-shadow: var(--card-shadow); border-color: var(--border); }
+.overview, .transcript, .askbox, .card, .slides { border-radius: 14px; box-shadow: var(--card-shadow); border-color: var(--border); }
 .overview { border-left: 3px solid transparent; border-image: none; position: relative; }
 .overview::before { content: ''; position: absolute; left: -1px; top: 10px; bottom: 10px; width: 3px; border-radius: 3px; background: var(--grad); }
 .main { padding: 6px 18px 18px; gap: 14px; }
@@ -325,6 +339,15 @@ section h3 { font-size: 13px; margin: 14px 0 6px; }
 .card:hover { box-shadow: 0 2px 4px rgba(20, 30, 70, .06), 0 6px 18px rgba(20, 30, 70, .07); }
 .card-auto_explain { border-left: 3px solid var(--amber); }
 .tag { border-radius: 6px; }
+/* Tag filter above the cards: a pressed chip shows its cards; the dot is the stripe colour. */
+.card-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.filter-chip { --c: var(--muted); display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); background: var(--panel); border-radius: 999px; padding: 2px 9px; font-size: 11px; cursor: pointer; color: var(--text); }
+.filter-chip:hover { border-color: var(--c); }
+.filter-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.filter-chip .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.filter-chip[aria-pressed="false"] { color: var(--muted); background: transparent; border-style: dashed; text-decoration: line-through; }
+.filter-chip[aria-pressed="false"] .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--c); }
+.chip-meeting { --c: var(--accent); } .chip-tangent { --c: var(--tangent); } .chip-background { --c: var(--amber); } .chip-summary { --c: var(--ok); }
 /* Assistant timeline: the current card is open, earlier ones fold to one row; the stripe shows what kind of card it is. */
 .card.stripe-meeting { border-left: 3px solid var(--accent); }
 .card.stripe-tangent { border-left: 3px solid var(--tangent); }
@@ -413,7 +436,6 @@ section h3 { font-size: 13px; margin: 14px 0 6px; }
 .slides-row .thumb img { height: 52px; }
 .overview-body { max-height: 22vh; }
 
-.catchup-box { flex-wrap: wrap; }
 .chip-more { color: var(--accent); background: transparent; border-style: dashed; }
 .chip-toggle { display: inline-flex; align-items: center; gap: 4px; }
 .chip-toggle.on { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
@@ -518,10 +540,9 @@ html[data-shell="mac"] .topbar .title-input { -webkit-user-select: text; user-se
 pre.cmd { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; word-break: break-all; margin: 4px 0 8px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 
 /* Handoff */
-.handoff-box { margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); display: flex; flex-direction: column; gap: 4px; }
-.handoff-box p { margin: 0; }
-.handoff-box .btn-row { margin: 4px 0 0; }
-.handoff-head { display: flex; align-items: center; gap: 8px; }
+.handoff-btn { display: inline-flex; align-items: center; gap: 6px; }
+.handoff-btn .tag { text-transform: none; letter-spacing: 0; }
+.handoff-btn .spinner { width: 10px; height: 10px; }
 .handoff-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .handoff-meta select { max-width: 240px; }
 .hsection { margin: 12px 0 4px; }
