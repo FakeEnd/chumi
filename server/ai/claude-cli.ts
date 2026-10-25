@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { CODEX_WORKDIR, findClaude } from '../paths.ts';
+import { aiWorkdir, findClaude } from '../paths.ts';
 import { runCommand, spawnCommand, stopProcess } from '../platform.ts';
 import { ProviderError, type AIProvider, type CompletionRequest, type CompletionResult, type ProviderStatus } from './provider.ts';
 
@@ -119,7 +119,7 @@ export class ClaudeCliProvider implements AIProvider {
       { type: 'text', text: req.input },
     ];
     if (req.signal?.aborted) throw new ProviderError('aborted', 'Request cancelled.');
-    const proc = spawnCommand(bin, args, { cwd: CODEX_WORKDIR, env: this.childEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const proc = spawnCommand(bin, args, { cwd: aiWorkdir(), env: this.childEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     let killTimer: NodeJS.Timeout | undefined;
     const stop = () => { stopProcess(proc); killTimer ??= setTimeout(() => stopProcess(proc, 'SIGKILL'), 2000); };
     let timedOut: string | null = null;
