@@ -192,6 +192,28 @@ test('project context without mybot running: no context, no error, nothing throw
   store.close();
 });
 
+test('project context caches separately for each meeting so its own export is always excluded', async (t) => {
+  const store = storeWith('http://fixture.invalid');
+  t.after(() => store.close());
+  store.createSession({ id: 's_other', title: 'Other meeting', type: 'other', audio_source: 'mic' });
+  store.assignSession('s_other', 'p_x');
+  let calls = 0;
+  const ctx = new MybotContext(store, async (input) => {
+    if (String(input).endsWith('/trajectory/search')) calls++;
+    return new Response(JSON.stringify({ ok: true, matches: ['s_meet', 's_other', 'prior'].map((id) =>
+      match(`chumi:${id}`, WS, { metadata: { session_id: id } })) }), { headers: { 'content-type': 'application/json' } });
+  });
+  const a = await ctx.forSession('s_meet', 'experiment');
+  const b = await ctx.forSession('s_other', 'experiment');
+  assert.deepEqual(a.meta.sources.map((s) => s.ref), ['chumi:s_other', 'chumi:prior']);
+  assert.deepEqual(b.meta.sources.map((s) => s.ref), ['chumi:s_meet', 'chumi:prior']);
+  assert.equal(calls, 2, 'different exclusions need different cached searches');
+  const again = await ctx.forSession('s_other', '  Experiment  ');
+  assert.equal(again.meta.cached, true);
+  assert.deepEqual(again.meta.sources, b.meta.sources);
+  assert.equal(calls, 2, 'the same meeting still reuses its normalized question cache');
+});
+
 test('Assistant.ask adds project context only when asked, and keeps it on retry', { timeout: 10_000 }, async (t) => {
   const mybot = await fakeMybot(() => [match('claude:aaa', WS)]);
   const store = storeWith(mybot.url);

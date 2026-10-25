@@ -39,13 +39,37 @@ import { SpeakerService } from './speakers/service.ts';
 import { speakerRuntime } from './speakers/runtime.ts';
 import { discardSpeakerAudio, hasRecordedAudio, speakerAudioAvailable } from './speakers/audio.ts';
 import type { SpeakerCorrection } from '../shared/speakers.ts';
+import { loadMobileConfiguration } from './mobile-config.ts';
+import { startMobileServer } from './mobile/server.ts';
 import { DESKTOP } from './desktop.ts';
+import { acquireDataDirectoryLock } from './instance-lock.ts';
+import { speechEngineChanged, speechRestartRequired } from './asr/settings-guard.ts';
+import { finishShutdown, SHUTDOWN_GRACE_MS } from './shutdown.ts';
+import { ProjectWorkService, ProjectWorkError } from './projects/work.ts';
+import { launchCodexDesktop } from './projects/desktop-handoff.ts';
 
-ensureDirs();
 const PORT = Number(process.env.PORT || 4777);
 const HOST = '127.0.0.1';
 const DEV = !!process.env.CHUMI_DEV;
+// The existing desktop listener stays loopback-only. Mobile access is a separate opt-in TLS gateway.
+const mobileConfig = process.env.CHUMI_MOBILE === '1'
+  ? loadMobileConfiguration(join(DATA_DIR, 'mobile', 'companion.json')) : null;
+let mobileServer: Awaited<ReturnType<typeof startMobileServer>> | null = null;
 
+// Reserve both the data folder and the port before any crash recovery can change stored meetings.
+const dataLock = acquireDataDirectoryLock(DATA_DIR);
+process.once('exit', () => dataLock.release());
+const server = createServer();
+try {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(PORT, HOST, () => { server.off('error', reject); resolve(); });
+  });
+} catch (error) {
+  dataLock.release();
+  throw error;
+}
+ensureDirs();
 const store = new Store();
 store.failStaleOutputs();
 const settings0 = store.getSettings();
@@ -76,6 +100,7 @@ manager.recoverOnBoot();
 // mybot export: refresh a session's JSONL when it ends, gets its summary or Q&A, is renamed; remove it on delete.
 const mybot = new MybotExporter(store);
 const syncMybot = (id: string) => { try { mybot.sync(id); } catch (e) { log('mybot', `export failed: ${(e as Error).message}`); } };
+manager.onEnded = syncMybot;
 // Project context for questions: searches a running mybot for the project's earlier agent sessions (only when turned on).
 const projectContext = new MybotContext(store);
 assistant.projectContext = (id, query, signal) => projectContext.forSession(id, query, signal);
@@ -84,6 +109,7 @@ assistant.onOutputDone = (row) => { if (row.kind !== 'digest' && row.kind !== 'o
 // Projects and reviewed handoffs to Claude Code / Codex (docs/project-integration-prd.md).
 const handoffs = new HandoffService(store, assistant, (sessionId) => { broadcast('handoff', { sessionId, handoff: handoffs.view(sessionId) }); syncMybot(sessionId); });
 const agents = new AgentIntegration(store);
+const projectWork = new ProjectWorkService(store);
 const speakers = new SpeakerService(store, (id) => {
   broadcast('speakers', speakerUpdate(id));
   syncMybot(id);
@@ -248,7 +274,6 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   if (next.ai.effort !== 'auto' && !EFFORTS.includes(next.ai.effort)) throw new HttpError(400, 'Unknown effort level');
   if (before.asr.model !== next.asr.model) {
     if (!isInstalled(next.asr.model)) throw new HttpError(400, 'Download this speech model first.');
-    if (manager.status === 'recording' || manager.status === 'paused') throw new HttpError(409, 'End the current session before switching the speech model.');
   }
   if (!['auto', 'en', 'zh'].includes(next.ui.language)) throw new HttpError(400, 'Unknown interface language');
   if (typeof next.ui.setupDismissed !== 'boolean') throw new HttpError(400, 'Invalid setup checklist setting');
@@ -264,9 +289,10 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
     next.asr.qwenCloud = { baseUrl: normalizeQwenCloudUrl(next.asr.qwenCloud.baseUrl), model: speechModelId(next.asr.qwenCloud.model) };
     next.asr.qwenLocal = { baseUrl: normalizeLocalAsrUrl(next.asr.qwenLocal.baseUrl), model: speechModelId(next.asr.qwenLocal.model) };
   } catch (error) { throw new HttpError(400, (error as Error).message); }
-  const speechConfig = (s: Settings) => JSON.stringify([s.asr.engine, s.asr.engine === 'qwen-cloud' ? s.asr.qwenCloud : s.asr.engine === 'qwen-local' ? s.asr.qwenLocal : null]);
-  const speechChanged = speechConfig(before) !== speechConfig(next);
-  if (speechChanged && (manager.status === 'recording' || manager.status === 'paused')) throw new HttpError(409, 'End the current session before changing the speech recognition engine.');
+  const speechChanged = speechEngineChanged(before.asr, next.asr);
+  if (manager.status !== 'idle' && speechRestartRequired(before.asr, next.asr)) {
+    throw new HttpError(409, 'Wait until recording and transcription finish before changing speech recognition settings.');
+  }
   if (typeof next.asr.diarization !== 'boolean') throw new HttpError(400, 'Speaker labeling must be enabled or disabled.');
   if (before.asr.diarization !== next.asr.diarization) {
     if (manager.status !== 'idle') throw new HttpError(409, 'End the current session before changing speaker labeling.');
@@ -355,7 +381,7 @@ route('POST', '/api/session/quick-start', async () => {
 });
 route('POST', '/api/session/pause', async () => { await manager.pause(); return manager.state(); });
 route('POST', '/api/session/resume', async () => { await manager.resume(); return manager.state(); });
-route('POST', '/api/session/end', async () => { const r = await manager.end(); syncMybot(r.sessionId); return r; });
+route('POST', '/api/session/end', () => manager.end());
 route('POST', '/api/session/window', async (req) => {
   const b = await readJson(req);
   if (!manager.session) throw new HttpError(400, 'No active session.');
@@ -377,6 +403,7 @@ route('GET', '/api/frames/:id', (_req, res, p) => {
   return undefined;
 });
 route('POST', '/api/sessions/:id/resume', async (req, _res, p) => {
+  if (store.getSession(p.id)?.audio_source === 'mobile') throw new HttpError(409, 'Continue this recording on its iPhone.');
   const b = await readJson(req);
   if (b.source === 'file') {
     devOnly();
@@ -504,6 +531,12 @@ function checkWorkspace(raw: unknown): string {
 }
 const projectPublic = (p: ReturnType<typeof store.listProjects>[number]) => ({ ...p, repo: p.repo_json ? JSON.parse(p.repo_json) : null, repo_json: undefined, workspace_exists: workspaceExists(p) });
 route('GET', '/api/projects', (_req, _res, _p, url) => ({ projects: store.listProjects(url.searchParams.get('archived') === '1').map(projectPublic) }));
+route('GET', '/api/projects/:id/brief', (_req, _res, p) => projectWork.brief(p.id));
+route('PATCH', '/api/projects/:id/agenda', async (req, _res, p) => {
+  const agenda = projectWork.updateAgenda(p.id, await readJson(req));
+  broadcast('project-work', { projectId: p.id });
+  return { agenda };
+});
 route('POST', '/api/projects', async (req) => {
   const b = await readJson(req);
   const name = String(b.name ?? '').trim().slice(0, 80);
@@ -545,6 +578,14 @@ route('POST', '/api/sessions/:id/project', async (req, _res, p) => {
 // ---------------------------------------------------------------- reviewed handoff
 route('GET', '/api/sessions/:id/handoff', (_req, _res, p) => ({ handoff: handoffs.view(p.id) }));
 route('POST', '/api/sessions/:id/handoff', (_req, _res, p) => { handoffs.generate(p.id); return { handoff: handoffs.view(p.id) }; });
+route('PATCH', '/api/handoff-items/:id/progress', async (req, _res, p) => {
+  const result = projectWork.updateProgress(p.id, await readJson(req));
+  const handoff = handoffs.view(result.sessionId);
+  broadcast('handoff', { sessionId: result.sessionId, handoff });
+  broadcast('project-work', { projectId: result.projectId });
+  syncMybot(result.sessionId);
+  return { ...result, handoff };
+});
 route('PATCH', '/api/handoff-items/:id', async (req, _res, p) => {
   const b = await readJson(req);
   const sid = handoffs.updateItem(p.id, {
@@ -562,14 +603,18 @@ route('POST', '/api/handoffs/:id/retarget', (_req, _res, p) => { handoffs.retarg
 route('POST', '/api/handoffs/:id/continue', async (req, _res, p) => {
   const b = await readJson(req);
   const via = String(b.agent ?? 'copy');
-  if (via !== 'copy' && !AGENTS.includes(via as AgentId)) throw new HttpError(400, 'Unknown agent');
+  if (via !== 'copy' && via !== 'codex-app' && !AGENTS.includes(via as AgentId)) throw new HttpError(400, 'Unknown agent');
   const h = store.getHandoff(p.id);
   if (!h) throw new HttpError(404, 'Handoff not found');
   const prompt = handoffs.continuationPrompt(p.id, chumiLink(), store.getProfile().explanationLanguage !== 'English');
   let launched = false;
   if (via !== 'copy') {
     const project = store.getProject(h.project_id!)!;
-    try { agents.launch(via as AgentId, h.id, project.workspace, prompt); launched = true; } catch (e) { throw new HttpError(400, (e as Error).message); }
+    try {
+      if (via === 'codex-app') await launchCodexDesktop(h.id, project.workspace, prompt);
+      else agents.launch(via as AgentId, h.id, project.workspace, prompt);
+      launched = true;
+    } catch (e) { throw new HttpError(400, (e as Error).message); }
   }
   handoffs.markDelivered(p.id, via);
   return { prompt, launched, handoff: handoffs.view(h.session_id) };
@@ -664,7 +709,7 @@ route('DELETE', '/api/asr/models/:id', (_req, _res, p) => {
   return { ok: true };
 });
 route('POST', '/api/asr/benchmark', async () => {
-  if (manager.status === 'recording') throw new HttpError(409, 'Pause or end the session first; the test would compete with live transcription.');
+  if (manager.status !== 'idle') throw new HttpError(409, 'Wait until recording and transcription finish before testing speech recognition.');
   return { model: speech.engine === 'whisper' ? store.getSettings().asr.model : speech.label, results: await benchmark(speech) };
 });
 route('GET', '/api/asr/engines', async () => ({
@@ -814,11 +859,12 @@ route('GET', '/api/dev/mock-calls', () => { devOnly(); return registry.mock.call
 
 // ---------------------------------------------------------------- server
 const allowedHosts = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
-const server = createServer(async (req, res) => {
+server.on('request', async (req, res) => {
   try {
     // Defend against DNS-rebinding and cross-site requests: local host names only, no API calls from other sites' pages
     // (some GETs start agent CLIs or the screen tool), and a custom header on writes.
     if (!allowedHosts.has(req.headers.host ?? '')) return send(res, 403, { error: 'Forbidden host' });
+    if (shuttingDown) return send(res, 503, { error: 'Chumi is shutting down.' });
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     if (!url.pathname.startsWith('/api/')) return serveStatic(res, url.pathname);
     const crossSite = crossSiteSource(req.headers);
@@ -835,19 +881,31 @@ const server = createServer(async (req, res) => {
     }
     send(res, 404, { error: 'Not found' });
   } catch (e) {
-    const status = e instanceof HttpError || e instanceof HandoffError ? e.status : 500;
+    const status = e instanceof HttpError || e instanceof HandoffError || e instanceof ProjectWorkError ? e.status : 500;
     if (status === 500) log('http', (e as Error).stack ?? e);
     if (!res.headersSent) send(res, status, { error: (e as Error).message });
   }
 });
 
-server.listen(PORT, HOST, () => {
-  log('server', `Chumi listening on http://${HOST}:${PORT}  (data: ${DATA_DIR})`);
-  // Where agents' "open in Chumi" links should point (read by the MCP server).
-  try { writeFileSync(SERVER_INFO, JSON.stringify({ url: `http://${HOST}:${PORT}`, pid: process.pid, startedAt: Date.now() })); } catch { /* links are optional */ }
-  void speech.ensure().catch((e) => log('asr', `not ready: ${(e as Error).message}`));
-  void registry.status(true).catch(() => {});
-});
+log('server', `Chumi listening on http://${HOST}:${PORT}  (data: ${DATA_DIR})`);
+// Where agents' "open in Chumi" links should point (read by the MCP server).
+try { writeFileSync(SERVER_INFO, JSON.stringify({ url: `http://${HOST}:${PORT}`, pid: process.pid, startedAt: Date.now() })); } catch { /* links are optional */ }
+void speech.ensure().catch((e) => log('asr', `not ready: ${(e as Error).message}`));
+void registry.status(true).catch(() => {});
+
+if (mobileConfig) {
+  void startMobileServer({
+    store, assistant, host: mobileConfig.host, port: mobileConfig.port, token: mobileConfig.token, tls: mobileConfig.tls,
+    onSessionChanged: (id) => { syncMybot(id); broadcast('mobile-sync', { sessionId: id }); },
+  }).then((started) => {
+    mobileServer = started;
+    if (shuttingDown) { void started.close(); return; }
+    log('mobile', `iPhone companion enabled at ${mobileConfig.url} (pairing required)`);
+  }).catch((error) => {
+    log('mobile', `Could not enable iPhone companion: ${(error as Error).message}`);
+    broadcast('notice', { level: 'error', code: 'mobile_start_failed', message: 'The iPhone companion could not start. See the server log.' });
+  });
+}
 setInterval(() => { void registry.status(true).catch(() => {}); }, 90_000).unref();
 
 let shuttingDown = false;
@@ -855,13 +913,22 @@ async function shutdown(sig: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   log('server', `${sig}: shutting down`);
-  // Keep everything captured so far; the session is marked "interrupted" and can be resumed (with a gap marker).
-  try { await Promise.race([manager.suspendForShutdown().catch(() => {}), new Promise((r) => setTimeout(r, 6000))]); } catch { /* ignore */ }
-  await speakers.shutdown();
   server.close();
   hotkey.stop();
-  await Promise.race([Promise.all([whisper.stop(), registry.shutdown(), localModelDownloader.shutdown()]), new Promise((r) => setTimeout(r, 3000))]);
+  // Desktop parents pass this budget and wait a little longer for process exit as the save acknowledgment.
+  const configured = Number(process.env.CHUMI_SHUTDOWN_GRACE_MS);
+  const budget = Number.isFinite(configured) && configured >= SHUTDOWN_GRACE_MS ? configured : SHUTDOWN_GRACE_MS;
+  const deadline = setTimeout(() => { log('server', 'shutdown deadline reached'); process.exit(1); }, budget);
+  await finishShutdown([
+    // Includes the audio helper's 3-second stop plus the final transcript's 4-second drain.
+    { name: 'save meeting', timeoutMs: 8000, run: () => manager.suspendForShutdown() },
+    { name: 'stop speaker analysis', timeoutMs: 3000, run: () => speakers.shutdown() },
+    { name: 'stop iPhone companion', timeoutMs: 2000, run: () => mobileServer?.close() },
+    { name: 'stop services', timeoutMs: 3000, run: () => Promise.all([whisper.stop(), registry.shutdown(), localModelDownloader.shutdown()]).then(() => {}) },
+  ], budget, (name, error) => log('server', `${name}: ${error.message}`));
   store.close();
+  dataLock.release();
+  clearTimeout(deadline);
   process.exit(0);
 }
 // A live recording must survive unexpected bugs: log them, tell the UI, keep running.

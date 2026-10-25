@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
-import { useStore } from '../store.ts';
+import { useEffect, useReducer, useRef, useState } from 'react';
+import { getState, useStore } from '../store.ts';
 import { saveSettings } from '../actions.ts';
 import { api } from '../api.ts';
 import { msg, t } from '../i18n.ts';
 import type { SpeechEngineId } from '../types.ts';
+import { endpointDirty, endpointDraftReducer, newEndpointDraft, type SpeechEndpoint } from '../endpointDraft.ts';
+import { speechSettingsBusy } from '../speechSettings.ts';
 
 type KeyedEngine = 'elevenlabs' | 'qwen-cloud';
 interface EngineStatus { keys: Record<KeyedEngine, boolean>; fallback: boolean }
@@ -23,7 +25,28 @@ const REGIONS: { label: string; url: string }[] = [
   { label: msg('Singapore (international)'), url: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1' },
   { label: msg('Beijing (mainland China)'), url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
 ];
+const isPreset = (url: string) => REGIONS.some((r) => r.url === url);
 const isLoopback = (url: string) => { try { return ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(url).hostname); } catch { return true; } };
+
+function useEndpointDraft(key: 'qwenCloud' | 'qwenLocal', saved: SpeechEndpoint) {
+  const [state, dispatch] = useReducer(endpointDraftReducer, saved, newEndpointDraft);
+  const pending = useRef(false);
+  useEffect(() => dispatch({ type: 'saved', value: saved }), [saved.baseUrl, saved.model]);
+  const save = async () => {
+    if (pending.current || speechSettingsBusy(getState().live)) return;
+    pending.current = true;
+    dispatch({ type: 'submit', value: state.value });
+    try {
+      const accepted = await saveSettings({ asr: { [key]: state.value } });
+      dispatch({ type: 'settled', value: accepted ? getState().settings?.asr[key] ?? null : null });
+    } finally { pending.current = false; }
+  };
+  return {
+    value: state.value, dirty: endpointDirty(state.value, saved), saving: state.submitted !== null, save,
+    edit: (value: SpeechEndpoint) => dispatch({ type: 'edit', value }),
+    discard: () => dispatch({ type: 'discard' }),
+  };
+}
 
 function KeyField({ engine, stored, onChange }: { engine: KeyedEngine; stored: boolean; onChange: () => void }) {
   const windows = useStore((s) => s.platform) === 'win32';
@@ -57,85 +80,107 @@ export function SpeechEngineSettings() {
   const settings = useStore((s) => s.settings)!;
   const live = useStore((s) => s.live);
   const asr = live?.asr;
-  const busySession = live?.status === 'recording' || live?.status === 'paused';
+  const busySession = speechSettingsBusy(live);
   const [status, setStatus] = useState<EngineStatus | null>(null);
-  const [cloud, setCloud] = useState(settings.asr.qwenCloud);
-  const [local, setLocal] = useState(settings.asr.qwenLocal);
+  const cloudDraft = useEndpointDraft('qwenCloud', settings.asr.qwenCloud);
+  const { value: cloud, edit: setCloud, dirty: cloudDirty } = cloudDraft;
+  const [customAddr, setCustomAddr] = useState(!isPreset(settings.asr.qwenCloud.baseUrl));
+  const localDraft = useEndpointDraft('qwenLocal', settings.asr.qwenLocal);
+  const { value: local, edit: setLocal, dirty: localDirty } = localDraft;
+  const saving = cloudDraft.saving || localDraft.saving;
+  const active = settings.asr.engine;
+  // Settings stay folded away unless the engine in use needs attention.
+  const [open, setOpen] = useState<SpeechEngineId | null>(asr?.state === 'error' || asr?.state === 'missing_key' ? active : null);
   const load = () => void api<EngineStatus>('/api/asr/engines').then(setStatus).catch(() => {});
   useEffect(load, [settings.asr.engine, settings.asr.model]);
-  useEffect(() => setCloud(settings.asr.qwenCloud), [settings.asr.qwenCloud.baseUrl, settings.asr.qwenCloud.model]);
-  useEffect(() => setLocal(settings.asr.qwenLocal), [settings.asr.qwenLocal.baseUrl, settings.asr.qwenLocal.model]);
-  const active = settings.asr.engine;
+  const resetCloud = () => { cloudDraft.discard(); setCustomAddr(!isPreset(settings.asr.qwenCloud.baseUrl)); };
+  useEffect(() => {
+    if (cloud.baseUrl === settings.asr.qwenCloud.baseUrl) setCustomAddr(!isPreset(cloud.baseUrl));
+  }, [cloud.baseUrl, settings.asr.qwenCloud.baseUrl]);
 
   const use = (e: (typeof ENGINES)[number]) => {
+    if (speechSettingsBusy(getState().live) || saving) return;
     const where = e.cloud ?? (e.id === 'qwen-local' && !isLoopback(settings.asr.qwenLocal.baseUrl) ? settings.asr.qwenLocal.baseUrl : null);
     if (where && !confirm(t('While you record, meeting audio is sent to {service} to be transcribed. Continue?', { service: where }))) return;
     void saveSettings({ asr: { engine: e.id } });
   };
   const ready = (id: SpeechEngineId) => id === 'whisper' || id === 'qwen-local' || !!status?.keys[id as KeyedEngine];
-  const cloudDirty = cloud.baseUrl !== settings.asr.qwenCloud.baseUrl || cloud.model !== settings.asr.qwenCloud.model;
-  const localDirty = local.baseUrl !== settings.asr.qwenLocal.baseUrl || local.model !== settings.asr.qwenLocal.model;
+  const dirty = (id: SpeechEngineId) => (id === 'qwen-cloud' && cloudDirty) || (id === 'qwen-local' && localDirty);
 
   return (
     <>
       <h3>{t('Speech recognition engine')}</h3>
       <ul className="model-list">
-        {ENGINES.map((e) => (
-          <li key={e.id} className={`model-row ${active === e.id ? 'active' : ''}`}>
-            <div className="model-main">
-              <div className="model-name">
-                <b>{t(e.name)}</b>
-                {active === e.id && <span className="tag tag-ok">{t('In use')}</span>}
-                {e.cloud && <span className="tag tag-warn">{t('Sends audio to {service}', { service: e.cloud })}</span>}
-                {e.id === 'whisper' && <span className="tag tag-muted">{t('Private')}</span>}
+        {ENGINES.map((e) => {
+          const known = e.id === 'whisper' || e.id === 'qwen-local' || !!status;
+          const expanded = open === e.id || dirty(e.id);
+          return (
+            <li key={e.id} className={`model-row engine-row ${active === e.id ? 'active' : ''}`}>
+              <div className="engine-head">
+                <div className="model-name">
+                  <b>{t(e.name)}</b>
+                  {active === e.id && <span className="tag tag-ok">{t('In use')}</span>}
+                  {e.cloud && <span className="tag tag-warn">{t('Sends audio to {service}', { service: e.cloud })}</span>}
+                  {e.id === 'whisper' && <span className="tag tag-muted">{t('Private')}</span>}
+                </div>
+                {known && <div className="model-actions">
+                  {e.id !== 'whisper' && (
+                    <button type="button" className={`btn small disclosure ${ready(e.id) ? 'ghost' : ''}`} aria-expanded={expanded} disabled={dirty(e.id) || saving}
+                      title={dirty(e.id) ? t('Save or discard the changes first.') : ''} onClick={() => setOpen(expanded ? null : e.id)}>
+                      {ready(e.id) ? t('Settings') : t('Set up')}
+                    </button>
+                  )}
+                  {active !== e.id && ready(e.id) && (
+                    <button type="button" className="btn small primary" disabled={busySession || dirty(e.id) || saving}
+                      title={busySession ? t('End the current session before changing the speech recognition engine.') : ''}
+                      onClick={() => use(e)}>{t('Use')}</button>
+                  )}
+                </div>}
               </div>
               <div className="muted small">{t(e.note)}</div>
               {active === e.id && e.id !== 'whisper' && (asr?.state === 'error' || asr?.state === 'missing_key') && asr.message && <div className="small warn-text" role="status">{asr.message}</div>}
-              {e.id === 'elevenlabs' && status && <KeyField engine="elevenlabs" stored={status.keys.elevenlabs} onChange={load} />}
-              {e.id === 'qwen-cloud' && status && (
-                <>
+              {expanded && e.id === 'elevenlabs' && status && (
+                <div className="engine-settings">
+                  <KeyField engine="elevenlabs" stored={status.keys.elevenlabs} onChange={load} />
+                </div>
+              )}
+              {expanded && e.id === 'qwen-cloud' && status && (
+                <div className="engine-settings">
                   <KeyField engine="qwen-cloud" stored={status.keys['qwen-cloud']} onChange={load} />
                   <label className="field"><span>{t('Region')}</span>
-                    <select value={REGIONS.find((r) => r.url === cloud.baseUrl)?.url ?? ''} onChange={(ev) => ev.target.value && setCloud({ ...cloud, baseUrl: ev.target.value })}>
+                    <select value={customAddr ? '' : cloud.baseUrl} onChange={(ev) => { setCustomAddr(!ev.target.value); if (ev.target.value) setCloud({ ...cloud, baseUrl: ev.target.value }); }}>
                       {REGIONS.map((r) => <option key={r.url} value={r.url}>{t(r.label)}</option>)}
                       <option value="">{t('Workspace address (below)')}</option>
                     </select>
-                  </label>
-                  <label className="field"><span>{t('Address')}</span>
-                    <input value={cloud.baseUrl} onChange={(ev) => setCloud({ ...cloud, baseUrl: ev.target.value })} spellCheck={false} />
                     <span className="hint-line">{t('Use the region where you created the API key. A workspace address from Model Studio also works.')}</span>
                   </label>
+                  {customAddr && <label className="field"><span>{t('Address')}</span>
+                    <input value={cloud.baseUrl} onChange={(ev) => setCloud({ ...cloud, baseUrl: ev.target.value })} spellCheck={false} />
+                  </label>}
                   <label className="field"><span>{t('Model')}</span><input value={cloud.model} onChange={(ev) => setCloud({ ...cloud, model: ev.target.value })} spellCheck={false} /></label>
-                  {cloudDirty && <div className="btn-row">
-                    <button type="button" className="btn small primary" disabled={busySession} onClick={() => void saveSettings({ asr: { qwenCloud: cloud } })}>{t('Save')}</button>
-                    <button type="button" className="btn small ghost" onClick={() => setCloud(settings.asr.qwenCloud)}>{t('Discard')}</button>
+                  {(cloudDirty || cloudDraft.saving) && <div className="btn-row">
+                    <button type="button" className="btn small primary" disabled={busySession || saving} onClick={() => void cloudDraft.save()}>{cloudDraft.saving ? t('Saving…') : t('Save')}</button>
+                    <button type="button" className="btn small ghost" disabled={saving} onClick={resetCloud}>{t('Discard')}</button>
                   </div>}
-                </>
+                </div>
               )}
-              {e.id === 'qwen-local' && (
-                <>
+              {expanded && e.id === 'qwen-local' && (
+                <div className="engine-settings">
                   <label className="field"><span>{t('Server address')}</span>
                     <input value={local.baseUrl} onChange={(ev) => setLocal({ ...local, baseUrl: ev.target.value })} spellCheck={false} />
                     <span className="hint-line">{t('For example: qwen-asr-serve Qwen/Qwen3-ASR-1.7B --port 8000, then http://127.0.0.1:8000/v1.')}</span>
                     {!isLoopback(local.baseUrl) && <span className="hint-line warn-text">{t('This server is on another computer: audio travels over the network to it.')}</span>}
                   </label>
                   <label className="field"><span>{t('Model')}</span><input value={local.model} onChange={(ev) => setLocal({ ...local, model: ev.target.value })} spellCheck={false} /></label>
-                  {localDirty && <div className="btn-row">
-                    <button type="button" className="btn small primary" disabled={busySession} onClick={() => void saveSettings({ asr: { qwenLocal: local } })}>{t('Save')}</button>
-                    <button type="button" className="btn small ghost" onClick={() => setLocal(settings.asr.qwenLocal)}>{t('Discard')}</button>
+                  {(localDirty || localDraft.saving) && <div className="btn-row">
+                    <button type="button" className="btn small primary" disabled={busySession || saving} onClick={() => void localDraft.save()}>{localDraft.saving ? t('Saving…') : t('Save')}</button>
+                    <button type="button" className="btn small ghost" disabled={saving} onClick={localDraft.discard}>{t('Discard')}</button>
                   </div>}
-                </>
+                </div>
               )}
-            </div>
-            <div className="model-actions">
-              {active !== e.id && (
-                <button className="btn small primary" disabled={busySession || !ready(e.id) || (e.id === 'qwen-cloud' && cloudDirty) || (e.id === 'qwen-local' && localDirty)}
-                  title={busySession ? t('End the current session before changing the speech recognition engine.') : !ready(e.id) ? t('Save the API key first.') : ''}
-                  onClick={() => use(e)}>{t('Use')}</button>
-              )}
-            </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
       {active !== 'whisper' && (
         <p className="muted small">{status?.fallback

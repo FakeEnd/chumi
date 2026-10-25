@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useStore } from '../store.ts';
+import { useEffect, useState } from 'react';
+import { getState, setState, useStore } from '../store.ts';
 import { startSession } from '../actions.ts';
 import { DEFAULT_SESSION_TYPES } from '../../../shared/session-types.ts';
 import { SessionTypeSelect } from './SessionTypes.tsx';
@@ -9,6 +9,7 @@ import { Dialog } from './Dialog.tsx';
 import { onEnter } from '../keys.ts';
 import { WindowPicker } from './WindowPicker.tsx';
 import { ProjectSelect } from './Projects.tsx';
+import { speechPrivacy } from '../speechSettings.ts';
 import type { WindowInfo } from '../types.ts';
 
 export function StartDialog() {
@@ -25,7 +26,11 @@ export function StartDialog() {
   const [busy, setBusy] = useState(false);
   const [capture, setCapture] = useState(false);
   const [win, setWin] = useState<WindowInfo | null>(null);
-  const [projectId, setProjectId] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(() => {
+    const s = getState();
+    return s.projects.some((p) => p.id === s.startProjectId && !p.archived_at) ? s.startProjectId : null;
+  });
+  useEffect(() => { setState({ startProjectId: null }); }, []);
   const [record, setRecord] = useState(settings?.audio.saveRawAudio ?? false);
   const blocked = busy || (source !== 'file' && !helperBuilt) || (capture && !win);
   const go = async () => {
@@ -72,7 +77,7 @@ export function StartDialog() {
       {source !== 'file' && !helperBuilt && (windows
         ? <p className="error-text">{t('The audio component is missing. Reinstall Chumi to restore it.')}</p>
         : <p className="error-text">{tn("The native audio helper isn't built. Run {cmd} in the project folder.", { cmd: <code>npm run build:native</code> })}</p>)}
-      <p className="muted small">{t('Audio is transcribed on this computer and is not uploaded.')} {windows ? t('Allow desktop apps to access your microphone in Windows Settings. For hybrid meetings, headphones reduce speaker echo.') : t('The first time, macOS asks for Microphone and/or System Audio Recording permission.')}</p>
+      <p className="muted small">{speechPrivacy(settings?.asr)} {windows ? t('Allow desktop apps to access your microphone in Windows Settings. For hybrid meetings, headphones reduce speaker echo.') : t('The first time, macOS asks for Microphone and/or System Audio Recording permission.')}</p>
     </Dialog>
   );
 }

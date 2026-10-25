@@ -1,6 +1,7 @@
 import { validateSessionTypes } from '../shared/session-types.ts';
 import { randomUUID } from 'node:crypto';
 import type { Speaker, SpeakerAnalysis, SpeakerAnnotation, SpeakerCorrection, SpeakerTurn } from '../shared/speakers.ts';
+import type { ActionProgress, ProjectAgenda } from '../shared/project-work.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -195,6 +196,41 @@ const MIGRATIONS: string[] = [
   // 3 — per-meeting audio recording
   `
   ALTER TABLE sessions ADD COLUMN record_audio INTEGER NOT NULL DEFAULT 0;
+  `,
+  // 4 — user-maintained action progress and project agendas, separate from handoff review.
+  `
+  CREATE TABLE action_progress (
+    item_id TEXT PRIMARY KEY REFERENCES handoff_items(id) ON DELETE CASCADE,
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL, item_text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'not_started' CHECK (status IN ('not_started', 'in_progress', 'blocked', 'completed')),
+    note TEXT NOT NULL DEFAULT '', results_json TEXT NOT NULL DEFAULT '[]',
+    updated_at INTEGER, version INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT INTO action_progress(item_id, project_id, item_text) SELECT id, project_id, text FROM handoff_items WHERE kind = 'action';
+  CREATE TABLE project_agendas (
+    project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    text TEXT NOT NULL DEFAULT '', updated_at INTEGER, version INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TRIGGER work_item_created AFTER INSERT ON handoff_items WHEN new.kind = 'action' BEGIN
+    INSERT INTO action_progress(item_id, project_id, item_text) VALUES (new.id, new.project_id, new.text);
+  END;
+  -- Invalidate old editors when the work's identity, review or project changes. Keep the old content
+  -- scoped to its original project/text until the user explicitly saves progress for the new work.
+  CREATE TRIGGER work_item_changed AFTER UPDATE OF review, kind, text, project_id ON handoff_items
+    WHEN (old.kind = 'action' OR new.kind = 'action') AND
+      (old.review IS NOT new.review OR old.kind IS NOT new.kind OR old.text IS NOT new.text OR old.project_id IS NOT new.project_id) BEGIN
+    INSERT OR IGNORE INTO action_progress(item_id, project_id, item_text) VALUES (new.id, new.project_id, new.text);
+    UPDATE action_progress SET version = version + 1 WHERE item_id = new.id;
+  END;
+  CREATE TRIGGER work_review_changed AFTER UPDATE OF status, project_id, confirmed_revision ON handoffs
+    WHEN old.status IS NOT new.status OR old.project_id IS NOT new.project_id OR old.confirmed_revision IS NOT new.confirmed_revision BEGIN
+    UPDATE action_progress SET version = version + 1 WHERE item_id IN (SELECT id FROM handoff_items WHERE handoff_id = new.id);
+  END;
+  CREATE TRIGGER work_project_changed AFTER UPDATE OF project_id ON sessions
+    WHEN old.project_id IS NOT new.project_id BEGIN
+    UPDATE action_progress SET version = version + 1 WHERE item_id IN
+      (SELECT i.id FROM handoff_items i JOIN handoffs h ON h.id = i.handoff_id WHERE h.session_id = new.id);
+  END;
   `,
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
@@ -716,8 +752,48 @@ export class Store {
     if (!ids.length) return;
     this.db.prepare(`DELETE FROM handoff_items WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
   }
+  /** A failed redraft must leave both the old items and their source metadata intact. */
+  replaceHandoffDraft(id: string, removeIds: string[], items: Array<Omit<HandoffItemRow, 'updated_at'>>, source: Pick<HandoffRow, 'source_revision' | 'confirmed_segment_max' | 'project_id'>): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.deleteHandoffItems(removeIds);
+      for (const item of items) this.insertHandoffItem(item);
+      this.updateHandoff(id, { ...source, status: 'draft', error: null });
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
   maxSegmentId(sessionId: string): number {
     return (this.db.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM segments WHERE session_id = ?').get(sessionId) as { m: number }).m;
+  }
+
+  // ---------- user-maintained project work ----------
+  actionProgress(item: Pick<HandoffItemRow, 'id' | 'project_id' | 'text'>): ActionProgress {
+    const row = this.db.prepare('SELECT * FROM action_progress WHERE item_id = ?').get(item.id) as {
+      project_id: string | null; item_text: string; status: ActionProgress['status']; note: string;
+      results_json: string; updated_at: number | null; version: number;
+    } | undefined;
+    if (!row || row.project_id !== item.project_id || row.item_text !== item.text) {
+      return { status: 'not_started', note: '', results: [], updatedAt: null, version: row?.version ?? 0 };
+    }
+    return { status: row.status, note: row.note, results: JSON.parse(row.results_json) as ActionProgress['results'], updatedAt: row.updated_at, version: row.version };
+  }
+  saveActionProgress(item: Pick<HandoffItemRow, 'id' | 'project_id' | 'text'>, value: Pick<ActionProgress, 'status' | 'note' | 'results'>): ActionProgress {
+    this.db.prepare(`UPDATE action_progress SET project_id = ?, item_text = ?, status = ?, note = ?, results_json = ?, updated_at = ?, version = version + 1 WHERE item_id = ?`)
+      .run(item.project_id, item.text, value.status, value.note, JSON.stringify(value.results), now(), item.id);
+    return this.actionProgress(item);
+  }
+  projectAgenda(projectId: string): ProjectAgenda {
+    const row = this.db.prepare('SELECT text, version, updated_at AS updatedAt FROM project_agendas WHERE project_id = ?').get(projectId) as unknown as ProjectAgenda | undefined;
+    return row ?? { text: '', version: 0, updatedAt: null };
+  }
+  saveProjectAgenda(projectId: string, text: string): ProjectAgenda {
+    this.db.prepare(`INSERT INTO project_agendas(project_id, text, updated_at, version) VALUES (?, ?, ?, 1)
+      ON CONFLICT(project_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at, version = project_agendas.version + 1`)
+      .run(projectId, text, now());
+    return this.projectAgenda(projectId);
   }
 
   // ---------- agent reads (written by the MCP server; shown as connection status) ----------

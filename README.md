@@ -133,6 +133,7 @@ On first launch, the **Get Chumi ready** checklist on Home covers the rest: AI s
 - **Check an install:** `npm run doctor` prints the fix for anything missing.
 - **In a browser:** `npm start`, then open http://127.0.0.1:4777.
 - **Windows (desktop preview):** an installer with microphone and computer-audio capture, local speech recognition and Codex. It has passed real end-to-end checks on Windows 11. See [docs/windows.md](docs/windows.md).
+- **iPhone (prototype):** a SwiftUI app in [`ios/`](ios/README.md) records and transcribes on the phone with Apple Speech, and pairs with Chumi on the Mac for AI help. It needs full Xcode and hasn't yet been compiled or tested on a device. See [the iPhone guide](ios/README.md).
 
 ## Choose an AI
 
@@ -185,6 +186,7 @@ If the meeting changes after you confirm (a regenerated summary, a resumed recor
 - Microphone for in-person meetings, computer audio for Zoom, Teams or recorded lectures (headphones are fine), or both for hybrid meetings, with echo cancellation and duplicate filtering.
 - English, Mandarin and code-switching. Vocabulary hints improve the spelling of jargon and names.
 - Pause, resume, a global quick-start shortcut, level meters and clear permission guidance.
+- Compact view (`⌘⇧.`, or `Ctrl+Shift+.` on Windows) hides the header and toolbar, leaving the summary, transcript and assistant.
 - Optional speaker labels after the meeting (`npm run setup:speakers`): voices are grouped locally as A/B/C, and you name and correct them. See [docs/speaker-diarization.md](docs/speaker-diarization.md).
 
 **Understanding**

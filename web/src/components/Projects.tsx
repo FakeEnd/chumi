@@ -59,6 +59,7 @@ export function ProjectsTab() {
               </div>
             </div>
             <div className="project-actions">
+              <button className="btn small" onClick={() => setState({ briefProjectId: p.id, dialog: 'project-brief' })}>{t('Prepare for a meeting')}</button>
               <button className="btn small" onClick={() => void pick((w) => void updateProject(p.id, { workspace: w }))}>{t('Change folder…')}</button>
               <button className="btn small ghost" onClick={() => void updateProject(p.id, { archived: !p.archived_at })}>{p.archived_at ? t('Restore') : t('Archive')}</button>
             </div>

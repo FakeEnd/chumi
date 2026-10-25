@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { CODEX_WORKDIR, which } from '../paths.ts';
+import { CODEX_WORKDIR, aiWorkdir, which } from '../paths.ts';
 import { runCommand, spawnCommand, stopProcess } from '../platform.ts';
 import { log } from '../util.ts';
 import {
@@ -121,7 +121,7 @@ export class CodexProvider implements AIProvider {
     const known = new Set(listed.code === 0 ? listed.out.split('\n').map((l) => l.trim().split(/\s+/)[0]).filter(Boolean) : []);
     const disable = known.size ? DISABLED_FEATURES.filter((f) => known.has(f)) : DISABLED_FEATURES;
     const args = ['app-server', ...disable.flatMap((f) => ['--disable', f]), '-c', 'web_search="disabled"'];
-    const proc = spawnCommand(bin, args, { cwd: CODEX_WORKDIR, stdio: ['pipe', 'pipe', 'pipe'], env, windowsHide: true });
+    const proc = spawnCommand(bin, args, { cwd: aiWorkdir(), stdio: ['pipe', 'pipe', 'pipe'], env, windowsHide: true });
     this.proc = proc;
     let buf = '';
     proc.stdout!.on('data', (d: Buffer) => {
@@ -294,42 +294,85 @@ export class CodexProvider implements AIProvider {
 
   // ------------------------------------------------------------------ inference
   async complete(req: CompletionRequest): Promise<CompletionResult> {
-    const st = this.lastStatus && Date.now() - this.lastStatus.checkedAt < 60_000 ? this.lastStatus : await this.status();
-    if (st.state === 'signed_out') throw new ProviderError('auth', `${st.message} ${st.setupHint ?? ''}`.trim());
-    if (st.state === 'quota_blocked') throw new ProviderError('quota_gate', st.message ?? 'Included plan usage is exhausted.');
-    if (!st.ready) throw new ProviderError('unavailable', st.message ?? 'Codex is not ready.', true);
-    if (req.signal?.aborted) throw new ProviderError('aborted', 'Request cancelled.');
-    await this.ensure();
-    const model = this.pickModel();
-    const started = await this.request('thread/start', {
-      model, cwd: CODEX_WORKDIR, approvalPolicy: 'never', sandbox: 'read-only', ephemeral: true,
-      baseInstructions: req.instructions, developerInstructions: null, serviceName: 'chumi',
-    });
-    const threadId = String((started.thread as Json).id);
-    const text = await new Promise<string>((resolve, reject) => {
-      const pt: PendingTurn = { text: '', turnId: null, onDelta: req.onDelta, resolve, reject, lastError: null };
-      this.turns.set(threadId, pt);
-      const onAbort = () => {
-        if (pt.turnId) void this.request('turn/interrupt', { threadId, turnId: pt.turnId }).catch(() => {});
-        reject(new ProviderError('aborted', 'Request cancelled.'));
+    return new Promise<CompletionResult>((resolve, reject) => {
+      let settled = false;
+      let threadId: string | null = null;
+      let pt: PendingTurn | null = null;
+      let interruptWhenReady = false;
+      let interrupted = false;
+      let unsubscribed = false;
+      const unsubscribe = () => {
+        if (!threadId || unsubscribed) return;
+        unsubscribed = true;
+        void this.request('thread/unsubscribe', { threadId }, 5000).catch(() => {});
       };
+      const interrupt = () => {
+        if (!threadId || !pt?.turnId || interrupted) return;
+        interrupted = true;
+        void this.request('turn/interrupt', { threadId, turnId: pt.turnId }).catch(() => {});
+      };
+      const cleanup = () => {
+        clearTimeout(timer);
+        req.signal?.removeEventListener('abort', onAbort);
+        if (threadId) this.turns.delete(threadId);
+        unsubscribe();
+      };
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      };
+      const stop = (error: Error) => {
+        if (settled) return;
+        // turn/start may already be in flight; interrupt as soon as its id arrives.
+        interruptWhenReady = true;
+        interrupt();
+        fail(error);
+      };
+      const onAbort = () => stop(new ProviderError('aborted', 'Request cancelled.'));
+      const timer = setTimeout(() => stop(new ProviderError('network', 'ChatGPT did not finish within 3 minutes.', true)), 180_000);
       req.signal?.addEventListener('abort', onAbort, { once: true });
-      const timer = setTimeout(() => reject(new ProviderError('network', 'ChatGPT did not finish within 3 minutes.', true)), 180_000);
-      const done = () => { clearTimeout(timer); req.signal?.removeEventListener('abort', onAbort); };
-      pt.resolve = (t) => { done(); resolve(t); };
-      pt.reject = (e) => { done(); reject(e); };
-      this.request('turn/start', {
-        threadId,
-        input: [{ type: 'text', text: req.input, text_elements: [] }, ...(req.images ?? []).map((im) => ({ type: 'localImage', path: im.path }))],
-        effort: this.effortFor(model, req.effort ?? 'low'),
-        ...(req.jsonSchema ? { outputSchema: req.jsonSchema } : {}),
-      }).then((r) => { pt.turnId = String(((r.turn as Json) ?? {}).id ?? ''); }, (e) => pt.reject(e as Error));
-    }).finally(() => {
-      this.turns.delete(threadId);
-      void this.request('thread/unsubscribe', { threadId }, 5000).catch(() => {});
+      if (req.signal?.aborted) { onAbort(); return; }
+
+      const run = async () => {
+        const st = this.lastStatus && Date.now() - this.lastStatus.checkedAt < 60_000 ? this.lastStatus : await this.status();
+        if (settled) return;
+        if (st.state === 'signed_out') throw new ProviderError('auth', `${st.message} ${st.setupHint ?? ''}`.trim());
+        if (st.state === 'quota_blocked') throw new ProviderError('quota_gate', st.message ?? 'Included plan usage is exhausted.');
+        if (!st.ready) throw new ProviderError('unavailable', st.message ?? 'Codex is not ready.', true);
+        await this.ensure();
+        if (settled) return;
+        const model = this.pickModel();
+        const effort = this.effortFor(model, req.effort ?? 'low');
+        const started = await this.request('thread/start', {
+          model, cwd: CODEX_WORKDIR, approvalPolicy: 'never', sandbox: 'read-only', ephemeral: true,
+          baseInstructions: req.instructions, developerInstructions: null, serviceName: 'chumi',
+        });
+        threadId = String((started.thread as Json).id);
+        if (settled) { unsubscribe(); return; }
+        pt = {
+          text: '', turnId: null, onDelta: req.onDelta, lastError: null, reject: fail,
+          resolve: (text) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            this.rateAt = 0; // refresh usage after each request
+            resolve({ text, provider: this.id, model, billing: st.billing, effort });
+          },
+        };
+        this.turns.set(threadId, pt);
+        const response = await this.request('turn/start', {
+          threadId,
+          input: [{ type: 'text', text: req.input, text_elements: [] }, ...(req.images ?? []).map((im) => ({ type: 'localImage', path: im.path }))],
+          effort,
+          ...(req.jsonSchema ? { outputSchema: req.jsonSchema } : {}),
+        });
+        pt.turnId = String(((response.turn as Json) ?? {}).id ?? '');
+        if (interruptWhenReady) interrupt();
+      };
+      void run().catch((error: Error) => stop(error));
     });
-    this.rateAt = 0; // refresh usage after each request
-    return { text, provider: this.id, model, billing: st.billing, effort: this.effortFor(model, req.effort ?? 'low') };
   }
 
   async shutdown(): Promise<void> {

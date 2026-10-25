@@ -12,6 +12,38 @@ On the development Mac, with Codex (the ChatGPT plan) answering.
 
 Not verified: the inline player in the READMEs, which streams a video uploaded to GitHub; the new MP4s are in `docs/assets/` until they are uploaded.
 
+## Desktop handoff and project work — 2026-10-25
+
+On the development Mac. All new workflow checks use synthetic meetings, temporary or in-memory databases, and injected desktop openers.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects and translation checks pass; **280 / 280 tests pass** in the current working tree. Coverage includes schema migration, project isolation, mixed-project redrafting and explicit retargeting, version conflicts, draft preservation, late responses, completed-action context, clipboard fallback, and immutable desktop handoff snapshots. |
+| Desktop links | Injected openers verify the workspace and prefilled prompt without opening Codex. Windows tests run the actual navigation/IPC callbacks; a compiled Swift harness checks allowed and rejected Codex links. Unsupported actions and malformed URLs are refused. |
+| `npm run build:web` | Production build passes. The existing JavaScript chunk-size warning remains. |
+| `bash native/build.sh app` | Mac helper and application rebuild successfully using temporary compiler caches; code-signature verification passes. |
+| Browser smoke test | Final production bundle in Chrome with an isolated memory fixture: save and reopen a project agenda; preserve an action draft across a simulated update from another window; compare and explicitly accept the new version; save completed status and a result link; reopen persisted results; navigate to the source handoff; verify the default Codex app destination and mocked launch request; verify project preselection in Start session. No recording was started. |
+| `git diff --check` | Passes. |
+| Merged with main (PRs #18–#24) | Where this work and main had fixed the same bug, main's fix was kept: late transcription is tagged with its own meeting (the next meeting can start at once), capture restarts back off and then pause, cancelled queued AI jobs settle when their turn comes, session reloads use main's sequencing, and main's CI workflow is the only one. Kept from this work, on top of main: shutdown guards and a transcriber `stop()`, stale-run event guards, summary-startup failures that still release the session, per-overview tokens, safe question submission and compact view. Added to main's session loading: a reload re-reads once when the title, project, speakers or handoff change during it; a session deleted while disconnected leaves the view; a late progress event cannot reopen a finished answer; ending a meeting no longer jumps away from another one being read. Tests for the replaced designs were removed or rewritten. `npm run check`: 306 / 306 tests; `npm run build:web` and `bash native/build.sh app` pass. |
+
+The desktop launch was simulated: this pass did not open a real Codex conversation, send a model request, or run the Windows desktop application. A successful OS open request means the composer was requested, not that work started or completed. Progress remains user-maintained; project agendas are saved notes and are not automatically injected into meeting AI context. The Mac bundle was built but not launched over any existing session.
+
+## Startup, shutdown and settings reliability — 2026-10-25
+
+On the development Mac. Tests use synthetic audio, temporary or in-memory databases, and stub AI and speech providers.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects and translation checks pass; **246 / 246 tests pass**. Regression coverage includes duplicate-server startup and port conflicts, capture restart exhaustion, cancellation during Codex initialization, invalid handoff output and transactional draft replacement, meeting-specific context caching, and speech-settings races. |
+| Isolated commit snapshot | After separating unrelated existing working-tree changes, both TypeScript projects, translation checks, **239 / 239 tests**, and the production web build pass against an export of the Git index. The 246-test working-tree run above also included separate vendor tests that are not part of this commit. |
+| Native shutdown | A compiled Swift harness runs the actual server manager against Node children: a save that takes more than three seconds completes before exit, and a hung child is terminated within the configured deadline. The desktop shutdown allowance is now aligned with the backend's 15-second cleanup budget, with a two-second exit margin. |
+| `npm run build:web` | Production build passes. The existing warning for a JavaScript chunk above 500 kB remains. |
+| `bash native/build.sh app` | Mac helper and application rebuild successfully; code-signature verification passes. The newly built application was not launched over an existing session. |
+| Browser smoke test | Production bundle in Chrome against an isolated in-memory fixture: compact mode preserves 2× playback and seeks to the selected transcript line; a delayed settings response preserves edits made while saving; ending disables speech settings and benchmarking; privacy text follows self-hosted Qwen, ElevenLabs, and Alibaba selections, including the configured destination. The start-session dialog also shows the Alibaba destination. |
+| `git diff --check` | Passes. |
+
+Not rerun in this pass: real microphone/system capture, real vendor model requests, or the Windows desktop runtime. Shutdown still uses a bounded four-second transcription drain and marks unfinished work interrupted; these changes do not add a durable transcription queue.
+
 ## Desktop pet — 2026-10-24
 
 On the development Mac. Details are in [desktop-pet.md](desktop-pet.md).
@@ -29,6 +61,20 @@ On the development Mac. Details are in [desktop-pet.md](desktop-pet.md).
 A code review found and fixed: the level stuck at its loudest with two audio sources, a deleted meeting could leave the pet thinking, ⌘H hid the pet, a resume greeted as a new start, hearts stayed when the cursor stopped on the head, control-click was not a right-click, and an empty meeting promised a summary.
 
 Not verified: clicks, drags, the right-click menu and typing in the ask box in the app's panel (this session could not post input events), the size and on/off settings in the app itself (the user's own Chumi was running on port 4777, so the test build attached to it), quick start with a real microphone, the pet over a full-screen app, and whether screen-sharing apps leave it out.
+
+## Session and handoff reliability — 2026-10-24
+
+On the development Mac. Tests use synthetic audio, in-memory or temporary databases, and stub AI providers.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects and translation checks pass; **195 / 195 tests pass** (31 added in this pass). Covers delayed transcription after ending, shutdown/start races, cancelled AI jobs, handoff project changes and input revisions, reconnect/navigation races, deleted sessions, failed submissions, and Vite proxy headers. |
+| `npm run build:web` | Production build passes. The existing warning for a JavaScript chunk above 500 kB remains. |
+| Browser smoke test | Production bundle in Chrome against an isolated in-memory fixture: failed submission preserves the question and attached passage; reconnect recovers a missed transcript line and completed answer while preserving both; ending with transcription pending shows a persistent notice and the finishing status. |
+| `git diff --check` | Passes. |
+| CI | Added checks and web builds for macOS and Windows with Node 24 and 26. Workflow syntax checked locally; hosted runs have not been triggered. |
+
+Not rerun in this pass: real microphone/system capture, vendor model requests, native desktop shells, or Windows. Application shutdown retains its existing four-second wait limit; unfinished transcription is marked interrupted, and this change does not add a durable transcription queue.
 
 ## Recording, playback and export — 2026-10-21
 

@@ -8,6 +8,7 @@ import type { Session } from '../types.ts';
 import { billingWord, DEPTH_LABEL, providerShort } from './TopBar.tsx';
 import { SessionMeta, SessionTitle } from './SessionLabel.tsx';
 import { SetupChecklist } from './SetupChecklist.tsx';
+import { speechPrivacy } from '../speechSettings.ts';
 import { IconArrow, IconBolt, IconBoth, IconMic, IconMonitor, IconShield, IconSpark, IconText, IconWindow } from './icons.tsx';
 
 const LEVELS = [msg('new'), msg('intro'), msg('working'), msg('strong'), msg('expert')];
@@ -27,6 +28,8 @@ export function Home() {
   const asr = useStore((s) => s.live?.asr);
   const live = useStore((s) => s.live);
   const hotkey = useStore((s) => s.hotkey);
+  const projects = useStore((s) => s.projects);
+  const [briefProject, setBriefProject] = useState('');
   const windows = useStore((s) => s.platform) === 'win32';
   const [recent, setRecent] = useState<Session[] | null>(null);
   const sessionsRev = useStore((s) => s.sessionsRev);
@@ -41,6 +44,8 @@ export function Home() {
   const aiReady = provider?.state === 'ready';
   const topDomains = (profile?.domains ?? []).slice().sort((a, b) => b.level - a.level).slice(0, 6);
   const srcName = getLang() === 'zh' ? sourceLabel(quickSrc) : sourceLabel(quickSrc).toLowerCase();
+  const activeProjects = projects.filter((p) => !p.archived_at);
+  const prepareProject = activeProjects.find((p) => p.id === briefProject) ?? activeProjects[0];
 
   return (
     <div className="home">
@@ -89,6 +94,17 @@ export function Home() {
               <span className="start-sub">{windows ? t('The room plus remote speakers, with microphone and computer audio') : t('The room plus remote speakers, with echo-cancelled mic and computer audio')}</span>
             </button>
           </section>
+
+          {prepareProject && <section className="panel meeting-prep-entry">
+            <div className="panel-head"><h2>{t('Before your next meeting')}</h2></div>
+            <p className="small muted">{t('Review open actions, recent results and decisions, then write what you want to discuss.')}</p>
+            <div className="field-row">
+              <select className="grow" aria-label={t('Project for meeting preparation')} value={prepareProject.id} onChange={(e) => setBriefProject(e.target.value)}>
+                {activeProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <button className="btn primary" onClick={() => setState({ briefProjectId: prepareProject.id, dialog: 'project-brief' })}>{t('Prepare for a meeting')}</button>
+            </div>
+          </section>}
 
           <section className="panel">
             <div className="panel-head">
@@ -148,7 +164,7 @@ export function Home() {
               <li><IconSpark /><span>{tn('{b1} Press {b2} to get the last 2 or 5 minutes, or the whole session so far.', { b1: <b>{t('Lost the thread?')}</b>, b2: <b>{t('Catch me up')}</b> })}</span></li>
               <li><IconText /><span>{tn('{b} in the transcript to get an explanation pitched to your background.', { b: <b>{t('Select any words')}</b> })}</span></li>
               <li><IconWindow /><span>{tn('{b} (Zoom share, slides) so answers can see the figure being discussed.', { b: <b>{t('Capture a window')}</b> })}</span></li>
-              <li><IconShield /><span>{t('Audio stays on this computer. Only short excerpts go to your AI provider, and only when you ask.')}</span></li>
+              <li><IconShield /><span>{speechPrivacy(settings?.asr)}</span></li>
             </ul>
           </section>
         </aside>

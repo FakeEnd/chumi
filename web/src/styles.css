@@ -349,6 +349,8 @@ section h3 { font-size: var(--fs-md); margin: 16px 0 8px; }
 .status-pill { display: inline-flex; align-items: center; gap: 6px; }
 
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; flex-wrap: wrap; }
+/* Keep the audio element mounted in compact view without exposing hidden controls. */
+.toolbar[hidden] { display: none; }
 .toolbar-left, .toolbar-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 /* On a narrow window (or beside the audio player) the right group wraps to a second row, kept on the right above the assistant.
    A saved session's date line gives way first: it shortens with an ellipsis so the toolbar stays one row. */
@@ -503,6 +505,12 @@ section h3 { font-size: var(--fs-md); margin: 16px 0 8px; }
 .model-stats { display: flex; gap: 12px; flex-wrap: wrap; color: var(--muted); align-items: center; }
 .model-stats > span { display: inline-flex; align-items: center; gap: 4px; }
 .model-actions { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.engine-row { flex-direction: column; align-items: stretch; gap: 4px; }
+.engine-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.engine-settings { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+.engine-settings > .field:last-child { margin-bottom: 0; }
+.btn.disclosure::after { content: ''; width: 5px; height: 5px; margin: -2px 0 0 4px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+.btn.disclosure[aria-expanded="true"]::after { margin-top: 3px; transform: rotate(-135deg); }
 .model-progress { display: flex; align-items: center; gap: 8px; }
 .model-progress .quota-bar { flex: 1; max-width: 260px; }
 .dots-rating { display: inline-flex; gap: 2px; }
@@ -556,6 +564,15 @@ table.bench tfoot td { border: none; padding-top: 6px; }
 html[data-shell="mac"] .topbar { padding-left: var(--traffic-inset, 86px); min-height: 52px; -webkit-user-select: none; user-select: none; }
 html[data-shell="mac"][data-fullscreen="1"] .topbar { padding-left: 16px; }
 html[data-shell="mac"] .topbar .title-input { -webkit-user-select: text; user-select: text; }
+
+/* Compact view (⌘⇧.): the session view keeps only its columns. Chumi.app keeps a slim top bar as the title bar;
+   a browser gets a small exit button in the bottom-left corner. */
+.toolbar .icon-btn, .topbar.compact .icon-btn { width: var(--control-h-sm); height: var(--control-h-sm); }
+.app.compact .main { padding-top: 12px; }
+html[data-shell="mac"] .topbar.compact { min-height: 30px; padding-top: 0; padding-bottom: 0; justify-content: flex-end; gap: 8px; }
+html[data-shell="mac"] .app.compact .main { padding-top: 8px; }
+.compact-exit.floating { position: fixed; left: 4px; bottom: 4px; z-index: 30; width: 24px; height: 24px; padding: 0; background: var(--panel); box-shadow: var(--shadow-1); opacity: .55; }
+.compact-exit.floating:hover, .compact-exit.floating:focus-visible { opacity: 1; }
 
 /* Projects (Settings) */
 .project-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; max-width: 640px; }
@@ -653,3 +670,24 @@ pre.cmd { background: var(--panel-2); border: 1px solid var(--border); border-ra
 .setup-code { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .setup-code code { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 8px; }
 .setup-optional { margin: 8px 0 0; }
+
+/* Project handoffs, manual execution progress, and meeting preparation. */
+.handoff-destination { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.handoff-destination select { max-width: 250px; }
+.action-progress { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 6px; }
+.action-progress-fields { border: 0; padding: 0; margin: 8px 0; min-width: 0; }
+.action-progress-fields:disabled { opacity: .7; }
+.action-result-edit { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; }
+.action-result-edit .field { margin-bottom: 8px; min-width: 160px; }
+.action-result-edit > button { margin-bottom: 8px; }
+.action-note, .brief-agenda-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; }
+.action-results { margin: 4px 0; padding-left: 20px; overflow-wrap: anywhere; }
+.brief-source, .brief-latest { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.brief-latest { margin-bottom: 12px; }
+.brief-agenda { margin-bottom: 20px; }
+.brief-blocked { border-color: var(--warn); background: var(--warn-bg); }
+.brief-group-heading { margin-top: 12px; }
+.brief-group-heading h3 { margin: 0 0 6px; }
+.project-brief .hsection > h3 { margin-bottom: 8px; }
+
+.meeting-prep-entry { margin: 20px 0; padding: 16px; }
