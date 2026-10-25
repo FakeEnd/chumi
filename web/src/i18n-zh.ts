@@ -909,6 +909,7 @@ export const ZH: Record<string, string> = {
   "Open handoff": "打开交接",
   "Review": "审核",
   "Instructions copied. Paste them into your coding agent in the project folder.": "指令已复制。请在项目文件夹中把它粘贴给编程智能体。",
+  "Chumi could not copy to the clipboard. Select the text below, copy it and paste it into your coding agent in the project folder.": "Chumi 无法复制到剪贴板。请选中下面的文字并复制，然后在项目文件夹中把它粘贴给编程智能体。",
   "Opened {agent} in Terminal in the project folder, starting from this handoff.": "已在终端中于项目文件夹打开 {agent}，并从这份交接开始。",
   "Replaces items you have not reviewed; keeps what you confirmed, rejected or edited": "替换尚未审核的条目；保留你已确认、未采用或编辑过的条目",
   "Redraft": "重新起草",

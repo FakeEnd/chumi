@@ -157,6 +157,8 @@ export function HandoffDialog() {
   const data = useStore((s) => s.data);
   const live = useStore((s) => s.live);
   const [busy, setBusy] = useState(false);
+  /** Instructions to copy by hand, when the clipboard refused them. */
+  const [manual, setManual] = useState<string | null>(null);
   // Claude Code and Codex have their own buttons; other installed agents are offered in a menu.
   const [others, setOthers] = useState<Array<{ agent: AgentId; name: string }>>([]);
   useEffect(() => {
@@ -174,7 +176,12 @@ export function HandoffDialog() {
     const r = await continueHandoff(h.id, agent);
     setBusy(false);
     if (!r) return;
-    if (agent === 'copy') { await navigator.clipboard?.writeText(r.prompt).catch(() => {}); notify('info', t('Instructions copied. Paste them into your coding agent in the project folder.')); }
+    if (agent === 'copy') {
+      // WebKit may refuse a clipboard write that comes after a request instead of straight from the click.
+      const copied = await navigator.clipboard?.writeText(r.prompt).then(() => true, () => false);
+      setManual(copied ? null : r.prompt);
+      if (copied) notify('info', t('Instructions copied. Paste them into your coding agent in the project folder.'));
+    }
     else notify('info', t('Opened {agent} in Terminal in the project folder, starting from this handoff.', { agent: AGENT_NAMES[agent] }));
   };
   const footer = (
@@ -229,6 +236,12 @@ export function HandoffDialog() {
         );
       })}
       <Delivery h={h} />
+      {manual && (
+        <label className="field">
+          <span className="warn-text">{t('Chumi could not copy to the clipboard. Select the text below, copy it and paste it into your coding agent in the project folder.')}</span>
+          <textarea readOnly rows={8} value={manual} autoFocus onFocus={(e) => e.currentTarget.select()} />
+        </label>
+      )}
     </Dialog>
   );
 }
