@@ -54,10 +54,11 @@ if (Test-Path (Join-Path $whisper 'whisper-server.exe')) {
 }
 
 Step 'Installing JavaScript dependencies'
-$npmArgs = @('install', '--no-audit', '--no-fund')
+# npm ci installs exactly package-lock.json and never rewrites it, so a later git pull still fast-forwards.
+$npmArgs = @('ci', '--no-audit', '--no-fund')
 if ($Proxy) { $npmArgs += @('--proxy', $Proxy, '--https-proxy', $Proxy) }
 & npm @npmArgs
-if ($LASTEXITCODE -ne 0) { throw 'npm install failed.' }
+if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
 
 $model = node --input-type=module -e "import('./server/asr/models.ts').then((m) => console.log(m.recommendModel()))"
 Step "Downloading the speech model $model (once; other sizes are in Settings > Transcription)"

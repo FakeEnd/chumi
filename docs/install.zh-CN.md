@@ -94,7 +94,7 @@ npm run doctor
 |---|---|
 | 刚装好 Homebrew 就提示 `brew: command not found` | 运行 Homebrew 最后打印的两条 “Next steps” 命令，或者新开一个终端窗口 |
 | 语音模型下载很慢或下载不了 | 运行 `bash scripts/setup.sh --mirror`。在 Chumi 里下载其他模型时，可以用 `CHUMI_MODEL_BASE_URL=https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main npm start` 启动 |
-| 在中国大陆 `npm install` 很慢 | 运行 `npm config set registry https://registry.npmmirror.com`，然后重新运行安装 |
+| 在中国大陆安装 JavaScript 依赖（`npm ci`）很慢 | 运行 `npm config set registry https://registry.npmmirror.com`，然后重新运行安装 |
 | Homebrew 下载很慢 | 使用国内镜像，例如[中科大的 Homebrew 镜像说明](https://mirrors.ustc.edu.cn/help/brew.git.html) |
 | 安装提示需要 Node.js 24，但你已经装了 | 可能是 nvm 等版本管理工具选了旧版本。运行 `nvm install 24`，或把 Homebrew 的 Node 放在 PATH 前面 |
 | 首页的 AI 状态显示*未登录* | 运行 `codex login` 或 `claude auth login`，然后点 **重新检查** |

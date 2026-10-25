@@ -94,7 +94,7 @@ Run it in the Chumi folder. It checks each part (macOS, Node.js, whisper.cpp, th
 |---|---|
 | `brew: command not found` right after installing Homebrew | Run the two "Next steps" commands Homebrew printed, or open a new Terminal window. |
 | The speech model download is slow or blocked | Run `bash scripts/setup.sh --mirror`. For downloads from inside Chumi, start it with `CHUMI_MODEL_BASE_URL=https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main npm start`. |
-| `npm install` is slow in mainland China | Run `npm config set registry https://registry.npmmirror.com`, then run setup again. |
+| Installing JavaScript packages (`npm ci`) is slow in mainland China | Run `npm config set registry https://registry.npmmirror.com`, then run setup again. |
 | Setup says Node.js 24 is needed, but you installed it | A version manager such as nvm may be picking an older Node. Run `nvm install 24`, or put Homebrew's Node first in your PATH. |
 | The AI pill on Home says *not signed in* | Run `codex login` or `claude auth login`, then click **Check again**. |
 | The transcript stays empty | Check **System Settings → Privacy & Security → Microphone** (and **System Audio Recording** for computer audio). To test capture, run `node scripts/check-audio.ts mic 6`. |
