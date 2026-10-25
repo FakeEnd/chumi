@@ -13,6 +13,7 @@ import { ProviderError, parseJsonLoose, type CompletionRequest } from './provide
 import type { ProviderRegistry } from './registry.ts';
 import { sessionStyle, sessionTypeName } from '../../shared/session-types.ts';
 import { splitCategory } from '../../shared/question-category.ts';
+import type { HandoffSource } from '../projects/handoff-model.ts';
 
 export type Broadcast = (event: string, data: unknown) => void;
 export type CatchupScope = '2m' | '5m' | 'all';
@@ -67,11 +68,12 @@ export class Assistant {
   private broadcast: Broadcast;
   private queue = new AsyncQueue(2);
   private controllers = new Map<string, AbortController>();
+  private pendingSettlers = new Map<string, () => void>();
   private autoEpoch = 0;
   private autoInflight: AbortController | null = null;
   private autoCheck = new Map<string, { wall: number; t: number }>();
   private autoCardWalls: number[] = [];
-  private overviewInflight = new Set<string>();
+  private overviewInflight = new Map<string, Set<symbol>>();
   private lastOverviewWall = new Map<string, number>();
   private backoffUntil = 0;
   /** Counters exposed for tests and the UI. */
@@ -134,24 +136,40 @@ export class Assistant {
     this.broadcast('ai', publicOutput(row));
     const controller = new AbortController();
     this.controllers.set(id, controller);
+    // Queued cancellations settle immediately; the queue callback must not settle a replacement again.
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      this.controllers.delete(id);
+      this.pendingSettlers.delete(id);
+      o.onSettled?.();
+    };
+    this.pendingSettlers.set(id, settle);
     this.queue.push(async () => {
-      if (controller.signal.aborted) return;
       let pendingDelta = '';
       let flushTimer: NodeJS.Timeout | null = null;
-      const flush = () => { if (pendingDelta) { this.broadcast('ai-delta', { id, delta: pendingDelta }); pendingDelta = ''; } flushTimer = null; };
+      const flush = () => {
+        if (pendingDelta && !controller.signal.aborted) this.broadcast('ai-delta', { id, delta: pendingDelta });
+        pendingDelta = ''; flushTimer = null;
+      };
       try {
+        if (controller.signal.aborted) return;
+        this.pendingSettlers.delete(id);
         this.update(id, { status: 'streaming' });
         const built = await o.build(controller.signal);
+        if (controller.signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
         let text: string;
         let meta = { provider: 'local', model: null as string | null, billing: 'none', effort: null as string | null };
         if (built.direct !== undefined) text = built.direct;
         else {
           const r = await this.registry.complete({
             task: o.kind, instructions: built.instructions, input: built.input, jsonSchema: built.schema, effort: built.effort, signal: controller.signal, images: built.images,
-            onDelta: built.schema ? undefined : (d) => { pendingDelta += d; flushTimer ??= setTimeout(flush, 120); },
+            onDelta: built.schema ? undefined : (d) => { if (!controller.signal.aborted) { pendingDelta += d; flushTimer ??= setTimeout(flush, 120); } },
           });
           text = r.text; meta = { provider: r.provider, model: r.model, billing: r.billing, effort: r.effort !== undefined ? r.effort : built.effort ?? null };
         }
+        if (controller.signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
         if (flushTimer) { clearTimeout(flushTimer); flush(); }
         const fin = o.finalize ? o.finalize(text, built) : { content: text };
         const segs = built.coveredFrom != null ? this.store.segments(o.sessionId) : [];
@@ -173,8 +191,7 @@ export class Assistant {
         log('ai', `${o.kind} failed (${kind}): ${err.message}`);
         this.update(id, { status: kind === 'aborted' ? 'cancelled' : 'error', error: message, data_json: JSON.stringify({ ...asked, errorKind: kind }), completed_at: Date.now() });
       } finally {
-        this.controllers.delete(id);
-        o.onSettled?.();
+        settle();
       }
     }, o.prio);
     return id;
@@ -191,7 +208,8 @@ export class Assistant {
     if (!c) return false;
     c.abort();
     const row = this.store.getOutput(id);
-    if (row && row.status === 'pending') this.update(id, { status: 'cancelled', error: 'Cancelled.' });
+    if (row && row.status === 'pending') this.update(id, { status: 'cancelled', error: 'Cancelled.', completed_at: Date.now() });
+    this.pendingSettlers.get(id)?.();
     return true;
   }
 
@@ -375,7 +393,10 @@ export class Assistant {
 
   // ------------------------------------------------------------------ running overview
   overview(sessionId: string, manual = false): string {
-    this.overviewInflight.add(sessionId);
+    const token = Symbol('overview');
+    const inflight = this.overviewInflight.get(sessionId) ?? new Set<symbol>();
+    inflight.add(token);
+    this.overviewInflight.set(sessionId, inflight);
     this.lastOverviewWall.set(sessionId, Date.now());
     return this.start({
       sessionId, kind: 'overview', prio: manual ? PRIO.manual : PRIO.overview, question: manual ? 'Recap now' : null,
@@ -412,8 +433,10 @@ export class Assistant {
         }
         return { content: md, data: d as unknown as Record<string, unknown> };
       },
-      after: () => this.overviewInflight.delete(sessionId),
-      onSettled: () => this.overviewInflight.delete(sessionId),
+      onSettled: () => {
+        inflight.delete(token);
+        if (!inflight.size && this.overviewInflight.get(sessionId) === inflight) this.overviewInflight.delete(sessionId);
+      },
     });
   }
 
@@ -565,28 +588,33 @@ export class Assistant {
    * Draft the decisions, actions and open questions a meeting implies (structured JSON). The caller turns
    * the result into reviewable handoff items; nothing here is shown to an agent before the user confirms it.
    */
-  handoffDraft(sessionId: string, o: { projectName: string | null; onResult: (row: OutputRow, parsed: unknown, captures: Array<{ id: number; t: number }>) => void; onFail: (row: OutputRow) => void }): string {
+  handoffDraft(sessionId: string, o: { onResult: (row: OutputRow, parsed: unknown, captures: Array<{ id: number; t: number }>, source: HandoffSource) => void; onFail: (row: OutputRow) => void }): string {
     let captures: Array<{ id: number; t: number }> = [];
+    let source: HandoffSource;
     const id = this.start({
       sessionId, kind: 'handoff', prio: PRIO.manual, question: 'Handoff draft',
       build: async (signal) => {
+        const session = this.store.getSession(sessionId);
+        if (!session) throw new ProviderError('aborted', 'The meeting was deleted.');
         const all = this.store.segments(sessionId);
         if (!all.length) throw new ProviderError('bad_response', 'This meeting has no transcript yet, so there is nothing to hand off.');
+        source = { revision: session.revision, segmentMax: this.store.maxSegmentId(sessionId), projectId: session.project_id, capturedAt: Date.now() };
+        const project = source.projectId ? this.store.getProject(source.projectId) : null;
         const end = all[all.length - 1].t_end;
         let body: string;
         if (totalChars(all) <= 60_000) body = `FULL TRANSCRIPT [${fmtT(all[0].t_start)}–${fmtT(end)}]:\n${renderSegments(all, 62_000).text}`;
         else {
           const recentFrom = end - RECENT_WINDOW_MS;
           await this.ensureDigests(sessionId, recentFrom, signal);
-          body = `NOTES ON THE SESSION (AI-generated digests of the transcript, with times):\n${renderDigests(digests(this.store, sessionId), recentFrom)}\n\nFINAL ${RECENT_WINDOW_MS / 60000} MINUTES (verbatim):\n${renderSegments(this.store.segments(sessionId, recentFrom, end), 16_000).text}`;
+          body = `NOTES ON THE SESSION (AI-generated digests of the transcript, with times):\n${renderDigests(digests(this.store, sessionId), recentFrom)}\n\nFINAL ${RECENT_WINDOW_MS / 60000} MINUTES (verbatim):\n${renderSegments(all.filter((s) => s.t_end >= recentFrom), 16_000).text}`;
         }
         const vis = await this.pickImages(sessionId, { kind: 'spread', max: 4 });
         captures = vis.used;
         return {
-          instructions: this.system(sessionId, handoffInstructions(o.projectName)),
+          instructions: this.system(sessionId, handoffInstructions(project?.name ?? null)),
           input: `${this.header(sessionId)}\n${vis.text ? `\n${vis.text}\n` : ''}\n${body}`,
           coveredFrom: all[0].t_start, coveredTo: end, schema: HANDOFF_SCHEMA as unknown as Record<string, unknown>,
-          effort: this.effort('summary'), images: vis.images, extra: { images: vis.used },
+          effort: this.effort('summary'), images: vis.images, extra: { images: vis.used, handoffSource: source },
         };
       },
       finalize: (text) => {
@@ -594,7 +622,7 @@ export class Assistant {
         if (!parsed) throw new ProviderError('bad_response', 'The AI provider returned a handoff that could not be read. Try again.');
         return { content: `Handoff draft: ${parsed.decisions?.length ?? 0} decision(s), ${parsed.actions?.length ?? 0} action(s), ${parsed.open_questions?.length ?? 0} open question(s).`, data: { handoff: parsed } };
       },
-      after: (row) => o.onResult(row, JSON.parse(row.data_json ?? '{}').handoff, captures),
+      after: (row) => o.onResult(row, JSON.parse(row.data_json ?? '{}').handoff, captures, source),
       onSettled: () => { const row = this.store.getOutput(id); if (row && row.status !== 'done') o.onFail(row); },
     });
     return id;

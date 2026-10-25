@@ -5,6 +5,7 @@ import { api } from '../api.ts';
 import { getLang, t, tn } from '../i18n.ts';
 import { SpeakerSettings } from './Speakers.tsx';
 import { SpeechEngineSettings } from './SpeechEngineSettings.tsx';
+import { speechSettingsBusy } from '../speechSettings.ts';
 
 interface ModelRow {
   id: string; name: string; sizeMB: number; speed: number; accuracy: number; minRamGB: number;
@@ -32,7 +33,7 @@ export function TranscriptionTab() {
   const [list, setList] = useState<ModelList | null>(null);
   const [glossary, setGlossary] = useState(settings.asr.glossary.join(', '));
   const [bench, setBench] = useState<{ running: boolean; model?: string; results?: BenchResult[]; error?: string }>({ running: false });
-  const busySession = live?.status === 'recording' || live?.status === 'paused';
+  const busySession = speechSettingsBusy(live);
   const load = () => void api<ModelList>('/api/asr/models').then(setList).catch(() => {});
   useEffect(load, [settings.asr.model]);
   useEffect(() => { if (download && download.status !== 'downloading') load(); }, [download?.status]);
@@ -106,7 +107,7 @@ export function TranscriptionTab() {
       <p className="muted small">{t('Bigger is not always better: if the transcript falls behind (the Speech badge shows “behind”), switch to a faster model. Switching takes a few seconds and is only possible between sessions.')}</p>
 
       <div className="btn-row">
-        <button className="btn small" disabled={bench.running || live?.status === 'recording'} onClick={runBench}>{bench.running ? t('Testing…') : settings.asr.engine === 'whisper' ? t('Test speed and accuracy of the current model') : t('Test speed and accuracy of the engine in use')}</button>
+        <button className="btn small" disabled={bench.running || busySession} onClick={runBench}>{bench.running ? t('Testing…') : settings.asr.engine === 'whisper' ? t('Test speed and accuracy of the current model') : t('Test speed and accuracy of the engine in use')}</button>
       </div>
       {bench.error && <p className="error-text small">{bench.error}</p>}
       {bench.results && (
@@ -146,7 +147,7 @@ export function TranscriptionTab() {
       <label className="field"><span>{t('Vocabulary hints (comma separated): improves spelling of technical terms and names')}</span>
         <textarea rows={3} value={glossary} onChange={(e) => setGlossary(e.target.value)} onBlur={() => S({ asr: { glossary: glossary.split(/[,，\n]+/).map((x) => x.trim()).filter(Boolean) } })} />
       </label>
-      <label className="field"><span>{t('CPU threads (more is faster up to the number of performance cores; {n} cores on this computer)', { n: hw?.cores ?? '?' })}</span><input type="number" min={2} max={16} value={settings.asr.threads} onChange={(e) => S({ asr: { threads: Number(e.target.value) } })} /></label>
+      <label className="field"><span>{t('CPU threads (more is faster up to the number of performance cores; {n} cores on this computer)', { n: hw?.cores ?? '?' })}</span><input type="number" min={2} max={16} value={settings.asr.threads} disabled={busySession} title={busySession ? t('Wait until recording and transcription finish before changing speech recognition settings.') : ''} onChange={(e) => S({ asr: { threads: Number(e.target.value) } })} /></label>
     </section>
   );
 }

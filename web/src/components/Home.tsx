@@ -8,6 +8,7 @@ import type { Session } from '../types.ts';
 import { billingWord, DEPTH_LABEL, providerShort } from './TopBar.tsx';
 import { SessionMeta, SessionTitle } from './SessionLabel.tsx';
 import { SetupChecklist } from './SetupChecklist.tsx';
+import { speechPrivacy } from '../speechSettings.ts';
 import { IconArrow, IconBolt, IconBoth, IconMic, IconMonitor, IconShield, IconSpark, IconText, IconWindow } from './icons.tsx';
 
 const LEVELS = [msg('new'), msg('intro'), msg('working'), msg('strong'), msg('expert')];
@@ -148,7 +149,7 @@ export function Home() {
               <li><IconSpark /><span>{tn('{b1} Press {b2} to get the last 2 or 5 minutes, or the whole session so far.', { b1: <b>{t('Lost the thread?')}</b>, b2: <b>{t('Catch me up')}</b> })}</span></li>
               <li><IconText /><span>{tn('{b} in the transcript to get an explanation pitched to your background.', { b: <b>{t('Select any words')}</b> })}</span></li>
               <li><IconWindow /><span>{tn('{b} (Zoom share, slides) so answers can see the figure being discussed.', { b: <b>{t('Capture a window')}</b> })}</span></li>
-              <li><IconShield /><span>{t('Audio stays on this computer. Only short excerpts go to your AI provider, and only when you ask.')}</span></li>
+              <li><IconShield /><span>{speechPrivacy(settings?.asr)}</span></li>
             </ul>
           </section>
         </aside>

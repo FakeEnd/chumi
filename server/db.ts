@@ -711,6 +711,19 @@ export class Store {
     if (!ids.length) return;
     this.db.prepare(`DELETE FROM handoff_items WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
   }
+  /** A failed redraft must leave both the old items and their source metadata intact. */
+  replaceHandoffDraft(id: string, removeIds: string[], items: Array<Omit<HandoffItemRow, 'updated_at'>>, source: Pick<HandoffRow, 'source_revision' | 'confirmed_segment_max' | 'project_id'>): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.deleteHandoffItems(removeIds);
+      for (const item of items) this.insertHandoffItem(item);
+      this.updateHandoff(id, { ...source, status: 'draft', error: null });
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
   maxSegmentId(sessionId: string): number {
     return (this.db.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM segments WHERE session_id = ?').get(sessionId) as { m: number }).m;
   }

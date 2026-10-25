@@ -1,5 +1,35 @@
 # Verification log
 
+## Startup, shutdown and settings reliability — 2026-10-25
+
+On the development Mac. Tests use synthetic audio, temporary or in-memory databases, and stub AI and speech providers.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects and translation checks pass; **246 / 246 tests pass**. Regression coverage includes duplicate-server startup and port conflicts, capture restart exhaustion, cancellation during Codex initialization, invalid handoff output and transactional draft replacement, meeting-specific context caching, and speech-settings races. |
+| Isolated commit snapshot | After separating unrelated existing working-tree changes, both TypeScript projects, translation checks, **239 / 239 tests**, and the production web build pass against an export of the Git index. The 246-test working-tree run above also included separate vendor tests that are not part of this commit. |
+| Native shutdown | A compiled Swift harness runs the actual server manager against Node children: a save that takes more than three seconds completes before exit, and a hung child is terminated within the configured deadline. The desktop shutdown allowance is now aligned with the backend's 15-second cleanup budget, with a two-second exit margin. |
+| `npm run build:web` | Production build passes. The existing warning for a JavaScript chunk above 500 kB remains. |
+| `bash native/build.sh app` | Mac helper and application rebuild successfully; code-signature verification passes. The newly built application was not launched over an existing session. |
+| Browser smoke test | Production bundle in Chrome against an isolated in-memory fixture: compact mode preserves 2× playback and seeks to the selected transcript line; a delayed settings response preserves edits made while saving; ending disables speech settings and benchmarking; privacy text follows self-hosted Qwen, ElevenLabs, and Alibaba selections, including the configured destination. The start-session dialog also shows the Alibaba destination. |
+| `git diff --check` | Passes. |
+
+Not rerun in this pass: real microphone/system capture, real vendor model requests, or the Windows desktop runtime. Shutdown still uses a bounded four-second transcription drain and marks unfinished work interrupted; these changes do not add a durable transcription queue.
+
+## Session and handoff reliability — 2026-10-24
+
+On the development Mac. Tests use synthetic audio, in-memory or temporary databases, and stub AI providers.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects and translation checks pass; **195 / 195 tests pass** (31 added in this pass). Covers delayed transcription after ending, shutdown/start races, cancelled AI jobs, handoff project changes and input revisions, reconnect/navigation races, deleted sessions, failed submissions, and Vite proxy headers. |
+| `npm run build:web` | Production build passes. The existing warning for a JavaScript chunk above 500 kB remains. |
+| Browser smoke test | Production bundle in Chrome against an isolated in-memory fixture: failed submission preserves the question and attached passage; reconnect recovers a missed transcript line and completed answer while preserving both; ending with transcription pending shows a persistent notice and the finishing status. |
+| `git diff --check` | Passes. |
+| CI | Added checks and web builds for macOS and Windows with Node 24 and 26. Workflow syntax checked locally; hosted runs have not been triggered. |
+
+Not rerun in this pass: real microphone/system capture, vendor model requests, native desktop shells, or Windows. Application shutdown retains its existing four-second wait limit; unfinished transcription is marked interrupted, and this change does not add a durable transcription queue.
+
 ## Recording, playback and export — 2026-10-21
 
 On the development Mac. **Record audio** is chosen per session in Start session (on by default; the default is in Settings → Audio).

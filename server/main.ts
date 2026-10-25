@@ -40,12 +40,28 @@ import { speakerRuntime } from './speakers/runtime.ts';
 import { discardSpeakerAudio, hasRecordedAudio, speakerAudioAvailable } from './speakers/audio.ts';
 import type { SpeakerCorrection } from '../shared/speakers.ts';
 import { DESKTOP } from './desktop.ts';
+import { acquireDataDirectoryLock } from './instance-lock.ts';
+import { speechEngineChanged, speechRestartRequired } from './asr/settings-guard.ts';
+import { finishShutdown, SHUTDOWN_GRACE_MS } from './shutdown.ts';
 
-ensureDirs();
 const PORT = Number(process.env.PORT || 4777);
 const HOST = '127.0.0.1';
 const DEV = !!process.env.CHUMI_DEV;
 
+// Reserve both the data folder and the port before any crash recovery can change stored meetings.
+const dataLock = acquireDataDirectoryLock(DATA_DIR);
+process.once('exit', () => dataLock.release());
+const server = createServer();
+try {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(PORT, HOST, () => { server.off('error', reject); resolve(); });
+  });
+} catch (error) {
+  dataLock.release();
+  throw error;
+}
+ensureDirs();
 const store = new Store();
 store.failStaleOutputs();
 const settings0 = store.getSettings();
@@ -76,6 +92,7 @@ manager.recoverOnBoot();
 // mybot export: refresh a session's JSONL when it ends, gets its summary or Q&A, is renamed; remove it on delete.
 const mybot = new MybotExporter(store);
 const syncMybot = (id: string) => { try { mybot.sync(id); } catch (e) { log('mybot', `export failed: ${(e as Error).message}`); } };
+manager.onEnded = syncMybot;
 // Project context for questions: searches a running mybot for the project's earlier agent sessions (only when turned on).
 const projectContext = new MybotContext(store);
 assistant.projectContext = (id, query, signal) => projectContext.forSession(id, query, signal);
@@ -245,7 +262,6 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   if (next.ai.effort !== 'auto' && !EFFORTS.includes(next.ai.effort)) throw new HttpError(400, 'Unknown effort level');
   if (before.asr.model !== next.asr.model) {
     if (!isInstalled(next.asr.model)) throw new HttpError(400, 'Download this speech model first.');
-    if (manager.status === 'recording' || manager.status === 'paused') throw new HttpError(409, 'End the current session before switching the speech model.');
   }
   if (!['auto', 'en', 'zh'].includes(next.ui.language)) throw new HttpError(400, 'Unknown interface language');
   if (typeof next.ui.setupDismissed !== 'boolean') throw new HttpError(400, 'Invalid setup checklist setting');
@@ -256,9 +272,10 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
     next.asr.qwenCloud = { baseUrl: normalizeQwenCloudUrl(next.asr.qwenCloud.baseUrl), model: speechModelId(next.asr.qwenCloud.model) };
     next.asr.qwenLocal = { baseUrl: normalizeLocalAsrUrl(next.asr.qwenLocal.baseUrl), model: speechModelId(next.asr.qwenLocal.model) };
   } catch (error) { throw new HttpError(400, (error as Error).message); }
-  const speechConfig = (s: Settings) => JSON.stringify([s.asr.engine, s.asr.engine === 'qwen-cloud' ? s.asr.qwenCloud : s.asr.engine === 'qwen-local' ? s.asr.qwenLocal : null]);
-  const speechChanged = speechConfig(before) !== speechConfig(next);
-  if (speechChanged && (manager.status === 'recording' || manager.status === 'paused')) throw new HttpError(409, 'End the current session before changing the speech recognition engine.');
+  const speechChanged = speechEngineChanged(before.asr, next.asr);
+  if (manager.status !== 'idle' && speechRestartRequired(before.asr, next.asr)) {
+    throw new HttpError(409, 'Wait until recording and transcription finish before changing speech recognition settings.');
+  }
   if (typeof next.asr.diarization !== 'boolean') throw new HttpError(400, 'Speaker labeling must be enabled or disabled.');
   if (before.asr.diarization !== next.asr.diarization) {
     if (manager.status !== 'idle') throw new HttpError(409, 'End the current session before changing speaker labeling.');
@@ -347,7 +364,7 @@ route('POST', '/api/session/quick-start', async () => {
 });
 route('POST', '/api/session/pause', async () => { await manager.pause(); return manager.state(); });
 route('POST', '/api/session/resume', async () => { await manager.resume(); return manager.state(); });
-route('POST', '/api/session/end', async () => { const r = await manager.end(); syncMybot(r.sessionId); return r; });
+route('POST', '/api/session/end', () => manager.end());
 route('POST', '/api/session/window', async (req) => {
   const b = await readJson(req);
   if (!manager.session) throw new HttpError(400, 'No active session.');
@@ -655,7 +672,7 @@ route('DELETE', '/api/asr/models/:id', (_req, _res, p) => {
   return { ok: true };
 });
 route('POST', '/api/asr/benchmark', async () => {
-  if (manager.status === 'recording') throw new HttpError(409, 'Pause or end the session first; the test would compete with live transcription.');
+  if (manager.status !== 'idle') throw new HttpError(409, 'Wait until recording and transcription finish before testing speech recognition.');
   return { model: speech.engine === 'whisper' ? store.getSettings().asr.model : speech.label, results: await benchmark(speech) };
 });
 route('GET', '/api/asr/engines', async () => ({
@@ -805,10 +822,11 @@ route('GET', '/api/dev/mock-calls', () => { devOnly(); return registry.mock.call
 
 // ---------------------------------------------------------------- server
 const allowedHosts = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
-const server = createServer(async (req, res) => {
+server.on('request', async (req, res) => {
   try {
     // Defend against DNS-rebinding and cross-site requests: local host names only, and a custom header on writes.
     if (!allowedHosts.has(req.headers.host ?? '')) return send(res, 403, { error: 'Forbidden host' });
+    if (shuttingDown) return send(res, 503, { error: 'Chumi is shutting down.' });
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     if (!url.pathname.startsWith('/api/')) return serveStatic(res, url.pathname);
     if (req.method !== 'GET' && req.headers['x-chumi'] !== '1') return send(res, 403, { error: 'Missing X-Chumi header' });
@@ -829,13 +847,11 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, HOST, () => {
-  log('server', `Chumi listening on http://${HOST}:${PORT}  (data: ${DATA_DIR})`);
-  // Where agents' "open in Chumi" links should point (read by the MCP server).
-  try { writeFileSync(SERVER_INFO, JSON.stringify({ url: `http://${HOST}:${PORT}`, pid: process.pid, startedAt: Date.now() })); } catch { /* links are optional */ }
-  void speech.ensure().catch((e) => log('asr', `not ready: ${(e as Error).message}`));
-  void registry.status(true).catch(() => {});
-});
+log('server', `Chumi listening on http://${HOST}:${PORT}  (data: ${DATA_DIR})`);
+// Where agents' "open in Chumi" links should point (read by the MCP server).
+try { writeFileSync(SERVER_INFO, JSON.stringify({ url: `http://${HOST}:${PORT}`, pid: process.pid, startedAt: Date.now() })); } catch { /* links are optional */ }
+void speech.ensure().catch((e) => log('asr', `not ready: ${(e as Error).message}`));
+void registry.status(true).catch(() => {});
 setInterval(() => { void registry.status(true).catch(() => {}); }, 90_000).unref();
 
 let shuttingDown = false;
@@ -843,13 +859,21 @@ async function shutdown(sig: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   log('server', `${sig}: shutting down`);
-  // Keep everything captured so far; the session is marked "interrupted" and can be resumed (with a gap marker).
-  try { await Promise.race([manager.suspendForShutdown().catch(() => {}), new Promise((r) => setTimeout(r, 6000))]); } catch { /* ignore */ }
-  await speakers.shutdown();
   server.close();
   hotkey.stop();
-  await Promise.race([Promise.all([whisper.stop(), registry.shutdown(), localModelDownloader.shutdown()]), new Promise((r) => setTimeout(r, 3000))]);
+  // Desktop parents pass this budget and wait a little longer for process exit as the save acknowledgment.
+  const configured = Number(process.env.CHUMI_SHUTDOWN_GRACE_MS);
+  const budget = Number.isFinite(configured) && configured >= SHUTDOWN_GRACE_MS ? configured : SHUTDOWN_GRACE_MS;
+  const deadline = setTimeout(() => { log('server', 'shutdown deadline reached'); process.exit(1); }, budget);
+  await finishShutdown([
+    // Includes the audio helper's 3-second stop plus the final transcript's 4-second drain.
+    { name: 'save meeting', timeoutMs: 8000, run: () => manager.suspendForShutdown() },
+    { name: 'stop speaker analysis', timeoutMs: 3000, run: () => speakers.shutdown() },
+    { name: 'stop services', timeoutMs: 3000, run: () => Promise.all([whisper.stop(), registry.shutdown(), localModelDownloader.shutdown()]).then(() => {}) },
+  ], budget, (name, error) => log('server', `${name}: ${error.message}`));
   store.close();
+  dataLock.release();
+  clearTimeout(deadline);
   process.exit(0);
 }
 // A live recording must survive unexpected bugs: log them, tell the UI, keep running.

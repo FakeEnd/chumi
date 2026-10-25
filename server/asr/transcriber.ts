@@ -20,10 +20,13 @@ export class Transcriber extends EventEmitter<{
   final: [pieces: FinalPiece[]];
   error: [message: string];
   idle: [];
+  stopped: [];
 }> {
   private finals: Job[] = [];
   private partials = new Map<SourceName, Job>();
   private busy = false;
+  private active: Job | null = null;
+  private generation = 0;
   private finalizedUtts = new Map<SourceName, number>(); // highest utterance id already finalized per source
   private lastText = new Map<SourceName, string>();
   stopped = false;
@@ -48,17 +51,36 @@ export class Transcriber extends EventEmitter<{
     this.pump();
   }
 
-  /** New session: forget per-source context so nothing leaks between sessions. */
+  /** New session: finals must finish first; an obsolete partial may be safely invalidated. */
   reset(): void {
-    this.finals = []; this.partials.clear(); this.lastText.clear(); this.backlogSec = 0; this.stopped = false;
+    if (this.pendingFinals) throw new Error('The previous session is still being transcribed.');
+    this.generation++;
+    this.busy = false; this.active = null;
+    this.partials.clear(); this.finalizedUtts.clear(); this.lastText.clear(); this.backlogSec = 0; this.stopped = false;
   }
 
-  get pendingFinals(): number { return this.finals.length + (this.busy ? 1 : 0); }
+  get pendingFinals(): number { return this.finals.length + (this.active?.kind === 'final' ? 1 : 0); }
 
-  /** Resolve when every queued final has been transcribed (used when ending a session). */
-  async drain(timeoutMs = 60000): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
-    while ((this.finals.length || this.busy) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+  /** Stop scheduling work on shutdown, and invalidate callbacks before their store is closed. */
+  stop(): void {
+    this.stopped = true; this.generation++;
+    this.partials.clear();
+    this.emit('stopped');
+  }
+
+  /** Wait for finals, not optional previews. A deadline never cancels or drops unfinished finals. */
+  drain(timeoutMs = 60000): Promise<boolean> {
+    this.partials.clear();
+    if (!this.pendingFinals) return Promise.resolve(true);
+    if (this.stopped) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const finish = (complete: boolean) => { clearTimeout(timer); this.off('idle', onIdle); this.off('stopped', onStop); resolve(complete); };
+      const onIdle = () => { if (!this.pendingFinals) finish(true); };
+      const onStop = () => finish(false);
+      const timer = setTimeout(() => finish(!this.pendingFinals), timeoutMs);
+      this.on('idle', onIdle);
+      this.on('stopped', onStop);
+    });
   }
 
   /**
@@ -109,19 +131,23 @@ export class Transcriber extends EventEmitter<{
     }
     if (!job) { this.emit('idle'); return; }
     this.busy = true;
-    void this.run(job).finally(() => {
-      this.busy = false;
+    this.active = job;
+    const generation = this.generation;
+    void this.run(job, generation).finally(() => {
+      if (generation !== this.generation) return;
+      this.busy = false; this.active = null;
       this.backlogSec = this.finals.reduce((s, j) => s + (j.utt.endSec - j.utt.startSec), 0);
       this.pump();
     });
   }
 
-  private async run(job: Job): Promise<void> {
+  private async run(job: Job, generation: number): Promise<void> {
     const { language, glossary } = this.cfg();
     const durSec = job.utt.samples.length / 16000;
     try {
       const prompt = this.prompt(job.source);
       const res = await this.speech.transcribe(job.utt.samples, { language, prompt: prompt.text, glossary, timeoutMs: job.kind === 'final' ? 90000 : 20000 });
+      if (generation !== this.generation) return;
       const lang = langCode(res.language);
       const fix = (t: string) => (lang === 'zh' && this.cfg().chineseScript === 'simplified' ? toSimplified(t) : t);
       // Every engine's text is checked: a service that fails hands the same prompt to local Whisper, and Qwen3-ASR reads it too.
@@ -161,6 +187,7 @@ export class Transcriber extends EventEmitter<{
         this.emit('final', pieces);
       }
     } catch (e) {
+      if (generation !== this.generation) return;
       const msg = (e as Error).message;
       log('asr', `${job.kind} transcription failed: ${msg}`);
       if (job.kind === 'final') {
@@ -169,6 +196,7 @@ export class Transcriber extends EventEmitter<{
         if (!job.retried) {
           job.retried = true;
           await new Promise((r) => setTimeout(r, 2000));
+          if (generation !== this.generation) return;
           this.finals.unshift(job);
         }
       }

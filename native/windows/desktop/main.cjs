@@ -17,6 +17,8 @@ let window, server, baseUrl, log, quitting = false, recording = false, sleepBloc
 let windowReady = false;
 const geometryFile = path.join(dataDir, 'window.json');
 const iconMode = process.argv.includes('--make-icon');
+// The backend owns the save deadline; process exit confirms it has finished cleanup.
+const shutdownGraceMs = 15000;
 
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
@@ -57,6 +59,7 @@ async function startServer() {
     cwd: backend, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
     env: { ...process.env, CHUMI_APP: '1', CHUMI_DESKTOP: 'electron', CHUMI_AUDIO_HELPER: helper,
       CHUMI_DATA_DIR: dataDir, CHUMI_SYSTEM_LANGUAGE: app.getLocale(), PORT: String(port),
+      CHUMI_SHUTDOWN_GRACE_MS: String(shutdownGraceMs),
       PATH: path.dirname(node) + path.delimiter + (process.env.PATH || '') },
   });
   server.stdout.pipe(log, { end: false });
@@ -148,7 +151,7 @@ async function stopServer() {
   if (!server?.pid || server.exitCode !== null) return;
   const exited = once(server, 'exit');
   server.stdin.end();
-  const killTimer = setTimeout(() => execFile('taskkill.exe', ['/PID', String(server.pid), '/T', '/F'], { windowsHide: true }, () => {}), 12000);
+  const killTimer = setTimeout(() => execFile('taskkill.exe', ['/PID', String(server.pid), '/T', '/F'], { windowsHide: true }, () => {}), shutdownGraceMs + 2000);
   await exited;
   clearTimeout(killTimer);
   log?.end();

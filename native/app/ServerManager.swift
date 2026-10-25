@@ -11,6 +11,9 @@ enum ServerStartResult {
 final class ServerManager: @unchecked Sendable {
     static let defaultPort = 4777
     static let lastPort = 4790
+    /// The child uses this same total budget for saving the session and stopping its workers.
+    static let shutdownGraceMilliseconds = 15_000
+    static let shutdownExitMarginSeconds: TimeInterval = 2
 
     private(set) var port = ServerManager.defaultPort
     private(set) var ownsServer = false
@@ -186,6 +189,7 @@ final class ServerManager: @unchecked Sendable {
         p.currentDirectoryURL = URL(fileURLWithPath: repo)
         var env = ProcessInfo.processInfo.environment
         env["CHUMI_APP"] = "1"
+        env["CHUMI_SHUTDOWN_GRACE_MS"] = String(ServerManager.shutdownGraceMilliseconds)
         env["CHUMI_AUDIO_HELPER"] = helperPath
         env["PORT"] = String(chosen)
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
@@ -240,22 +244,35 @@ final class ServerManager: @unchecked Sendable {
         return .failed("The Chumi server did not become ready within 30 seconds.\n\nLast lines of \(logURL.path):\n\n\(logTail())")
     }
 
-    /// SIGTERM the server we started, wait up to 3 s, then SIGKILL.
+    /// A normal child exit acknowledges that its bounded shutdown and database close have finished.
+    /// Never force-kill inside the child's save budget; allow a small exit/reaping margin after it.
+    @discardableResult
+    static func stopOwnedProcess(_ p: Process, timeout: TimeInterval = TimeInterval(shutdownGraceMilliseconds) / 1000 + shutdownExitMarginSeconds) -> Bool {
+        guard p.isRunning else { return true }
+        let pid = p.processIdentifier
+        kill(pid, SIGTERM)
+        // Wall-clock adjustments must not shorten a save or make shutdown unbounded.
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while p.isRunning && ProcessInfo.processInfo.systemUptime < deadline { usleep(50_000) }
+        guard p.isRunning else { return true }
+        kill(pid, SIGKILL)
+        usleep(100_000)
+        return false
+    }
+
+    /// Stop only the child we own; an existing terminal-launched server belongs to its caller.
     func stop() {
         lock.lock()
         let p = process
+        let owned = ownsServer
+        let input = stdinPipe
         intentionalStop = true
         lock.unlock()
-        guard ownsServer, let p, p.isRunning else { return }
-        let pid = p.processIdentifier
-        kill(pid, SIGTERM)
-        let deadline = Date().addingTimeInterval(3)
-        while p.isRunning && Date() < deadline { usleep(50_000) }
-        if p.isRunning {
-            kill(pid, SIGKILL)
-            usleep(100_000)
+        guard owned, let p else { return }
+        if !ServerManager.stopOwnedProcess(p) {
+            appendLog("=== \(Date()) server exceeded its shutdown budget; forced termination\n")
         }
-        try? stdinPipe?.fileHandleForWriting.close()
+        try? input?.fileHandleForWriting.close()
     }
 
     func restart(completion: @escaping @Sendable (ServerStartResult) -> Void) {

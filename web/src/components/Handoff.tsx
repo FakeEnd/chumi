@@ -184,15 +184,15 @@ export function HandoffDialog() {
         title={pending ? t('Confirm or reject every item first') : ''}>{pending ? plural(pending, 'Review {n} more item', 'Review {n} more items') : t('Confirm handoff')}</button>}
       {confirmed && (
         <>
-          <button className="btn small" disabled={busy} onClick={() => void go('copy')}>{t('Copy instructions')}</button>
+          <button className="btn small" disabled={busy || h.project_mismatch || !h.project} onClick={() => void go('copy')}>{t('Copy instructions')}</button>
           {others.length > 0 && (
-            <select className="btn small" value="" disabled={busy || !h.project} aria-label={t('Continue in another agent…')} onChange={(e) => { if (e.target.value) void go(e.target.value as AgentId); }}>
+            <select className="btn small" value="" disabled={busy || h.project_mismatch || !h.project} aria-label={t('Continue in another agent…')} onChange={(e) => { if (e.target.value) void go(e.target.value as AgentId); }}>
               <option value="">{t('Continue in another agent…')}</option>
               {others.map((a) => <option key={a.agent} value={a.agent}>{a.name}</option>)}
             </select>
           )}
-          <button className="btn small" disabled={busy || !h.project} onClick={() => void go('codex')}>{t('Continue in Codex')}</button>
-          <button className="btn primary" disabled={busy || !h.project} onClick={() => void go('claude-code')}>{t('Continue in Claude Code')}</button>
+          <button className="btn small" disabled={busy || h.project_mismatch || !h.project} onClick={() => void go('codex')}>{t('Continue in Codex')}</button>
+          <button className="btn primary" disabled={busy || h.project_mismatch || !h.project} onClick={() => void go('claude-code')}>{t('Continue in Claude Code')}</button>
         </>
       )}
     </>
@@ -208,7 +208,7 @@ export function HandoffDialog() {
       {!data.session.project_id && <p className="small warn-text">{t('Choose a project to continue this work in a coding agent. You can still review the handoff without one.')}</p>}
       {h.project_mismatch && (
         <div className="warn-box small">{t('This handoff was prepared for another project. Review it for the meeting\'s current project before handing it on.')}
-          <button className="btn small" onClick={() => void retargetHandoff(h.id)}>{t('Review for this project')}</button></div>
+          <button className="btn small" disabled={generating} onClick={() => void retargetHandoff(h.id)}>{t('Review for this project')}</button></div>
       )}
       {h.freshness.stale && changes(h).length > 0 && <div className="warn-box small">{confirmed ? t('The meeting changed since you confirmed:') : t('The meeting changed since this draft:')} {changes(h).join(' · ')}</div>}
       {h.error && <p className="error-text small">{h.error}</p>}

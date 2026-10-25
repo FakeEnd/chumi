@@ -43,7 +43,7 @@ export function App() {
       <Notices />
       {data ? (
         <>
-          {!compact && <SessionToolbar />}
+          <SessionToolbar hidden={compact} />
           <SessionColumns
             left={
               <section className="left">

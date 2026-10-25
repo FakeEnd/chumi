@@ -10,6 +10,7 @@ import { TranscriptionTab } from './TranscriptionTab.tsx';
 import { AgentsTab, ProjectsTab } from './Projects.tsx';
 import { MybotServerSettings } from './ProjectContext.tsx';
 import { CompatibleProviderSettings } from './CompatibleProviderSettings.tsx';
+import { speechPrivacy } from '../speechSettings.ts';
 import type { ProviderStatus } from '../types.ts';
 import { IconBolt, IconBulb, IconFolder, IconGlobe, IconLink, IconMic, IconShield, IconSpark, IconTerminal, IconWave, IconWindow } from './icons.tsx';
 
@@ -329,9 +330,10 @@ export function SettingsDialog() {
 
       {tab === 'privacy' && (
         <section className="prose small">
+          <h3>{t('Speech recognition and audio')}</h3>
+          <p>{speechPrivacy(settings.asr)}</p>
           <h3>{t('What stays on this computer')}</h3>
           <ul>
-            <li>{t('Audio is captured and transcribed locally by whisper.cpp. Audio is never uploaded.')}</li>
             <li>{tn('Sessions, transcripts, AI answers, your profile and settings live in a local SQLite database: {dir}.', { dir: <code>{dataDir}</code> })}</li>
             <li>{t('Audio is kept only for sessions started with “Record audio” on; you can play it back and export it, and deleting the session deletes it. Optional speaker labeling also writes temporary local audio, which is deleted after analysis, failure or cancellation unless the session records audio.')}</li>
             <li>{t('Window captures (if you choose a window) are stored as JPEG images in the same folder.')}</li>
@@ -347,7 +349,7 @@ export function SettingsDialog() {
             <li>{t('Long sessions are summarized into rolling notes, so the full transcript is not sent again with every request.')}</li>
             <li>{t('Requests go to the provider you select: OpenAI, Anthropic, or your configured model server. Remote services process them under your provider account’s terms. A local server may itself forward requests externally; check its routing settings.')}</li>
           </ul>
-          <p>{t('Turn off auto-overview and auto-explain if you want nothing sent unless you click something.')}</p>
+          <p>{t('Turn off auto-overview and auto-explain to stop automatic AI assistance. These switches do not stop the selected speech recognition service from receiving audio while recording.')}</p>
         </section>
       )}
       </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { setState, useStore } from '../store.ts';
-import { assignProject, catchup, endSession, openSession, pauseSession, quickStart, renameSession, resumeLive, saveProfile, saveSettings, setCompact, summarize } from '../actions.ts';
+import { assignProject, catchup, endSession, goHome, openSession, pauseSession, quickStart, renameSession, resumeLive, saveProfile, saveSettings, setCompact, summarize } from '../actions.ts';
 import { ProjectSelect } from './Projects.tsx';
 import { SessionTypeSelect } from './SessionTypes.tsx';
 import { fmtDate, fmtT, sourceLabel } from '../util.ts';
@@ -82,7 +82,6 @@ export function TopBar() {
   const [title, setTitle] = useState('');
   useEffect(() => { setTitle(data?.session.title ?? ''); }, [data?.session.id, data?.session.title]);
   const recording = status === 'recording';
-  const goHome = () => setState({ viewId: null, data: null, deltas: {}, focus: null, attached: null });
 
   return (
     <header className={`topbar ${data ? 'in-session' : ''}`}>
@@ -110,7 +109,7 @@ export function TopBar() {
             </>
           )}
           {status === 'starting' && <span className="status-pill">{t('Starting…')}</span>}
-          {status === 'ending' && <span className="status-pill">{t('Saving…')}</span>}
+          {status === 'ending' && <span className="status-pill" role="status">{live?.pendingTranscription ? t('Finishing transcription…') : t('Saving…')}</span>}
           {(recording || status === 'paused') && (
             <>
               <RecPill recording={recording} />
@@ -172,7 +171,7 @@ function SessionActions({ sep }: { sep?: boolean }) {
 }
 
 /** Tier 2 (session view): audio levels, window capture, and the assistance controls. */
-export function SessionToolbar() {
+export function SessionToolbar({ hidden = false }: { hidden?: boolean }) {
   const live = useStore((s) => s.live);
   const data = useStore((s) => s.data);
   const settings = useStore((s) => s.settings);
@@ -188,7 +187,7 @@ export function SessionToolbar() {
   const saved = `${t('Saved session')} · ${fmtDate(data.session.started_at ?? data.session.created_at)} · ${fmtT(data.session.duration_ms)}${data.session.status === 'interrupted' ? ` · ${t('recording was interrupted (see gap markers)')}` : ''}`;
   const canSummarize = live?.session?.id !== data.session.id && ended && data.segments.length > 0 && !data.outputs.some((o) => o.kind === 'final_summary' && o.status !== 'error');
   return (
-    <div className="toolbar">
+    <div className="toolbar" hidden={hidden}>
       <div className={`toolbar-left ${!isLive && !data.hasAudio ? 'text-only' : ''}`}>
         {isLive ? (
           <>

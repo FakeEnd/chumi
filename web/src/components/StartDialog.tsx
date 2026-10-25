@@ -8,6 +8,7 @@ import { locale, t, tn } from '../i18n.ts';
 import { Dialog } from './Dialog.tsx';
 import { WindowPicker } from './WindowPicker.tsx';
 import { ProjectSelect } from './Projects.tsx';
+import { speechPrivacy } from '../speechSettings.ts';
 import type { WindowInfo } from '../types.ts';
 
 export function StartDialog() {
@@ -69,7 +70,7 @@ export function StartDialog() {
       {source !== 'file' && !helperBuilt && (windows
         ? <p className="error-text">{t('The audio component is missing. Reinstall Chumi to restore it.')}</p>
         : <p className="error-text">{tn("The native audio helper isn't built. Run {cmd} in the project folder.", { cmd: <code>npm run build:native</code> })}</p>)}
-      <p className="muted small">{t('Audio is transcribed on this computer and is not uploaded.')} {windows ? t('Allow desktop apps to access your microphone in Windows Settings. For hybrid meetings, headphones reduce speaker echo.') : t('The first time, macOS asks for Microphone and/or System Audio Recording permission.')}</p>
+      <p className="muted small">{speechPrivacy(settings?.asr)} {windows ? t('Allow desktop apps to access your microphone in Windows Settings. For hybrid meetings, headphones reduce speaker echo.') : t('The first time, macOS asks for Microphone and/or System Audio Recording permission.')}</p>
     </Dialog>
   );
 }

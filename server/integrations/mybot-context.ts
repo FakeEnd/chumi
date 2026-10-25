@@ -124,7 +124,7 @@ export class MybotContext {
   async lookup(project: { name: string; workspace: string }, query: string, o: { signal?: AbortSignal; excludeSession?: string } = {}): Promise<ProjectContextResult> {
     const q = query.replace(/\s+/g, ' ').trim().slice(0, 300);
     const url = this.url();
-    const key = `${url}\n${project.workspace}\n${q.toLowerCase()}`;
+    const key = JSON.stringify([url, project.workspace, q.toLowerCase(), o.excludeSession ?? null]);
     const hit = this.cache.get(key);
     if (hit && Date.now() - hit.at < CACHE_MS) return { ...hit.value, meta: { ...hit.value.meta, cached: true, ms: 0 } };
     const started = Date.now();

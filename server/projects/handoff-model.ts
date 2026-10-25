@@ -11,6 +11,14 @@ export type EvidenceRef =
   | { kind: 'transcript'; segment_ids: number[]; from_ms: number; to_ms: number }
   | { kind: 'frame'; frame_id: number; t: number };
 
+/** The meeting state used to build a draft, before any asynchronous model work. */
+export interface HandoffSource {
+  revision: number;
+  segmentMax: number;
+  projectId: string | null;
+  capturedAt: number;
+}
+
 const VISIBLE_OUTPUTS = ['final_summary', 'answer', 'explain', 'catchup', 'overview', 'auto_explain'];
 
 export function parseJson<T>(s: string | null | undefined, fallback: T): T {
@@ -33,7 +41,9 @@ export function handoffFreshness(store: Store, h: HandoffRow): Freshness {
   const reviewed = h.status === 'confirmed' ? h.confirmed_revision : h.source_revision;
   const detail = { new_transcript_lines: 0, new_outputs: 0, summary_regenerated: false, new_frames: 0, resumed: false, reassigned: false, speaker_labels_changed: false, meeting_deleted: !session };
   if (!session) return { current_revision: null, reviewed_revision: reviewed, stale: true, changes: ['The meeting was deleted.'], detail };
-  const baseAt = h.status === 'confirmed' ? h.confirmed_at ?? h.updated_at : (h.output_id ? store.getOutput(h.output_id)?.completed_at : null) ?? h.created_at;
+  const output = h.output_id ? store.getOutput(h.output_id) : null;
+  const source = parseJson<{ handoffSource?: HandoffSource }>(output?.data_json, {}).handoffSource;
+  const baseAt = h.status === 'confirmed' ? h.confirmed_at ?? h.updated_at : source?.capturedAt ?? output?.completed_at ?? h.created_at;
   const segMax = h.confirmed_segment_max ?? 0;
   detail.new_transcript_lines = (store.db.prepare('SELECT COUNT(*) AS n FROM segments WHERE session_id = ? AND id > ?').get(h.session_id, segMax) as { n: number }).n;
   const outs = store.db.prepare(`SELECT kind FROM ai_outputs WHERE session_id = ? AND status = 'done' AND completed_at > ? AND kind IN (${VISIBLE_OUTPUTS.map(() => '?').join(',')})`)
@@ -42,7 +52,7 @@ export function handoffFreshness(store: Store, h: HandoffRow): Freshness {
   detail.summary_regenerated = outs.some((o) => o.kind === 'final_summary');
   detail.new_frames = (store.db.prepare('SELECT COUNT(*) AS n FROM frames WHERE session_id = ? AND created_at > ?').get(h.session_id, baseAt) as { n: number }).n;
   detail.resumed = !!store.db.prepare("SELECT 1 FROM timeline WHERE session_id = ? AND kind IN ('resume', 'gap', 'interrupted') AND wall > ? LIMIT 1").get(h.session_id, baseAt);
-  detail.reassigned = (store.lastAssignmentAt(h.session_id) ?? 0) > baseAt;
+  detail.reassigned = h.project_id !== session.project_id || (store.lastAssignmentAt(h.session_id) ?? 0) > baseAt;
   detail.speaker_labels_changed = store.timeline(h.session_id).some((e) => e.kind === 'speaker_labels_changed'
     && (reviewed != null ? parseJson<{ revision?: number }>(e.detail, {}).revision! > reviewed : e.wall > baseAt));
   const changes: string[] = [];

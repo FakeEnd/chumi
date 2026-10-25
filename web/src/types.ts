@@ -71,6 +71,7 @@ export interface Output {
 
 export interface LiveState {
   status: 'idle' | 'starting' | 'recording' | 'paused' | 'ending';
+  pendingTranscription?: boolean;
   session: Session | null; source: string; nowT: number; serverTime: number;
   levels: Record<string, { rms: number; peak: number; at: number }>;
   partials: Record<string, { uttId: number; t: number; text: string }>;

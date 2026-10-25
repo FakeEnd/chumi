@@ -2,17 +2,26 @@
  * Reviewed task handoff: AI drafts decisions / actions / open questions from a meeting; the user edits,
  * confirms or rejects each item; only a confirmed handoff is actionable for a project agent.
  */
-import type { HandoffItemRow, HandoffRow, OutputRow, Store } from '../db.ts';
+import type { HandoffItemRow, HandoffRow, Store } from '../db.ts';
 import type { Assistant } from '../ai/assistant.ts';
+import { ProviderError } from '../ai/provider.ts';
+import { z } from 'zod';
 import { fmtT, parseT, similarity, uid } from '../util.ts';
-import { handoffPublic, parseJson, type EvidenceRef, type LinkFn } from './handoff-model.ts';
+import { handoffPublic, parseJson, type EvidenceRef, type HandoffSource, type LinkFn } from './handoff-model.ts';
 
 export class HandoffError extends Error {
   status: number;
   constructor(status: number, message: string) { super(message); this.status = status; }
 }
 
-type DraftItem = { text?: unknown; origin?: unknown; rationale?: unknown; conditions?: unknown; acceptance_criteria?: unknown; owner?: unknown; due?: unknown; evidence?: unknown; captures?: unknown };
+const draftItemSchema = z.object({
+  text: z.string().trim().min(1), origin: z.enum(['agreed', 'suggested', 'chumi']).optional(),
+  rationale: z.string().optional(), conditions: z.array(z.string()).optional(),
+  acceptance_criteria: z.array(z.string()).optional(), owner: z.string().nullish(), due: z.string().nullish(),
+  evidence: z.array(z.string()).optional(), captures: z.array(z.number().int()).optional(),
+});
+const draftSchema = z.object({ decisions: z.array(draftItemSchema), actions: z.array(draftItemSchema), open_questions: z.array(draftItemSchema) });
+type DraftItem = z.infer<typeof draftItemSchema>;
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 const strs = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean).slice(0, 8) : []);
 /** Owners and deadlines stay unset unless the meeting stated them. */
@@ -22,6 +31,7 @@ export class HandoffService {
   private store: Store;
   private assistant: Assistant;
   private onChange: (sessionId: string) => void;
+  private generations = new Map<string, symbol>();
   constructor(store: Store, assistant: Assistant, onChange: (sessionId: string) => void) {
     this.store = store; this.assistant = assistant; this.onChange = onChange;
   }
@@ -45,15 +55,27 @@ export class HandoffService {
     if (h?.status === 'confirmed') throw new HandoffError(409, 'This handoff is confirmed. Choose “Edit” to change it.');
     if (h?.status === 'generating') return h;
     if (!h) h = this.store.createHandoff({ id: uid('hf_'), session_id: sessionId, project_id: session.project_id, status: 'generating' });
-    else this.store.updateHandoff(h.id, { status: 'generating', error: null, project_id: session.project_id });
+    else this.store.updateHandoff(h.id, { status: 'generating', error: null });
     const handoffId = h.id;
-    const project = session.project_id ? this.store.getProject(session.project_id) : null;
+    const previousOutputId = h.output_id;
+    const generation = Symbol('handoff');
+    this.generations.set(handoffId, generation);
+    const current = () => this.generations.get(handoffId) === generation && this.store.getHandoff(handoffId)?.status === 'generating';
     const outputId = this.assistant.handoffDraft(sessionId, {
-      projectName: project?.name ?? null,
-      onResult: (row, parsed, captures) => { this.applyDraft(handoffId, parsed, captures, row); this.onChange(sessionId); },
+      onResult: (_row, parsed, captures, source) => {
+        if (!current()) return;
+        this.applyDraft(handoffId, parsed, captures, source);
+        this.generations.delete(handoffId);
+        this.onChange(sessionId);
+      },
       onFail: (row) => {
+        if (!current()) return;
         const hasItems = this.store.handoffItems(handoffId).length > 0;
-        this.store.updateHandoff(handoffId, { status: hasItems ? 'draft' : 'error', error: row.error ?? 'The draft could not be generated.' });
+        this.store.updateHandoff(handoffId, {
+          status: hasItems ? 'draft' : 'error', error: row.error ?? 'The draft could not be generated.',
+          ...(hasItems ? { output_id: previousOutputId } : {}),
+        });
+        this.generations.delete(handoffId);
         this.onChange(sessionId);
       },
     });
@@ -63,8 +85,8 @@ export class HandoffService {
   }
 
   /** Map cited times to transcript segments (and capture numbers to frames). Unmatched citations are dropped. */
-  private evidence(sessionId: string, times: unknown, captureNums: unknown, captures: Array<{ id: number; t: number }>): EvidenceRef[] {
-    const segs = this.store.segments(sessionId);
+  private evidence(sessionId: string, times: unknown, captureNums: unknown, captures: Array<{ id: number; t: number }>, segmentMax: number): EvidenceRef[] {
+    const segs = this.store.segments(sessionId).filter((s) => s.id <= segmentMax);
     const out: EvidenceRef[] = [];
     for (const raw of strs(times)) {
       const [a, b] = raw.replace(/[[\]]/g, '').split(/\s*[–—-]\s*/);
@@ -101,31 +123,35 @@ export class HandoffService {
    * Turn the AI draft into items. Items the user already confirmed, rejected or edited are kept as they are;
    * only untouched pending items are replaced, and near-duplicates of kept items are skipped.
    */
-  private applyDraft(handoffId: string, parsed: unknown, captures: Array<{ id: number; t: number }>, _row: OutputRow): void {
+  private applyDraft(handoffId: string, parsed: unknown, captures: Array<{ id: number; t: number }>, source: HandoffSource): void {
     const h = this.must(handoffId);
     const session = this.store.getSession(h.session_id);
     if (!session) return;
-    const d = (parsed ?? {}) as { decisions?: DraftItem[]; actions?: DraftItem[]; open_questions?: DraftItem[] };
+    const validated = draftSchema.safeParse(parsed);
+    if (!validated.success) throw new ProviderError('bad_response', 'The AI provider returned an invalid handoff. Your previous draft was kept. Try again.');
+    const d = validated.data;
     const existing = this.store.handoffItems(handoffId);
     const kept = existing.filter((i) => i.review !== 'pending' || i.edited);
-    this.store.deleteHandoffItems(existing.filter((i) => !kept.includes(i)).map((i) => i.id));
+    const items: Array<Omit<HandoffItemRow, 'updated_at'>> = [];
     let position = kept.reduce((m, i) => Math.max(m, i.position), -1) + 1;
     const add = (kind: HandoffItemRow['kind'], it: DraftItem) => {
       const text = str(it.text);
       if (!text || kept.some((k) => k.kind === kind && similarity(k.text, text) > 0.6)) return;
       const origin = kind === 'question' ? 'suggested' : (['agreed', 'suggested', 'chumi'].includes(str(it.origin)) ? str(it.origin) : 'suggested') as HandoffItemRow['origin'];
-      this.store.insertHandoffItem({
-        id: uid('hi_'), handoff_id: handoffId, project_id: session.project_id, kind, position: position++, text,
+      items.push({
+        id: uid('hi_'), handoff_id: handoffId, project_id: source.projectId, kind, position: position++, text,
         rationale: str(it.rationale) || null, conditions_json: kind === 'action' ? JSON.stringify(strs(it.conditions)) : null,
         acceptance_json: kind === 'action' ? JSON.stringify(strs(it.acceptance_criteria)) : null,
         origin: kind === 'decision' && origin === 'chumi' ? 'suggested' : origin, owner: stated(it.owner), due: stated(it.due),
-        evidence_json: JSON.stringify(this.evidence(session.id, it.evidence, it.captures, captures)), review: 'pending', edited: 0,
+        evidence_json: JSON.stringify(this.evidence(session.id, it.evidence, it.captures, captures, source.segmentMax)), review: 'pending', edited: 0,
       });
     };
-    for (const it of d.decisions ?? []) add('decision', it);
-    for (const it of d.actions ?? []) add('action', it);
-    for (const it of d.open_questions ?? []) add('question', it);
-    this.store.updateHandoff(handoffId, { status: 'draft', error: null, source_revision: session.revision, confirmed_segment_max: this.store.maxSegmentId(session.id), project_id: session.project_id });
+    for (const it of d.decisions) add('decision', it);
+    for (const it of d.actions) add('action', it);
+    for (const it of d.open_questions) add('question', it);
+    this.store.replaceHandoffDraft(handoffId, existing.filter((i) => !kept.includes(i)).map((i) => i.id), items, {
+      source_revision: source.revision, confirmed_segment_max: source.segmentMax, project_id: source.projectId,
+    });
   }
 
   updateItem(itemId: string, patch: { text?: string; rationale?: string | null; conditions?: string[]; acceptance?: string[]; owner?: string | null; due?: string | null; review?: HandoffItemRow['review']; kind?: HandoffItemRow['kind'] }): string {
@@ -191,9 +217,10 @@ export class HandoffService {
   /** After reassignment: point the handoff at the meeting's current project and require review again. */
   retarget(handoffId: string): void {
     const h = this.must(handoffId);
+    if (h.status === 'generating') throw new HandoffError(409, 'Wait for the draft to finish.');
     const session = this.store.getSession(h.session_id);
     if (!session) throw new HandoffError(404, 'The meeting was deleted.');
-    this.store.updateHandoff(handoffId, { project_id: session.project_id, status: h.status === 'generating' ? 'generating' : 'draft' });
+    this.store.updateHandoff(handoffId, { project_id: session.project_id, status: 'draft' });
     for (const i of this.store.handoffItems(handoffId)) this.store.updateHandoffItem(i.id, { project_id: session.project_id });
     this.onChange(h.session_id);
   }
@@ -209,6 +236,7 @@ export class HandoffService {
     const h = this.must(handoffId);
     const session = this.store.getSession(h.session_id);
     const project = h.project_id ? this.store.getProject(h.project_id) : null;
+    if (session && h.project_id !== session.project_id) throw new HandoffError(409, 'This meeting moved to another project. Review the handoff for the new project first.');
     if (!session || !project) throw new HandoffError(400, 'Assign the meeting to a project first.');
     if (h.status !== 'confirmed') throw new HandoffError(400, 'Confirm the handoff first.');
     const items = this.store.handoffItems(h.id);

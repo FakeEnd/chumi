@@ -349,6 +349,8 @@ section h3 { font-size: var(--fs-md); margin: 16px 0 8px; }
 .status-pill { display: inline-flex; align-items: center; gap: 6px; }
 
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; flex-wrap: wrap; }
+/* Keep the audio element mounted in compact view without exposing hidden controls. */
+.toolbar[hidden] { display: none; }
 .toolbar-left, .toolbar-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 /* On a narrow window (or beside the audio player) the right group wraps to a second row, kept on the right above the assistant.
    A saved session's date line gives way first: it shortens with an ellipsis so the toolbar stays one row. */
