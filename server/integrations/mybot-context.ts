@@ -20,8 +20,14 @@ const MAX_SOURCES = 4;
 /** Sources whose conversation window is read (the rest use the search snippets). */
 const READ_TOP = 2;
 const PER_SOURCE_CHARS = 2_400;
+/** The best match gets more room, so a long last message (an agent's plan and its questions) fits whole. */
+const TOP_SOURCE_CHARS = 5_400;
 /** About 2.5k tokens of context in total. */
 const TOTAL_CHARS = 9_000;
+/** mybot clamps `event_index` to the session's last event, so this reads the end of any session. */
+const LAST_EVENT = 1_000_000_000;
+/** Enough of a session's end that its last message comes back whole, even after long tool output. */
+const TAIL_READ_CHARS = 24_000;
 const CACHE_MS = 10 * 60_000;
 
 export interface ContextSource { n: number; ref: string; agent: string; title: string; updated_at: string | null; cwd: string }
@@ -66,17 +72,38 @@ function around(text: string, terms: string[], max: number): string {
   return `${start > 0 ? '…' : ''}${text.slice(start, start + max).trim()}${start + max < text.length ? '…' : ''}`;
 }
 
+/** The last assistant message in a window mybot rendered as "ROLE [time]\ntext" blocks, with its header. */
+export function lastAssistant(rendered: string): string | null {
+  const head = [...rendered.matchAll(/(?:^|\n)(ASSISTANT(?: \[[^\]\n]*\])?)\n/g)].at(-1);
+  if (!head) return null;
+  const rest = rendered.slice(head.index! + head[0].length);
+  const end = rest.search(/\n\n[A-Z_]+(?: \[[^\]\n]*\])?\n/);
+  const text = (end < 0 ? rest : rest.slice(0, end)).replace(/\s*\[truncated\]\s*$/, '…').trim();
+  return text ? `${head[1]}\n${text}` : null;
+}
+
 /**
  * Excerpt for one session: mybot's query-focused snippets first (overlapping ones dropped), then the events of
- * the conversation window that mention the question's words, cut to the part around the match.
+ * the conversation window that mention the question's words, cut to the part around the match. When the
+ * session's last message is about the question too, it fills the room left, and the parts it repeats are dropped.
  */
-export function excerptFor(snippets: string[], window: string[] | null, terms: string[], max: number): string {
+export function excerptFor(snippets: string[], window: string[] | null, terms: string[], max: number, final: string | null = null): string {
   const parts: string[] = [];
-  const seen = (s: string) => { const probe = s.replace(/\s+/g, ' ').slice(Math.floor(s.length / 3), Math.floor(s.length / 3) + 60); return parts.some((p) => p.replace(/\s+/g, ' ').includes(probe)); };
+  const flat = (s: string) => s.replace(/\s+/g, ' ');
+  const probe = (s: string) => flat(s).slice(Math.floor(s.length / 3), Math.floor(s.length / 3) + 60);
+  const seen = (s: string) => parts.some((p) => flat(p).includes(probe(s)));
   for (const s of snippets) { const c = clean(s, 1000); if (c && !seen(c)) parts.push(c); }
   const events = (window ?? []).map((e) => clean(e, 20_000)).filter((e) => !terms.length || hits(e, terms) > 0)
     .sort((a, b) => hits(b, terms) - hits(a, terms)).slice(0, 4);
   for (const e of events) { const c = around(e, terms, 700); if (!seen(c)) parts.push(c); }
+  const last = final ? clean(final, TAIL_READ_CHARS) : '';
+  if (last && (!terms.length || hits(last, terms) >= Math.min(2, terms.length))) {
+    const lastFlat = flat(last);
+    const rest = parts.filter((p) => !lastFlat.includes(probe(p)));
+    const label = 'Last message of the session:\n';
+    const room = max - rest.reduce((n, p) => n + p.length + 3, 0) - label.length;
+    if (room >= 600) return clean([...rest, label + around(last, terms, room - 2)].join('\n…\n'), max);
+  }
   return clean(parts.join('\n…\n'), max);
 }
 
@@ -145,10 +172,18 @@ export class MybotContext {
         this.cache.set(key, { at: Date.now(), value });
         return value;
       }
-      const windows = await Promise.all(top.map((m, i) => (i < READ_TOP && m.metadata?.chunk_id != null
-        ? this.call('/trajectory/read', { source_ref: m.source_ref, chunk_id: m.metadata.chunk_id, query: q, max_chars: PER_SOURCE_CHARS, events_before: 2, events_after: 4 }, READ_TIMEOUT_MS, o.signal)
-          .then((r) => (r.trajectory?.snippets ?? []) as string[]).catch((e) => { if (o.signal?.aborted) throw e; return null; })
+      const read = (body: Record<string, unknown>) => this.call('/trajectory/read', body, READ_TIMEOUT_MS, o.signal).catch((e) => { if (o.signal?.aborted) throw e; return null; });
+      const windowReads = Promise.all(top.map((m, i) => (i < READ_TOP && m.metadata?.chunk_id != null
+        ? read({ source_ref: m.source_ref, chunk_id: m.metadata.chunk_id, query: q, max_chars: PER_SOURCE_CHARS, events_before: 2, events_after: 4 })
+          .then((r) => (r ? r.trajectory?.snippets ?? [] : null) as string[] | null)
         : Promise.resolve(null))));
+      // And the end of each: an agent's last message is often its plan, result or open questions, which mybot's
+      // snippets cut at 1,800 characters. Without a query, mybot only renders the events.
+      const finalReads = Promise.all(top.map((m, i) => (i < READ_TOP
+        ? read({ source_ref: m.source_ref, event_index: LAST_EVENT, events_before: 2, events_after: 0, max_chars: TAIL_READ_CHARS })
+          .then((r) => lastAssistant(String(r?.trajectory?.transcript ?? '')))
+        : Promise.resolve(null))));
+      const [windows, finals] = await Promise.all([windowReads, finalReads]);
       const sources: ContextSource[] = [];
       const blocks: string[] = [];
       const terms = queryTerms(q);
@@ -156,7 +191,7 @@ export class MybotContext {
       top.forEach((m, i) => {
         if (used >= TOTAL_CHARS) return;
         const snippets = m.snippets?.length ? m.snippets : m.text_preview ? [m.text_preview] : [];
-        const excerpt = excerptFor(snippets, windows[i], terms, Math.min(PER_SOURCE_CHARS, TOTAL_CHARS - used));
+        const excerpt = excerptFor(snippets, windows[i], terms, Math.min(sources.length ? PER_SOURCE_CHARS : TOP_SOURCE_CHARS, TOTAL_CHARS - used), finals[i]);
         if (!excerpt) return;
         const n = sources.length + 1;
         const agent = AGENT[m.source_name ?? ''] ?? m.source_name ?? 'agent';
