@@ -1,13 +1,13 @@
 # Continue meeting work in your coding agent
 
-Chumi connects a meeting to the project you work on with a coding agent: Claude Code, Codex, opencode or Qwen Code. You assign the meeting to a project, review a handoff of the work it implies, and continue in your agent. The agent reads the confirmed work and the original evidence through Chumi's local MCP server, so you don't paste the transcript or brief it again.
+Chumi connects a meeting to the project you work on with a coding agent: Claude Code, Codex, opencode, Qwen Code or Antigravity. You assign the meeting to a project, review a handoff of the work it implies, and continue in your agent. The agent reads the confirmed work and the original evidence through Chumi's local MCP server, so you don't paste the transcript or brief it again.
 
 This is the P0 scope of [project-integration-prd.md](project-integration-prd.md). Project briefs before a meeting, execution results and decision history (P1), and live access during a meeting (P2) are not built yet.
 
 ## Set up
 
-1. **Create a project.** Go to **Settings → Projects**, give it a name, and choose its folder: the directory where you run your agent (`claude`, `codex`, `opencode` or `qwen`). It does not need to be a Git repository; if it is, Chumi records the branch and remote.
-2. **Connect your agents.** In **Settings → Coding agents**, click **Connect** for each agent you use. This adds a server named `chumi` to the agent's user settings: `~/.claude.json`, `~/.codex/config.toml`, `~/.qwen/settings.json`, or the `mcp` section of `~/.config/opencode/opencode.json`. opencode has no command for adding a local server, so Chumi edits that file itself. It does so only when the file is plain JSON, writes atomically, keeps the file's permissions, and leaves the previous version as `opencode.json.bak`. If the file has comments, Chumi leaves it alone and shows the entry to add. opencode also reads `opencode.jsonc`, which Chumi never changes. **Disconnect** removes the entry. The same tab shows the commands (and opencode's entry) if you prefer to do it yourself:
+1. **Create a project.** Go to **Settings → Projects**, give it a name, and choose its folder: the directory where you run your agent (`claude`, `codex`, `opencode`, `qwen` or `agy`). It does not need to be a Git repository; if it is, Chumi records the branch and remote.
+2. **Connect your agents.** In **Settings → Coding agents**, click **Connect** for each agent you use. This adds a server named `chumi` to the agent's user settings: `~/.claude.json`, `~/.codex/config.toml`, `~/.qwen/settings.json`, `~/.gemini/config/mcp_config.json` (Antigravity), or the `mcp` section of `~/.config/opencode/opencode.json`. opencode has no command for adding a local server, so Chumi edits that file itself. It does so only when the file is plain JSON, writes atomically, keeps the file's permissions, and leaves the previous version as `opencode.json.bak`. If the file has comments, Chumi leaves it alone and shows the entry to add. opencode also reads `opencode.jsonc`, which Chumi never changes. **Disconnect** removes the entry. The same tab shows the commands (and opencode's entry) if you prefer to do it yourself:
 
    ```bash
    claude mcp add --scope user chumi -- /opt/homebrew/bin/node /path/to/Chumi/server/mcp/main.ts
@@ -21,20 +21,26 @@ This is the P0 scope of [project-integration-prd.md](project-integration-prd.md)
    qwen mcp add --scope user chumi /opt/homebrew/bin/node /path/to/Chumi/server/mcp/main.ts
    ```
 
+   ```bash
+   agy mcp add chumi -- /opt/homebrew/bin/node /path/to/Chumi/server/mcp/main.ts
+   ```
+
+   **Antigravity** means the Antigravity CLI, `agy`. Install it with `curl -fsSL https://antigravity.google/cli/install.sh | bash`, which puts `agy` in `~/.local/bin`. Then run `agy` once to sign in with your Google account. According to Google's documentation, the Antigravity desktop app reads the same `~/.gemini/config/mcp_config.json`, so connecting the CLI makes Chumi available there as well (not checked yet). Antigravity cannot ask for approval during a non-interactive run, so **Connect** also adds `mcp(chumi/chumi_connection_check)` to `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`. That pre-approves only the read check's tool: Antigravity still asks before any other Chumi tool. Chumi edits that file only when it is plain JSON, keeps your other settings and rules, and leaves `settings.json.bak`. **Disconnect** removes both entries.
+
 3. **Check the connection.** The tab reports four things separately, and shows "unknown" or "not verified" rather than guessing:
    - **Local:** Chumi starts its own MCP server and reads the database.
    - **Registered:** the agent's configuration contains Chumi, pointing at this copy of Chumi.
-   - **Client health:** the agent's own server check (`claude mcp get`, `opencode mcp list`, `qwen mcp list`). Codex does not report one.
+   - **Client health:** the agent's own server check (`claude mcp get`, `opencode mcp list`, `qwen mcp list`). Codex and Antigravity do not report one.
    - **Agent read:** **Test a real agent read** asks the agent to call Chumi's check tool, then confirms the MCP server recorded that exact read. It uses one small request:
      - Claude Code and Codex run it only within your plan's included usage, never on purchased credits or paid overage. API keys in the environment are removed for these two.
-     - opencode and Qwen Code use whatever model account you set up in them, which Chumi cannot check. Chumi asks before sending the request and keeps their keys. Every read check runs in an empty folder, so an agent's own file tools see nothing of Chumi's data. During the check opencode gets only Chumi's tools and cannot edit, run commands or browse. Qwen Code connects only to Chumi's server, and only the check tool is pre-approved. Its built-in tools that need no approval, such as reading files, are not switched off, but the folder they would read is empty.
+     - opencode, Qwen Code and Antigravity use whatever model account you set up in them, which Chumi cannot check. For Antigravity that is your Google sign-in, or a Gemini API key if you set one up. Chumi asks before sending the request and keeps their keys. Every read check runs in an empty folder, so an agent's own file tools see nothing of Chumi's data. During the check opencode gets only Chumi's tools and cannot edit, run commands or browse. Qwen Code connects only to Chumi's server, and only the check tool is pre-approved. Its built-in tools that need no approval, such as reading files, are not switched off, but the folder they would read is empty. Antigravity runs with `agy -p`. Only the check tool is pre-approved. Antigravity refuses anything else that needs approval, because it cannot ask during the run. Its other MCP servers stay connected.
 
 If Chumi lives in `~/Documents`, macOS may ask once whether Terminal or the agent may access that folder. Allow it, or Chumi's server cannot start.
 
 ## Use it
 
 1. **Assign the meeting.** Choose the project when you start a session, or later from the project menu in the top bar. Quick start never asks. A meeting belongs to at most one project, and a title or keyword never assigns it.
-2. **Prepare a handoff.** In the assistant column, click **Prepare handoff** once the meeting has content. Your AI provider drafts decisions, actions and open questions from the transcript, each with time citations. Items are labelled by origin:
+2. **Prepare a handoff.** Click **Prepare handoff** in the top bar (on a narrow window, the toolbar below it) once the meeting has content and is not recording. The same button then shows the handoff's state (drafting, items to review, confirmed) and opens it. Your AI provider drafts decisions, actions and open questions from the transcript, each with time citations. Items are labelled by origin:
    - **Agreed in the meeting:** someone committed to it, or the group agreed.
    - **Suggested, not agreed:** raised but not settled.
    - **Proposed by Chumi:** not said in the meeting. Acceptance checks are always Chumi's proposals.
@@ -42,7 +48,7 @@ If Chumi lives in `~/Documents`, macOS may ask once whether Terminal or the agen
 
    Owners and deadlines are filled in only when someone stated them; otherwise they read "not stated". Citations that match no transcript line are dropped, and an item without evidence says so.
 3. **Review.** Edit, confirm or reject every item, then **Confirm handoff**. Only confirmed actions are requested work. Open questions travel as unresolved context, never as tasks. **Redraft** replaces only items you have not touched.
-4. **Continue.** **Continue in Claude Code** or **Continue in Codex** opens a Terminal window in the project folder running the agent with the confirmed work as its first message. Other installed agents (opencode, Qwen Code) are in the **Continue in another agent…** menu. **Copy instructions** gives the same text for an IDE, the desktop apps or another terminal. The agent looks at the project, proposes a plan and works under its own permission prompts.
+4. **Continue.** **Continue in Claude Code** or **Continue in Codex** opens a Terminal window in the project folder running the agent with the confirmed work as its first message. Other installed agents (opencode, Qwen Code, Antigravity) are in the **Continue in another agent…** menu. Antigravity starts as `agy -i` with the handoff as its first message. **Copy instructions** gives the same text for an IDE, the desktop apps or another terminal. The agent looks at the project, proposes a plan and works under its own permission prompts.
 
 Chumi shows when a handoff was made available and when an agent read it. It never marks the work done: check that in the agent.
 
@@ -122,6 +128,13 @@ Also checked by hand on a sample project:
   - opencode was offered only Chumi's seven tools during the check.
   - **Continue in…** was checked with a stand-in command for all four agents (`tests/agent-integration.test.ts`): each starts in the project folder with the handoff unchanged as its first message.
   - Not yet run with a real opencode or Qwen Code model.
+
+- **Antigravity (virtual trial, October 13, 2026).** Antigravity CLI 1.3.4, no Google account used.
+  - Chumi's **Connect** ran `agy mcp add`, and `agy mcp list` showed `chumi` enabled.
+  - In a throwaway home folder, Antigravity started Chumi's real MCP server from its own configuration, got past its newer `server/discover` handshake, and listed all seven tools and Chumi's instructions. It identifies itself as `antigravity-client`. The run used a local model stand-in through Antigravity's model gateway.
+  - The read check itself could not run against a stand-in: Antigravity offers no tools at all to gateway models.
+  - **Continue in…** was checked with a stand-in command (`tests/agent-integration.test.ts`): `agy -i` starts in the project folder with the handoff unchanged.
+  - Not yet run: **Test a real agent read** and a full handoff with a signed-in Antigravity, and the Antigravity desktop app.
 
 ## Not in this release
 

@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { setState, useStore } from '../store.ts';
-import { ask, cancelOutput, catchup, explain, refreshOutput, summarize } from '../actions.ts';
+import { ask, cancelOutput, explain, refreshOutput } from '../actions.ts';
 import { fmtClock, fmtT, parseT } from '../util.ts';
 import { msg, plural, t } from '../i18n.ts';
 import { DEPTH_LABEL } from './TopBar.tsx';
 import { Markdown } from './Markdown.tsx';
 import { focusTime } from './Transcript.tsx';
 import type { Depth, Effort, Output } from '../types.ts';
-import { HandoffBox } from './Handoff.tsx';
 import { ProjectContextNote, ProjectContextSources, ProjectContextToggle } from './ProjectContext.tsx';
+import { splitCategory, type QuestionCategory } from '../../../shared/question-category.ts';
+import { onEnter } from '../keys.ts';
 
 const EFFORT_LABEL: Record<string, string> = { auto: msg('Auto'), low: msg('Low'), medium: msg('Medium'), high: msg('High'), xhigh: msg('Extra high'), max: msg('Max') };
 
@@ -36,24 +37,63 @@ function title(o: Output): string {
   }
 }
 
-function OutputCard({ o, depth }: { o: Output; depth: Depth }) {
+/** Colour stripe of a card: what the meeting discussed, a tangent beyond it, background, or the summary. */
+type Stripe = QuestionCategory | 'background' | 'summary';
+const CATEGORY_TAG: Record<QuestionCategory, { label: string; tip: string }> = {
+  meeting: { label: msg('Meeting'), tip: msg('Chumi classified this question as about the meeting discussion') },
+  tangent: { label: msg('Tangent'), tip: msg('Chumi classified this question as going beyond the meeting discussion') },
+};
+
+/** Filter chips above the cards, one per stripe colour. */
+const FILTERS: Array<{ key: Stripe; label: string; tip: string }> = [
+  { key: 'meeting', label: msg('Meeting'), tip: msg('Catch-ups and questions about the meeting discussion') },
+  { key: 'tangent', label: msg('Tangent'), tip: msg('Questions that go beyond the meeting discussion') },
+  { key: 'background', label: msg('Background'), tip: msg('Explanations and automatic background cards') },
+  { key: 'summary', label: msg('Summary'), tip: msg('The final summary') },
+];
+
+function stripeOf(o: Output, category: QuestionCategory | null): Stripe | null {
+  switch (o.kind) {
+    case 'answer': return category;
+    case 'catchup': return 'meeting';
+    case 'explain': case 'auto_explain': return 'background';
+    case 'final_summary': return 'summary';
+    default: return null;
+  }
+}
+
+function OutputCard({ o, depth, open, onToggle }: { o: Output; depth: Depth; open: boolean; onToggle: () => void }) {
   const delta = useStore((s) => s.deltas[o.id]);
-  const [collapsed, setCollapsed] = useState(false);
-  const body = o.status === 'done' ? o.content ?? '' : delta ?? '';
+  const streamed = o.kind === 'answer' && o.status !== 'done' ? splitCategory(delta ?? '', true) : null;
+  const body = o.status === 'done' ? o.content ?? '' : streamed ? streamed.body : delta ?? '';
+  const category: QuestionCategory | null = o.data?.category ?? streamed?.category ?? null;
+  const stripe = stripeOf(o, category);
+  const busy = o.status === 'pending' || o.status === 'streaming';
   const auto = o.kind === 'auto_explain';
   const invalid = (o.data?.refCheck?.invalid as string[] | undefined) ?? [];
   const evidenceT = auto ? (o.covered_from ?? parseT(o.data?.evidence_time ?? '') ?? null) : null;
+  // The meeting time it was asked at (or, for background cards, where the term came up); else the clock time.
+  const at: number | null = typeof o.data?.askedT === 'number' ? o.data.askedT : evidenceT;
   return (
-    <article className={`card card-${o.kind} status-${o.status}`} aria-busy={o.status === 'pending' || o.status === 'streaming'}>
-      <header className="card-head" onClick={() => setCollapsed(!collapsed)}>
-        {auto && <span className="tag">{t('Background')}</span>}
-        {o.kind === 'final_summary' && <span className="tag tag-summary">{t('Summary')}</span>}
-        {o.stale_reason === 'speaker_labels_changed' && <span className="tag tag-warn">{t('Speaker labels changed')}</span>}
-        <span className="card-title">{title(o)}</span>
-        {o.depth && o.kind !== 'catchup' && <span className="tag tag-depth">{t(DEPTH_LABEL[o.depth as Depth] ?? o.depth)}</span>}
-        {o.data?.effort && !['auto_explain', 'overview'].includes(o.kind) && <span className="tag tag-depth" title={t('Reasoning effort used')}>{EFFORT_LABEL[o.data.effort] ? t(EFFORT_LABEL[o.data.effort]) : o.data.effort}</span>}
+    <article className={`card card-${o.kind} status-${o.status}${stripe ? ` stripe-${stripe}` : ''}${open ? ' open' : ''}`} aria-busy={busy}>
+      <header className="card-head" onClick={onToggle}>
+        {at != null
+          ? <button className="card-time range" title={t(auto ? msg('Came up at {t}. Click to show the transcript there.') : msg('Asked at {t} in the meeting. Click to show the transcript there.'), { t: fmtT(at) })} onClick={(e) => { e.stopPropagation(); focusTime(at); }}>{fmtT(at)}</button>
+          : <span className="card-time muted" title={t('Asked at {clock}', { clock: fmtClock(o.created_at) })}>{fmtClock(o.created_at)}</span>}
+        <button className="card-toggle" aria-expanded={open}>
+          <span className="card-chev" aria-hidden="true">▸</span>
+          {category && <span className={`tag tag-${category}`} title={t(CATEGORY_TAG[category].tip)}>{t(CATEGORY_TAG[category].label)}</span>}
+          {auto && <span className="tag">{t('Background')}</span>}
+          {o.kind === 'final_summary' && <span className="tag tag-summary">{t('Summary')}</span>}
+          {o.stale_reason === 'speaker_labels_changed' && <span className="tag tag-warn">{t('Speaker labels changed')}</span>}
+          <span className="card-title">{title(o)}</span>
+        </button>
+        {busy && !open && <span className="spinner" aria-label={t('Thinking…')} />}
+        {o.status === 'error' && !open && <span className="tag tag-warn">{t('Failed')}</span>}
+        {open && o.depth && o.kind !== 'catchup' && <span className="tag tag-depth">{t(DEPTH_LABEL[o.depth as Depth] ?? o.depth)}</span>}
+        {open && o.data?.effort && !['auto_explain', 'overview'].includes(o.kind) && <span className="tag tag-depth" title={t('Reasoning effort used')}>{EFFORT_LABEL[o.data.effort] ? t(EFFORT_LABEL[o.data.effort]) : o.data.effort}</span>}
       </header>
-      {!collapsed && (
+      {open && (
         <>
           <div className="card-meta">
             {o.covered_from != null && o.covered_to != null && !auto && (
@@ -62,8 +102,7 @@ function OutputCard({ o, depth }: { o: Output; depth: Depth }) {
               </button>
             )}
             {o.selection && <button className="range" onClick={() => focusTime(o.selection!.fromT, o.selection!.toT)}>{t('Selection {t}', { t: fmtT(o.selection.fromT) })}</button>}
-            {auto && evidenceT != null && <button className="range" onClick={() => focusTime(evidenceT)}>{t('at {t}', { t: fmtT(evidenceT) })}</button>}
-            <span className="muted">{fmtClock(o.created_at)}</span>
+            {at != null && <span className="muted">{fmtClock(o.created_at)}</span>}
             {Array.isArray(o.data?.images) && o.data!.images.length > 0 && (
               <button className="range" title={t('Screen captures sent with this request')} onClick={() => setState({ dialog: 'frame', frameView: o.data!.images[0].id })}>▣ {plural(o.data!.images.length, '{n} screen capture', '{n} screen captures')}</button>
             )}
@@ -128,7 +167,7 @@ function AskBox() {
       )}
       <textarea id="ask-input" rows={2} placeholder={attached ? t('Ask about the selected passage… (Enter to send)') : t('Ask anything about the discussion… (Enter to send, Shift+Enter for newline)')}
         value={draft} onChange={(e) => setState({ askDraft: e.target.value })}
-        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(draft); } }} />
+        onKeyDown={onEnter(() => send(draft))} />
       <div className="ask-row">
         <div className="ask-options">
           <div className="seg-control small" role="group" aria-label={t('Depth for this question')}>
@@ -156,10 +195,8 @@ function AskBox() {
 
 export function AssistantPanel() {
   const data = useStore((s) => s.data);
-  const live = useStore((s) => s.live);
   const depth = useStore((s) => s.settings?.assist.defaultDepth ?? 'standard');
-  const [scope, setScope] = useState<'2m' | '5m' | 'all'>('2m');
-  const isLive = !!data && live?.session?.id === data.session.id;
+  const hidden = useStore((s) => s.hiddenCards);
   const cards = useMemo(() => {
     if (!data) return [];
     const outs = data.outputs.filter((o) => ['catchup', 'answer', 'explain', 'auto_explain', 'final_summary'].includes(o.kind));
@@ -168,23 +205,39 @@ export function AssistantPanel() {
     const summary = visible.find((o) => o.kind === 'final_summary');
     return summary ? [summary, ...visible.filter((o) => o.id !== summary.id && o.kind !== 'final_summary')] : visible;
   }, [data?.outputs]);
+  // Like an agent chat: the latest card you asked for stays open and earlier ones fold to their title row.
+  // Background cards arrive on their own, so they never take the open slot from your own question.
+  const currentId = useMemo(() => {
+    const asked = cards.filter((o) => o.kind !== 'auto_explain');
+    return (asked.length ? asked.reduce((a, b) => (b.created_at > a.created_at ? b : a)) : cards[0])?.id ?? null;
+  }, [cards]);
+  // Cards opened or closed by hand; forgotten once a newer card becomes the current one.
+  const [manual, setManual] = useState<{ current: string | null; open: Record<string, boolean> }>({ current: null, open: {} });
+  const overrides = manual.current === currentId ? manual.open : {};
+  const isOpen = (id: string) => overrides[id] ?? id === currentId;
   if (!data) return <aside className="assistant"><p className="muted pad">{t('No session open.')}</p></aside>;
-  const ended = data.session.status === 'ended' || data.session.status === 'interrupted';
-  const hasSummary = data.outputs.some((o) => o.kind === 'final_summary' && o.status !== 'error');
+  // The filter never hides the card you just asked for or one still being written, so a new answer cannot vanish.
+  const stripes = new Map(cards.map((o) => [o.id, stripeOf(o, o.data?.category ?? null)]));
+  const counts = new Map<Stripe, number>();
+  for (const k of stripes.values()) if (k) counts.set(k, (counts.get(k) ?? 0) + 1);
+  const shown = cards.filter((o) => o.id === currentId || o.status === 'pending' || o.status === 'streaming' || !hidden.includes(stripes.get(o.id) ?? ''));
+  const toggle = (k: Stripe) => setState({ hiddenCards: hidden.includes(k) ? hidden.filter((x) => x !== k) : [...hidden, k] });
   return (
     <aside className="assistant" aria-label={t('Assistant')}>
-      <div className="catchup-box">
-        <button className="btn catchup" onClick={() => catchup(scope)} disabled={!data.segments.length}>{t('Catch me up')}</button>
-        <div className="seg-control" role="group" aria-label={t('Catch-up scope')}>
-          {([['2m', msg('2 min'), msg('The last 2 minutes')], ['5m', msg('5 min'), msg('The last 5 minutes')], ['all', msg('So far'), msg('The whole session so far')]] as const).map(([k, l, tip]) => <button key={k} className={scope === k ? 'on' : ''} title={t(tip)} onClick={() => setScope(k)}>{t(l)}</button>)}
-        </div>
-      </div>
-      {!isLive && ended && !hasSummary && data.segments.length > 0 && <button className="btn small summary-btn" onClick={() => summarize()}>{t('Generate final summary')}</button>}
-      <HandoffBox />
       <AskBox />
+      {cards.length > 0 && (
+        <div className="card-filter" role="group" aria-label={t('Show cards by tag')}>
+          {FILTERS.filter((f) => counts.has(f.key) || hidden.includes(f.key)).map((f) => (
+            <button key={f.key} className={`filter-chip chip-${f.key}`} aria-pressed={!hidden.includes(f.key)} title={t(f.tip)} onClick={() => toggle(f.key)}>
+              <span className="dot" aria-hidden="true" />{t(f.label)}<span className="count">{counts.get(f.key) ?? 0}</span>
+            </button>
+          ))}
+          {shown.length < cards.length && <button className="link-btn small" onClick={() => setState({ hiddenCards: [] })}>{t('{n} hidden · Show all', { n: cards.length - shown.length })}</button>}
+        </div>
+      )}
       <div className="cards">
         {cards.length === 0 && <p className="muted pad small">{t('Answers, catch-ups and background cards appear here. They stay put while the transcript keeps moving. Use Refresh to update a catch-up.')}</p>}
-        {cards.map((o) => <OutputCard key={o.id} o={o} depth={depth} />)}
+        {shown.map((o) => <OutputCard key={o.id} o={o} depth={depth} open={isOpen(o.id)} onToggle={() => setManual({ current: currentId, open: { ...overrides, [o.id]: !isOpen(o.id) } })} />)}
       </div>
     </aside>
   );

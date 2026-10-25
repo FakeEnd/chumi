@@ -40,12 +40,18 @@ export interface AppState {
   systemLanguage: string;
   /** Speech-model download in progress (Settings → Transcription). */
   asrDownload: { id: string; received: number; total: number; status: string; error?: string } | null;
+  /** Transcript line at the saved recording's playback position. */
+  playingSeg: number | null;
+  /** Card tags (stripe colours) hidden in the assistant column; kept while the app is open. */
+  hiddenCards: string[];
+  /** Catch me up scope, shared by the header and the toolbar copy of the button. */
+  catchupScope: '2m' | '5m' | 'all';
 }
 
 let state: AppState = {
   connected: false, loaded: false, settings: null, profile: null, provider: null, live: null, liveReceivedAt: 0, levels: {}, partials: {},
   devMode: false, helperBuilt: false, platform: '', appMode: false, dataDir: '', samples: [], viewId: null, data: null, deltas: {}, notices: [],
-  dialog: null, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [], sessionsRev: 0,
+  dialog: null, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [], sessionsRev: 0, playingSeg: null, hiddenCards: [], catchupScope: '2m',
 };
 const listeners = new Set<() => void>();
 
@@ -69,12 +75,13 @@ export function dismiss(id: number): void { setState((s) => ({ notices: s.notice
 
 export function upsertOutput(o: Output): void {
   setState((s) => {
-    if (!s.data || s.data.session.id !== o.session_id) return {};
+    // Streamed text is dropped once the answer is saved, also for a session that isn't open.
+    const deltas = { ...s.deltas };
+    if (o.status !== 'streaming' && o.status !== 'pending') delete deltas[o.id];
+    if (!s.data || s.data.session.id !== o.session_id) return { deltas };
     const outs = s.data.outputs.slice();
     const i = outs.findIndex((x) => x.id === o.id);
     if (i >= 0) outs[i] = o; else outs.push(o);
-    const deltas = { ...s.deltas };
-    if (o.status !== 'streaming' && o.status !== 'pending') delete deltas[o.id];
     return { data: { ...s.data, outputs: outs }, deltas };
   });
 }

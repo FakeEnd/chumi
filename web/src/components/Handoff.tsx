@@ -7,6 +7,7 @@ import { msg, plural, t } from '../i18n.ts';
 import { Dialog } from './Dialog.tsx';
 import { focusTime } from './Transcript.tsx';
 import { ProjectSelect } from './Projects.tsx';
+import { onEnter } from '../keys.ts';
 import type { EvidenceRef, Handoff, HandoffItem } from '../types.ts';
 import { AGENT_NAMES, type AgentId } from '../../../shared/agents.ts';
 
@@ -97,11 +98,12 @@ function ItemRow({ item, locked }: { item: HandoffItem; locked: boolean }) {
 function AddItem({ handoff, kind }: { handoff: Handoff; kind: HandoffItem['kind'] }) {
   const [text, setText] = useState('');
   const [open, setOpen] = useState(false);
+  const add = () => { if (!text.trim()) return; void addHandoffItem(handoff.id, kind, text); setText(''); setOpen(false); };
   if (!open) return <button className="link-btn small" onClick={() => setOpen(true)}>+ {t('Add your own')}</button>;
   return (
     <div className="field-row">
-      <input className="grow" autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={t('Describe it in one sentence')} onKeyDown={(e) => { if (e.key === 'Enter' && text.trim()) { void addHandoffItem(handoff.id, kind, text); setText(''); setOpen(false); } }} />
-      <button className="btn small" disabled={!text.trim()} onClick={() => { void addHandoffItem(handoff.id, kind, text); setText(''); setOpen(false); }}>{t('Add')}</button>
+      <input className="grow" autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={t('Describe it in one sentence')} onKeyDown={onEnter(add)} />
+      <button className="btn small" disabled={!text.trim()} onClick={add}>{t('Add')}</button>
     </div>
   );
 }
@@ -118,34 +120,36 @@ function Delivery({ h }: { h: Handoff }) {
   );
 }
 
-export function HandoffBox() {
+/** The handoff as one header button that shows its state; the dialog holds the items, warnings and delivery. */
+export function HandoffButton() {
   const data = useStore((s) => s.data);
   const live = useStore((s) => s.live);
   if (!data || !data.segments.length) return null;
   const h = data.handoff;
   const recording = live?.session?.id === data.session.id && live.status === 'recording';
-  const pending = h?.items.filter((i) => i.review === 'pending').length ?? 0;
-  const actions = h?.items.filter((i) => i.kind === 'action' && i.review === 'confirmed').length ?? 0;
+  if (!h) {
+    return (
+      <button className="btn small primary" disabled={recording} onClick={() => void prepareHandoff(data.session.id)}
+        title={recording ? t('When the meeting ends, turn its decisions and actions into a reviewed handoff for your coding agent.') : t('Turn this meeting\'s decisions and actions into a reviewed handoff for your coding agent.')}>{t('Prepare handoff')}</button>
+    );
+  }
+  if (h.status === 'generating') return <button className="btn small handoff-btn" disabled><span className="spinner" /> {t('Drafting…')}</button>;
+  if (h.status === 'error') return <button className="btn small handoff-btn" title={h.error ?? ''} onClick={() => void prepareHandoff(data.session.id)}><span className="tag tag-warn">{t('Failed')}</span> {t('Try again')}</button>;
+  const confirmed = h.status === 'confirmed';
+  const pending = h.items.filter((i) => i.review === 'pending').length;
+  const actions = h.items.filter((i) => i.kind === 'action' && i.review === 'confirmed').length;
+  const stale = confirmed && h.freshness.stale;
+  const tip = [
+    `${confirmed ? plural(actions, '{n} confirmed action', '{n} confirmed actions') : pending ? plural(pending, '{n} item to review', '{n} items to review') : t('All items reviewed.')}${h.project ? ` · ${h.project.name}` : ''}`,
+    h.project_mismatch ? t('The meeting moved to another project. Review the handoff again before using it.') : '',
+    stale ? `${t('The meeting changed since you confirmed:')} ${changes(h).join(' · ')}` : '',
+  ].filter(Boolean).join('\n');
   return (
-    <div className="handoff-box">
-      <div className="handoff-head">
-        <b>{t('Handoff to your project')}</b>
-        {h && <span className={`tag ${h.status === 'confirmed' ? 'tag-ok' : h.status === 'error' ? 'tag-warn' : ''}`}>{h.status === 'confirmed' ? t('Confirmed') : h.status === 'generating' ? t('Drafting…') : h.status === 'error' ? t('Failed') : t('Draft')}</span>}
-      </div>
-      {!h && <p className="small muted">{recording ? t('When the meeting ends, turn its decisions and actions into a reviewed handoff for your coding agent.') : t('Turn this meeting\'s decisions and actions into a reviewed handoff for your coding agent.')}</p>}
-      {h?.project_mismatch && <p className="small warn-text">{t('The meeting moved to another project. Review the handoff again before using it.')}</p>}
-      {h?.status === 'confirmed' && h.freshness.stale && <p className="small warn-text">{t('The meeting changed since you confirmed:')} {changes(h).join(' · ')}</p>}
-      {h?.status === 'error' && <p className="small error-text">{h.error}</p>}
-      {h && h.status !== 'generating' && h.status !== 'error' && (
-        <p className="small">{h.status === 'confirmed' ? plural(actions, '{n} confirmed action', '{n} confirmed actions') : pending ? plural(pending, '{n} item to review', '{n} items to review') : t('All items reviewed.')}{h.project ? ` · ${h.project.name}` : ''}</p>
-      )}
-      {h && <Delivery h={h} />}
-      <div className="btn-row">
-        {!h && <button className="btn small primary" disabled={recording} onClick={() => void prepareHandoff(data.session.id)}>{t('Prepare handoff')}</button>}
-        {h?.status === 'error' && <button className="btn small" onClick={() => void prepareHandoff(data.session.id)}>{t('Try again')}</button>}
-        {h && h.status !== 'generating' && <button className="btn small" onClick={() => setState({ dialog: 'handoff' })}>{h.status === 'confirmed' ? t('Open handoff') : t('Review')}</button>}
-      </div>
-    </div>
+    <button className="btn small handoff-btn" title={tip} onClick={() => setState({ dialog: 'handoff' })}>
+      {confirmed ? t('Open handoff') : t('Review handoff')}
+      {confirmed ? <span className="tag tag-ok">{t('Confirmed')}</span> : pending > 0 && <span className="tag">{pending}</span>}
+      {(h.project_mismatch || stale) && <span className="tag tag-warn" aria-label={t('Needs review')}>!</span>}
+    </button>
   );
 }
 
@@ -153,6 +157,8 @@ export function HandoffDialog() {
   const data = useStore((s) => s.data);
   const live = useStore((s) => s.live);
   const [busy, setBusy] = useState(false);
+  /** Instructions to copy by hand, when the clipboard refused them. */
+  const [manual, setManual] = useState<string | null>(null);
   // Claude Code and Codex have their own buttons; other installed agents are offered in a menu.
   const [others, setOthers] = useState<Array<{ agent: AgentId; name: string }>>([]);
   useEffect(() => {
@@ -170,7 +176,12 @@ export function HandoffDialog() {
     const r = await continueHandoff(h.id, agent);
     setBusy(false);
     if (!r) return;
-    if (agent === 'copy') { await navigator.clipboard?.writeText(r.prompt).catch(() => {}); notify('info', t('Instructions copied. Paste them into your coding agent in the project folder.')); }
+    if (agent === 'copy') {
+      // WebKit may refuse a clipboard write that comes after a request instead of straight from the click.
+      const copied = await navigator.clipboard?.writeText(r.prompt).then(() => true, () => false);
+      setManual(copied ? null : r.prompt);
+      if (copied) notify('info', t('Instructions copied. Paste them into your coding agent in the project folder.'));
+    }
     else notify('info', t('Opened {agent} in Terminal in the project folder, starting from this handoff.', { agent: AGENT_NAMES[agent] }));
   };
   const footer = (
@@ -225,6 +236,12 @@ export function HandoffDialog() {
         );
       })}
       <Delivery h={h} />
+      {manual && (
+        <label className="field">
+          <span className="warn-text">{t('Chumi could not copy to the clipboard. Select the text below, copy it and paste it into your coding agent in the project folder.')}</span>
+          <textarea readOnly rows={8} value={manual} autoFocus onFocus={(e) => e.currentTarget.select()} />
+        </label>
+      )}
     </Dialog>
   );
 }

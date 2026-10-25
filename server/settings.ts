@@ -1,6 +1,7 @@
 import os from 'node:os';
 import { DEFAULT_SESSION_TYPES, type SessionTypeOption } from '../shared/session-types.ts';
 import { recommendModel } from './asr/models.ts';
+import { QWEN_CLOUD_MODEL, QWEN_CLOUD_REGIONS, QWEN_LOCAL_MODEL, QWEN_LOCAL_URL, type SpeechEngineId } from './asr/engines.ts';
 import { defaultCompatibleSettings, type CompatibleSettings } from '../shared/compatible-provider.ts';
 export type AudioSourceMode = 'mic' | 'system' | 'both';
 export type Depth = 'quick' | 'standard' | 'deep';
@@ -19,10 +20,17 @@ export interface Settings {
     micDeviceUid: string | null;
     /** Echo cancellation on the mic when capturing both sources (avoids duplicate text when using speakers). */
     aec: boolean;
-    /** Off by default: raw audio is only written to disk when the user turns this on. */
+    /** Whether new sessions record audio (on by default; each session can still opt out when it starts). */
     saveRawAudio: boolean;
   };
   asr: {
+    /** 'whisper' runs on this computer. The others send meeting audio to a service (server/asr/engines.ts). */
+    engine: SpeechEngineId;
+    /** Alibaba Cloud Model Studio: its compatible-mode address and model. The key is kept outside settings. */
+    qwenCloud: { baseUrl: string; model: string };
+    /** A Qwen3-ASR server the user runs (qwen-asr-serve or vllm serve). */
+    qwenLocal: { baseUrl: string; model: string };
+    /** The local Whisper model; with another engine it transcribes whatever that engine fails on. */
     model: string;
     /** 'auto' handles English, Mandarin and code-switching; force a language if detection misbehaves. */
     language: 'auto' | 'en' | 'zh';
@@ -81,8 +89,11 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  audio: { source: 'mic', micDeviceUid: null, aec: true, saveRawAudio: false },
+  audio: { source: 'mic', micDeviceUid: null, aec: true, saveRawAudio: true },
   asr: {
+    engine: 'whisper',
+    qwenCloud: { baseUrl: QWEN_CLOUD_REGIONS.singapore, model: QWEN_CLOUD_MODEL },
+    qwenLocal: { baseUrl: QWEN_LOCAL_URL, model: QWEN_LOCAL_MODEL },
     model: recommendModel(), // Large v3 Turbo on Apple Silicon with 16 GB+, smaller models elsewhere
     language: 'auto',
     threads: Math.max(2, Math.min(8, os.cpus().length - 2)), // leave cores for audio, UI and the AI client

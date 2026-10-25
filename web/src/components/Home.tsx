@@ -12,7 +12,7 @@ import { IconArrow, IconBolt, IconBoth, IconMic, IconMonitor, IconShield, IconSp
 
 const LEVELS = [msg('new'), msg('intro'), msg('working'), msg('strong'), msg('expert')];
 const PROVIDER_STATE: Record<string, string> = { checking: msg('checking'), signed_out: msg('not signed in'), quota_blocked: msg('limit reached'), not_installed: msg('not installed'), disabled: msg('disabled'), error: msg('unavailable') };
-const ASR_STATE: Record<string, string> = { starting: msg('loading…'), stopped: msg('idle'), error: msg('restarting…'), missing_model: msg('model not installed'), missing_binary: msg('not installed') };
+const ASR_STATE: Record<string, string> = { starting: msg('loading…'), stopped: msg('idle'), error: msg('restarting…'), missing_model: msg('model not installed'), missing_binary: msg('not installed'), missing_key: msg('API key needed') };
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -21,6 +21,7 @@ function greeting(): string {
 
 export function Home() {
   const settings = useStore((s) => s.settings);
+  const service = !!settings && settings.asr.engine !== 'whisper';
   const profile = useStore((s) => s.profile);
   const provider = useStore((s) => s.provider);
   const asr = useStore((s) => s.live?.asr);
@@ -55,7 +56,7 @@ export function Home() {
           <h1>{greeting()}{getLang() === 'zh' ? '' : '.'}</h1>
           <p>{t('Chumi listens alongside you, keeps track of the discussion, and explains what you need, right when you need it.')}</p>
           <div className="hero-status">
-            <span className={`pill ${asr?.state === 'ready' ? 'ok' : 'muted'}`}><span className="dot" />{t('Speech engine')} {asr?.state === 'ready' ? t('ready (on this computer)') : asr?.state ? t(ASR_STATE[asr.state] ?? asr.state) : '…'}</span>
+            <span className={`pill ${asr?.state === 'ready' ? 'ok' : 'muted'}`}><span className="dot" />{t('Speech engine')} {asr?.state === 'ready' ? service ? t('ready (speech service)') : t('ready (on this computer)') : asr?.state === 'error' && service ? t('service error') : asr?.state ? t(ASR_STATE[asr.state] ?? asr.state) : '…'}</span>
             <span className={`pill ${aiReady ? 'ok' : 'warn'}`} onClick={() => setState({ dialog: 'settings', settingsTab: 'ai' })} role="button" tabIndex={0}><span className="dot" />{provider ? `${providerShort(provider.label)} · ${aiReady ? billingWord(provider.billing) : t(PROVIDER_STATE[provider.state] ?? provider.state)}` : t('AI: checking…')}</span>
             {hotkey?.state === 'ready' && <span className="pill accent"><IconBolt width={13} height={13} />{t('{key} starts listening from any app', { key: hotkey.shortcut })}</span>}
           </div>

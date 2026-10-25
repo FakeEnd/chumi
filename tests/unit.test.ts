@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { FrameParser } from '../server/audio/capture.ts';
 import { Segmenter, type Utterance } from '../server/audio/vad.ts';
 import { encodeWav, SAMPLE_RATE } from '../server/audio/wav.ts';
-import { cleanSegmentText, collapseRepeats, keepSegment, toSimplified } from '../server/asr/clean.ts';
+import { cleanSegmentText, collapseRepeats, keepSegment, mostlyHan, stripPromptEcho, termSentence, toSimplified } from '../server/asr/clean.ts';
 import { checkRefs } from '../server/ai/assistant.ts';
 import { evaluateCodexQuota } from '../server/ai/codex.ts';
 import { parseJsonLoose } from '../server/ai/provider.ts';
@@ -72,6 +72,39 @@ test('whisper text cleaning drops hallucinations and keeps real speech', () => {
   assert.equal(keepSegment({ start: 0, end: 3, text: '', no_speech_prob: 0.0, avg_logprob: -0.2 }, 'Thank you.', 3), true);
   assert.equal(keepSegment({ start: 0, end: 3, text: '', no_speech_prob: 0.0, avg_logprob: -0.3 }, 'We used an MPRA to validate.', 3), true);
   assert.equal(collapseRepeats('the model the model the model the model works'), 'the model works');
+});
+
+test('whisper prompt: glossary is a plain sentence, and an echoed prompt is stripped without touching speech', () => {
+  const terms = ['ATAC-seq', 'ChIP-seq', 'RNA-seq', 'enhancer'];
+  assert.equal(termSentence(terms, false), 'We talked about ATAC-seq, ChIP-seq, RNA-seq and enhancer.');
+  assert.equal(termSentence(terms, true), '我们讨论了ATAC-seq、ChIP-seq、RNA-seq、enhancer。');
+  assert.equal(termSentence([], false), '');
+  assert.ok(mostlyHan('这个ceiling很重要,如果replicate之间的correlation只有0.8'));
+  assert.ok(!mostlyHan('So it might be a batch effect.'));
+
+  const en = { terms, chinese: false, prev: 'So it might be a batch effect.' };
+  const zh = { terms, chinese: true, prev: '今天呢我就先和大家聊聊' };
+  // Old "Glossary:" label (seen on the sherpa-onnx four-speaker sample) and the new term sentence, verbatim or reformatted
+  assert.equal(stripPromptEcho('Glossary: 我没有停下对非凡的追求', zh), '我没有停下对非凡的追求');
+  assert.equal(stripPromptEcho('glossary： 这个就是所有的测试音频', zh), '这个就是所有的测试音频');
+  assert.equal(stripPromptEcho('We talked about ATAC-seq, ChIP-seq, RNA-seq and enhancer. The peaks moved.', en), 'The peaks moved.');
+  assert.equal(stripPromptEcho('we talked about ATAC seq ChIP seq RNA seq and enhancer the peaks moved', en), 'the peaks moved');
+  assert.equal(stripPromptEcho('我們討論了ATAC-seq、ChIP-seq、RNA-seq、enhancer。這個就是所有的測試音頻', zh), '這個就是所有的測試音頻');
+  // The whole prompt (term sentence + previous text) echoed, or nothing but the prompt
+  assert.equal(stripPromptEcho('We talked about ATAC-seq, ChIP-seq, RNA-seq and enhancer. So it might be a batch effect. Next slide.', en), 'Next slide.');
+  assert.equal(stripPromptEcho('We talked about ATAC-seq, ChIP-seq, RNA-seq and enhancer.', en), '');
+
+  // Legitimate speech stays as it is
+  for (const said of [
+    'We talked about ATAC-seq last week, and the peaks moved.',
+    'We talked about ATAC-seq, ChIP-seq and enhancer.',
+    'Let me add that to the glossary: ATAC-seq.',
+    'So it might be a batch effect. Next slide.',
+    'Glossary terms are on the last slide.',
+    '我们讨论了ATAC-seq和ChIP-seq的区别',
+  ]) assert.equal(stripPromptEcho(said, said.startsWith('我') ? zh : en), said);
+  // A sentence of one or two terms is ordinary speech, so it is never treated as an echo
+  assert.equal(stripPromptEcho('We talked about CRISPR. It worked.', { terms: ['CRISPR'], chinese: false, prev: '' }), 'We talked about CRISPR. It worked.');
 });
 
 test('traditional to simplified conversion keeps English terms', () => {

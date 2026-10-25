@@ -14,7 +14,9 @@ config/local.json
 *.log
 .DS_Store
 
-# Xcode user state and signing files
-ios/**/xcuserdata/
-ios/**/*.xcuserstate
+# per-user tool state (Claude Code worktrees and settings, Xcode user data)
+.claude/
+**/xcuserdata/
+*.xcuserstate
+# iOS signing files
 ios/**/*.mobileprovision

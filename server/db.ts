@@ -16,6 +16,8 @@ export interface SessionRow {
   project_id: string | null; project_assigned_at: number | null;
   /** Content revision: bumped by new transcript, frames, finished AI outputs, resumes and reassignment. */
   revision: number;
+  /** 1 = keep this meeting's audio on this computer (chosen when it starts; resuming continues the choice). */
+  record_audio: number;
 }
 export interface ProjectRow {
   id: string; name: string; workspace: string; repo_json: string | null;
@@ -190,6 +192,10 @@ const MIGRATIONS: string[] = [
   );
   ALTER TABLE ai_outputs ADD COLUMN stale_reason TEXT;
   `,
+  // 3 — per-meeting audio recording
+  `
+  ALTER TABLE sessions ADD COLUMN record_audio INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
@@ -309,10 +315,10 @@ export class Store {
   saveProfile(p: Profile): void { this.setKV('profile', p); }
 
   // ---------- sessions ----------
-  createSession(s: { id: string; title: string; type: string; audio_source: string }): SessionRow {
+  createSession(s: { id: string; title: string; type: string; audio_source: string; record_audio?: boolean }): SessionRow {
     const t = now();
-    this.db.prepare('INSERT INTO sessions(id, title, type, status, created_at, started_at, last_activity_at, audio_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(s.id, s.title, s.type, 'recording', t, t, t, s.audio_source);
+    this.db.prepare('INSERT INTO sessions(id, title, type, status, created_at, started_at, last_activity_at, audio_source, record_audio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(s.id, s.title, s.type, 'recording', t, t, t, s.audio_source, s.record_audio ? 1 : 0);
     return this.getSession(s.id)!;
   }
   getSession(id: string): SessionRow | undefined {
@@ -608,9 +614,14 @@ export class Store {
   latestOutput(sessionId: string, kind: string, status = 'done'): OutputRow | undefined {
     return this.db.prepare('SELECT * FROM ai_outputs WHERE session_id = ? AND kind = ? AND status = ? ORDER BY created_at DESC LIMIT 1').get(sessionId, kind, status) as OutputRow | undefined;
   }
-  /** Mark outputs that were in flight when the server stopped, so they don't appear stuck. */
+  /**
+   * Mark outputs that were in flight when the server stopped, so they don't appear stuck. A handoff draft in
+   * progress goes back to review if it already had items (as a failed redraft does), otherwise to error.
+   */
   failStaleOutputs(): void {
     this.db.prepare("UPDATE ai_outputs SET status = 'error', error = 'Interrupted: the app stopped before this finished.' WHERE status IN ('pending', 'streaming')").run();
+    this.db.prepare(`UPDATE handoffs SET status = CASE WHEN EXISTS (SELECT 1 FROM handoff_items WHERE handoff_id = handoffs.id) THEN 'draft' ELSE 'error' END,
+      error = 'Interrupted: the app stopped before the draft finished.', updated_at = ? WHERE status = 'generating'`).run(now());
   }
 
   // ---------- screen captures ----------

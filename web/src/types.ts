@@ -3,13 +3,19 @@ import type { CompatibleSettings } from '../../shared/compatible-provider.ts';
 import type { SpeakerAnnotation, SpeakerView } from '../../shared/speakers.ts';
 import type { AgentId } from '../../shared/agents.ts';
 
+/** server/asr/engines.ts: 'whisper' runs on this computer; the others are speech services. */
+export type SpeechEngineId = 'whisper' | 'elevenlabs' | 'qwen-cloud' | 'qwen-local';
+
 export type Depth = 'quick' | 'standard' | 'deep';
 export type Effort = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type SessionType = string;
 
 export interface Settings {
   audio: { source: 'mic' | 'system' | 'both'; micDeviceUid: string | null; aec: boolean; saveRawAudio: boolean };
-  asr: { model: string; language: 'auto' | 'en' | 'zh'; threads: number; glossary: string[]; chineseScript: 'simplified' | 'original'; diarization: boolean };
+  asr: {
+    engine: SpeechEngineId; qwenCloud: { baseUrl: string; model: string }; qwenLocal: { baseUrl: string; model: string };
+    model: string; language: 'auto' | 'en' | 'zh'; threads: number; glossary: string[]; chineseScript: 'simplified' | 'original'; diarization: boolean;
+  };
   ai: {
     provider: 'codex' | 'claude-cli' | 'anthropic-api' | 'compatible' | 'mock';
     effort: Effort;
@@ -48,6 +54,10 @@ export interface Session {
   created_at: number; started_at: number | null; ended_at: number | null; last_activity_at: number | null;
   audio_source: string | null; duration_ms: number; segment_count?: number; snippet?: string;
   project_id: string | null; revision: number;
+  /** 1 = this meeting's audio is kept on this computer. */
+  record_audio?: number;
+  /** Session lists only: audio of this session is kept. */
+  has_audio?: boolean;
 }
 export interface Segment extends SpeakerAnnotation { id: number; session_id: string; t_start: number; t_end: number; text: string; lang: string | null; source: string | null; run: number }
 export interface TimelineEvent { id: number; session_id: string; t: number; kind: string; wall: number; detail: string | null }
@@ -73,7 +83,7 @@ export interface LiveState {
 export interface Frame { id: number; session_id: string; t: number; width: number | null; height: number | null; kind: string; window_title: string | null; app: string | null; created_at: number }
 export interface WindowInfo { id: number; app: string; bundleId: string; pid: number; title: string; width: number; height: number; onScreen: boolean }
 
-export interface SessionData { session: Session; segments: Segment[]; timeline: TimelineEvent[]; outputs: Output[]; frames: Frame[]; live: boolean; handoff: Handoff | null; speakerView?: SpeakerView }
+export interface SessionData { session: Session; segments: Segment[]; timeline: TimelineEvent[]; outputs: Output[]; frames: Frame[]; live: boolean; handoff: Handoff | null; speakerView?: SpeakerView; hasAudio?: boolean }
 /** Annotations of analysed lines and every output's staleness; clients merge them into what they already have. */
 export interface SpeakerUpdate { sessionId: string; speakerView: SpeakerView; session: Session; handoff: Handoff | null; annotations: Array<SpeakerAnnotation & { id: number }>; stale: Record<string, string | null> }
 

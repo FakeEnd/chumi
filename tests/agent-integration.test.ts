@@ -40,7 +40,7 @@ process.stdin.on('end', async () => {
   const token = prompt?.match(/with token "([^"]+)"/)?.[1];
   if (!token) throw new Error('Missing verification prompt');
   const client = args[0] === 'exec' ? 'codex-mcp-client' : args[0] === 'run' ? 'opencode'
-    : args.includes('--allowed-mcp-server-names') ? 'qwen-cli-mcp-client-chumi' : 'claude-code';
+    : args.includes('--allowed-mcp-server-names') ? 'qwen-cli-mcp-client-chumi' : args.includes('--allowedTools') ? 'claude-code' : 'antigravity-client';
   const plan = client === 'codex-mcp-client' || client === 'claude-code';
   if (plan && process.env.OPENAI_API_KEY) { console.log('an API key reached a plan agent'); return; }
   if (!plan && !process.env.OPENAI_API_KEY) { console.log('the API key of an API-key agent was removed'); return; }
@@ -62,7 +62,7 @@ test('agent read checks close stdin, keep plan agents away from API keys, and ma
   try {
     const integration = new AgentIntegration(store);
     integration.cli = () => fixtureCli('reads-after-eof', true);
-    for (const agent of ['codex', 'claude-code', 'opencode', 'qwen-code'] as const) {
+    for (const agent of ['codex', 'claude-code', 'opencode', 'qwen-code', 'antigravity'] as const) {
       const result = await integration.verify(agent);
       assert.equal(result.ok, true, `${agent}: ${result.detail}`);
       assert.match(result.detail, /read Chumi's data through MCP/);
@@ -120,6 +120,59 @@ test('opencode: connecting edits opencode.json only, keeps other settings, and l
   }
 });
 
+test('Antigravity: connecting registers the server and pre-approves only the check tool; disconnecting removes both', async () => {
+  const store = new Store();
+  const home = join(DATA, 'agy-home');
+  const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  Object.assign(process.env, { HOME: home, USERPROFILE: home });
+  const mcpConfig = join(home, '.gemini', 'config', 'mcp_config.json');
+  const settings = join(home, '.gemini', 'antigravity-cli', 'settings.json');
+  mkdirSync(join(home, '.gemini', 'antigravity-cli'), { recursive: true });
+  writeFileSync(settings, JSON.stringify({ colorScheme: 'dark', permissions: { allow: ['command(git status)'] } }));
+  // Like `agy mcp add` (which replaces an entry) and `agy mcp remove`.
+  const agy = cliFile('agy', `const fs = require('node:fs'), path = require('node:path');
+const file = path.join(require('node:os').homedir(), '.gemini', 'config', 'mcp_config.json');
+const cfg = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { mcpServers: {} };
+const [, sub, ...rest] = process.argv.slice(2);
+if (sub === 'add') {
+  const env = {};
+  while (rest[0] === '-e') { const kv = rest[1]; env[kv.slice(0, kv.indexOf('='))] = kv.slice(kv.indexOf('=') + 1); rest.splice(0, 2); }
+  const name = rest.shift(); if (rest[0] === '--') rest.shift();
+  cfg.mcpServers[name] = { command: rest[0], args: rest.slice(1), disabled: false, ...(Object.keys(env).length ? { env } : {}) };
+} else if (sub === 'remove') {
+  if (!cfg.mcpServers[rest[0]]) { console.error('not found'); process.exit(1); }
+  delete cfg.mcpServers[rest[0]];
+}
+fs.mkdirSync(path.dirname(file), { recursive: true });
+fs.writeFileSync(file, JSON.stringify(cfg));
+`);
+  try {
+    const integration = new AgentIntegration(store);
+    integration.cli = () => agy;
+    assert.equal((await integration.status('antigravity')).registered, false);
+    await integration.connect('antigravity');
+    await integration.connect('antigravity');
+    const entry = JSON.parse(readFileSync(mcpConfig, 'utf8')).mcpServers.chumi;
+    assert.deepEqual(entry.args, [MCP_SCRIPT]);
+    assert.equal(entry.env.CHUMI_DATA_DIR, DATA);
+    const cfg = JSON.parse(readFileSync(settings, 'utf8'));
+    assert.equal(cfg.colorScheme, 'dark', 'other settings stay');
+    assert.deepEqual(cfg.permissions.allow, ['command(git status)', 'mcp(chumi/chumi_connection_check)'], 'only the check tool, added once');
+    const st = await integration.status('antigravity');
+    assert.equal(st.registered, true);
+    assert.equal(st.outdated, false);
+    assert.equal(st.clientHealth, 'unknown');
+    await integration.disconnect('antigravity');
+    assert.equal(JSON.parse(readFileSync(mcpConfig, 'utf8')).mcpServers.chumi, undefined);
+    assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')).permissions.allow, ['command(git status)'], 'the user\'s own rules stay');
+    assert.equal((await integration.status('antigravity')).registered, false);
+  } finally {
+    Object.assign(process.env, saved);
+    for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k];
+    store.close();
+  }
+});
+
 test('JSONC: comments and trailing commas are ignored, comment markers inside strings are kept', () => {
   assert.deepEqual(parseJsonc('// a\n{ "u": "http://x/*y*/", /* b */ "n": [1, 2,], }'), { u: 'http://x/*y*/', n: [1, 2] });
   assert.deepEqual(parseJsonc('{"s": "quote \\" // not a comment"}'), { s: 'quote " // not a comment' });
@@ -169,6 +222,7 @@ test('continuing starts each agent in the project folder with the whole handoff 
     const message = (agent: string) => (WIN ? `Read the file ${join(DATA, 'handoffs', `hnd_test-${agent}.md`)} and follow the instructions in it.` : prompt);
     const expected: Record<string, (ws: string, m: string) => string[]> = {
       'claude-code': (_ws, m) => [m], codex: (ws, m) => ['-C', ws, m], opencode: (ws, m) => [ws, '--prompt', m], 'qwen-code': (_ws, m) => ['-i', m],
+      antigravity: (_ws, m) => ['-i', m],
     };
     for (const [agent, args] of Object.entries(expected)) {
       const script = integration.launchScript(agent as 'codex', 'hnd_test', workspace, prompt);

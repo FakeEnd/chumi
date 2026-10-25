@@ -39,8 +39,8 @@ export function SetupChecklist() {
   const steps: Step[] = [
     {
       id: 'speech', done: asr?.state === 'ready',
-      title: t('Speech recognition on this computer'),
-      detail: asr?.state === 'ready' ? t('Ready. Audio never leaves your computer.')
+      title: settings.asr.engine === 'whisper' ? t('Speech recognition on this computer') : t('Speech recognition'),
+      detail: asr?.state === 'ready' ? settings.asr.engine === 'whisper' ? t('Ready. Audio never leaves your computer.') : t('Ready. A speech service transcribes your meetings.')
         : download?.status === 'downloading' ? t('Downloading speech model: {progress}', { progress: download.total ? `${Math.round(download.received / download.total * 100)}%` : `${Math.round(download.received / 1048576)} MB` })
           : asr?.state === 'missing_model' ? t('Download the speech model once. Meetings are then transcribed locally.') : asr?.message ?? t('The speech model is not ready yet.'),
       action: asr?.state === 'ready' || download?.status === 'downloading' || asr?.state === 'starting' ? undefined

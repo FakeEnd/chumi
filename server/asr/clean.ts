@@ -42,6 +42,48 @@ export function cleanSegmentText(raw: string): string {
   );
 }
 
+/** More Chinese characters than Latin words: a Mandarin sentence with a few English terms still counts. */
+export const mostlyHan = (text: string): boolean => (text.match(/\p{Script=Han}/gu)?.length ?? 0) > (text.match(/[A-Za-z]+/g)?.length ?? 0);
+
+/**
+ * The ASR glossary as an ordinary sentence. Whisper reads its prompt as transcript that came just before the audio,
+ * so a labelled list ("Glossary: …") was sometimes echoed into the output as if it had been said.
+ */
+export function termSentence(terms: string[], chinese: boolean): string {
+  if (!terms.length) return '';
+  if (chinese) return `我们讨论了${terms.join('、')}。`;
+  return `We talked about ${terms.length > 1 ? `${terms.slice(0, -1).join(', ')} and ${terms.at(-1)}` : terms[0]}.`;
+}
+
+/** `text` without a leading copy of `phrase` (ignoring case, spacing, punctuation and Chinese script), or null when it does not start with one. */
+function dropLeading(text: string, phrase: string): string | null {
+  const key = (s: string) => toSimplified(s).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const want = key(phrase);
+  if (!want) return null;
+  let i = 0, k = 0;
+  while (i < text.length && k < want.length) {
+    const ch = String.fromCodePoint(text.codePointAt(i)!);
+    i += ch.length;
+    const n = key(ch);
+    if (!n) continue;
+    if (!want.startsWith(n, k)) return null;
+    k += n.length;
+  }
+  return k === want.length ? text.slice(i).replace(/^[\s.,;:!?…。，、；：！？]+/u, '') : null;
+}
+
+/**
+ * Remove prompt text Whisper repeated as speech: a leading "Glossary:" label (the old prompt format), or the term sentence
+ * together with the previous-text tail that followed it in the prompt. The term sentence only counts when it lists three
+ * or more terms; a short one ("We talked about CRISPR.") is something people actually say.
+ */
+export function stripPromptEcho(text: string, prompt: { terms: string[]; chinese: boolean; prev: string }): string {
+  let t = text.replace(/^\s*glossary\s*[:：]\s*/i, '');
+  const rest = prompt.terms.length >= 3 ? dropLeading(t, termSentence(prompt.terms, prompt.chinese)) : null;
+  if (rest !== null) t = dropLeading(rest, prompt.prev) ?? rest;
+  return t.trim();
+}
+
 /** Decide whether a Whisper segment is likely real speech. */
 export function keepSegment(seg: WhisperSegment, text: string, utteranceSec: number): boolean {
   if (!text || !/[\p{L}\p{N}]/u.test(text)) return false;
