@@ -98,7 +98,7 @@ export function TopBar() {
         <div className="controls">
           {status === 'idle' && data && (
             <>
-              <button className="btn primary" onClick={() => void quickStart()} title={hotkey?.state === 'ready' ? t('Start listening now, or press {key} from any app', { key: hotkey.shortcut }) : t('Start listening now')}>
+              <button className="btn" onClick={() => void quickStart()} title={hotkey?.state === 'ready' ? t('Start listening now, or press {key} from any app', { key: hotkey.shortcut }) : t('Start listening now')}>
                 <IconBolt width={14} height={14} /> {t('Quick start')}{hotkey?.state === 'ready' ? <span className="kbd">{hotkey.shortcut}</span> : null}
               </button>
               <button className="btn" onClick={() => setState({ dialog: 'start' })}>{t('Start session…')}</button>
