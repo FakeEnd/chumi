@@ -9,7 +9,7 @@ set -euo pipefail
 DIR="${CHUMI_DIR:-$HOME/Chumi}"
 REPO="${CHUMI_REPO:-https://github.com/FakeEnd/chumi.git}"
 
-[[ "$(uname -s)" == "Darwin" ]] || { echo "Chumi runs on macOS (Apple Silicon, macOS 14.4 or later)."; exit 1; }
+[[ "$(uname -s)" == "Darwin" ]] || { echo "This installer is for macOS 14.4 or later. For Windows, see https://github.com/FakeEnd/chumi/blob/main/docs/windows.md"; exit 1; }
 if ! xcode-select -p >/dev/null 2>&1; then
   echo "Chumi first needs Apple's Xcode Command Line Tools (they include git). An installer window is opening."
   xcode-select --install >/dev/null 2>&1 || true

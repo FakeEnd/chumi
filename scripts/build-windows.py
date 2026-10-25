@@ -1,5 +1,6 @@
 """Build Windows audio and a self-contained Electron installer. Python is only a developer dependency."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -24,20 +25,36 @@ def run(args, **kwargs):
     subprocess.run(list(map(str, args)), cwd=ROOT, check=True, env=env, **kwargs)
 
 
-def download(url, destination):
-    if destination.exists():
+def sha256_of(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as file:
+        for chunk in iter(lambda: file.read(1 << 20), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def download(url, destination, sha256):
+    """Fetch url into destination once. The file must match the pinned SHA-256, a cached copy included."""
+    if destination.exists() and sha256_of(destination) == sha256:
         return
     destination.parent.mkdir(parents=True, exist_ok=True)
     print('Downloading', destination.name, flush=True)
     part = destination.with_suffix(destination.suffix + '.part')
     urllib.request.urlretrieve(url, part)
+    actual = sha256_of(part)
+    if actual != sha256:
+        part.unlink()
+        raise RuntimeError(f'Checksum mismatch for {url}: expected SHA-256 {sha256}, got {actual}.')
     part.replace(destination)
 
 
 def build_audio():
     vendor = BUILD / 'vendor'
-    download('https://raw.githubusercontent.com/nlohmann/json/v3.12.0/single_include/nlohmann/json.hpp', vendor / 'json.hpp')
-    download('https://raw.githubusercontent.com/nlohmann/json/v3.12.0/LICENSE.MIT', vendor / 'json-LICENSE.txt')
+    # SHA-256s recorded from the v3.12.0 tag on 2026-10-24.
+    download('https://raw.githubusercontent.com/nlohmann/json/v3.12.0/single_include/nlohmann/json.hpp', vendor / 'json.hpp',
+             'aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63')
+    download('https://raw.githubusercontent.com/nlohmann/json/v3.12.0/LICENSE.MIT', vendor / 'json-LICENSE.txt',
+             '46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603')
     source = ROOT / 'native' / 'windows' / 'audio' / 'main.cpp'
     output = ROOT / 'build' / 'chumi-audio.exe'
     if output.exists() and output.stat().st_mtime >= max(source.stat().st_mtime, (vendor / 'json.hpp').stat().st_mtime):
@@ -77,7 +94,9 @@ def stage_backend(node):
     tools = BUILD / 'vendor' / 'codex'
     if not (tools / 'vendor').exists():
         archive = BUILD / 'vendor' / f'codex-win32-x64-{codex_version}.tgz'
-        download(f'https://registry.npmjs.org/@openai/codex/-/codex-{codex_version}-win32-x64.tgz', archive)
+        # Matches the npm registry's sha512 integrity for this version. A new codex_version needs new pins here and for the LICENSE.
+        download(f'https://registry.npmjs.org/@openai/codex/-/codex-{codex_version}-win32-x64.tgz', archive,
+                 'd2086b19328f0d0666bc75c3de32910bd2f2fad13ed4f5c306b385900ed9cf0d')
         tools.mkdir(exist_ok=True)
         with tarfile.open(archive, 'r:gz') as bundle:
             bundle.extractall(tools, filter='data')
@@ -85,7 +104,8 @@ def stage_backend(node):
     for file in (tools / 'vendor').rglob('*.exe'):
         shutil.copy2(file, runtime / file.name)
     (runtime / 'Codex-NOTICE.txt').write_text(f'OpenAI Codex CLI {codex_version}\nhttps://github.com/openai/codex\nApache License 2.0\n', encoding='utf-8')
-    download('https://raw.githubusercontent.com/openai/codex/rust-v0.125.0/LICENSE', runtime / 'Codex-LICENSE.txt')
+    download('https://raw.githubusercontent.com/openai/codex/rust-v0.125.0/LICENSE', runtime / 'Codex-LICENSE.txt',
+             'd17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc')
     whisper = backend / 'build' / 'whisper'
     whisper.mkdir(parents=True, exist_ok=True)
     source = ROOT / 'build' / 'whisper'

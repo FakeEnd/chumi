@@ -27,7 +27,9 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
         config.userContentController.add(WeakScriptHandler(self), name: "chumiShell")
         webView.uiDelegate = self
         webView.navigationDelegate = self
-        webView.isInspectable = true
+        #if CHUMI_DEV
+        webView.isInspectable = true  // dev builds only: CHUMI_DEV=1 bash native/build.sh
+        #endif
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsMagnification = true
         webView.customUserAgent = nil
@@ -63,9 +65,16 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
 
     private var window: NSWindow? { webView.window }
 
-    private func isLocal(_ url: URL) -> Bool {
-        guard let host = url.host?.lowercased() else { return url.scheme == "about" || url.scheme == "blob" || url.scheme == "data" }
-        return host == "127.0.0.1" || host == "localhost" || host == "::1" || host == "[::1]"
+    /// Chumi's own server (127.0.0.1 or localhost on its port), or an about:/blob:/data: document the page made.
+    private func isAppURL(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return ["about", "blob", "data"].contains(url.scheme?.lowercased() ?? "") }
+        return url.scheme?.lowercased() == "http" && (host == "127.0.0.1" || host == "localhost") && url.port == baseURL.port
+    }
+
+    /// Only web and mail links leave the app, as in the Windows shell. Other schemes (file:, app URL schemes…) are dropped.
+    private func openExternally(_ url: URL) {
+        guard let scheme = url.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     // MARK: - Navigation policy
@@ -76,20 +85,12 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
             decisionHandler(.download)
             return
         }
-        if let url = navigationAction.request.url, let scheme = url.scheme?.lowercased() {
-            // mailto:, tel:, etc. and links to other sites open outside the app.
-            if ["mailto", "tel", "facetime", "zoommtg", "msteams"].contains(scheme) {
-                NSWorkspace.shared.open(url)
-                decisionHandler(.cancel)
-                return
-            }
-            if (scheme == "http" || scheme == "https") && !isLocal(url)
-                && navigationAction.navigationType == .linkActivated
-                && (navigationAction.targetFrame?.isMainFrame ?? true) {
-                NSWorkspace.shared.open(url)
-                decisionHandler(.cancel)
-                return
-            }
+        // The window only ever shows Chumi itself: any other main-frame navigation is cancelled, and web or mail
+        // links open outside the app. New windows (no target frame) go through createWebViewWith.
+        if let url = navigationAction.request.url, navigationAction.targetFrame?.isMainFrame == true, !isAppURL(url) {
+            openExternally(url)
+            decisionHandler(.cancel)
+            return
         }
         decisionHandler(.allow)
     }
@@ -143,10 +144,8 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
             webView.startDownload(using: navigationAction.request) { [weak self] download in
                 download.delegate = self
             }
-        case "about", nil:
-            break
         default:
-            NSWorkspace.shared.open(url)
+            openExternally(url)
         }
         return nil
     }

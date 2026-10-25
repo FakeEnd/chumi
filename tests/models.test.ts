@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,7 +10,7 @@ import type { AddressInfo } from 'node:net';
 // A local server stands in for Hugging Face, so tests never download real models.
 const payload = Buffer.alloc(300_000, 7);
 const server = createServer((req, res) => {
-  if (req.url?.endsWith('/ggml-tiny-q5_1.bin')) { res.writeHead(200, { 'content-length': payload.length }); res.end(payload); return; }
+  if (req.url?.endsWith('/ggml-tiny-q5_1.bin') || req.url?.endsWith('/ggml-medium-q5_0.bin')) { res.writeHead(200, { 'content-length': payload.length }); res.end(payload); return; }
   if (req.url?.endsWith('/ggml-base-q5_1.bin')) { // stalls after half, so it can be cancelled
     res.writeHead(200, { 'content-length': payload.length }); res.write(payload.subarray(0, 150_000)); return;
   }
@@ -20,6 +21,8 @@ const modelsDir = mkdtempSync(join(tmpdir(), 'chumi-models-'));
 process.env.CHUMI_MODEL_BASE_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}/m`;
 process.env.CHUMI_MODELS_DIR = modelsDir;
 const { MODEL_CATALOG, ModelDownloader, recommendModel, textAccuracy } = await import('../server/asr/models.ts');
+// The stand-in tiny model is the payload; every other model keeps its real checksum, which the payload fails.
+MODEL_CATALOG.find((m) => m.id === 'ggml-tiny-q5_1.bin')!.sha256 = createHash('sha256').update(payload).digest('hex');
 
 test.after(() => server.close());
 
@@ -31,6 +34,7 @@ test('recommends a model that fits the hardware', () => {
   assert.equal(recommendModel({ chip: 'Intel Core i9-12900H', appleSilicon: false, memoryGB: 48, cores: 20, gpu: { name: 'NVIDIA GeForce RTX 3060 Laptop GPU', memoryGB: 6 } }), 'ggml-large-v3-turbo-q8_0.bin');
   assert.equal(recommendModel({ chip: 'Intel Core i5', appleSilicon: false, memoryGB: 16, cores: 4, gpu: { name: 'NVIDIA GeForce MX150', memoryGB: 2 } }), 'ggml-small-q5_1.bin');
   for (const m of MODEL_CATALOG) assert.ok(m.note.en && m.note.zh, `${m.id} needs notes in both languages`);
+  for (const m of MODEL_CATALOG) assert.match(m.sha256, /^[0-9a-f]{64}$/, `${m.id} needs a SHA-256`);
 });
 
 test('text accuracy ignores case, spacing and punctuation', () => {
@@ -57,6 +61,14 @@ test('a failed download leaves nothing behind', async () => {
   assert.equal(d.current?.status, 'error');
   assert.match(d.current?.error ?? '', /404/);
   assert.ok(!existsSync(join(modelsDir, 'ggml-small-q5_1.bin')) && !existsSync(join(modelsDir, 'ggml-small-q5_1.bin.part')));
+});
+
+test('a download that does not match its checksum is discarded', async () => {
+  const d = new ModelDownloader();
+  await d.start('ggml-medium-q5_0.bin'); // complete, but not the published file
+  assert.equal(d.current?.status, 'error');
+  assert.match(d.current?.error ?? '', /SHA-256/);
+  assert.ok(!existsSync(join(modelsDir, 'ggml-medium-q5_0.bin')) && !existsSync(join(modelsDir, 'ggml-medium-q5_0.bin.part')));
 });
 
 test('cancelling stops the download and removes the partial file', async () => {
