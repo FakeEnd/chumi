@@ -16,10 +16,18 @@ interface Run {
   input: AudioInput;
   offsetMs: number;            // session-time of the input clock's zero
   segmenters: Map<SourceName, Segmenter>;
+  /** Restarts since the input last ran for STABLE_RUN_MS; the pending restart, if one is scheduled. */
   restarts: number;
+  startedAt: number;
+  restartTimer: NodeJS.Timeout | null;
   /** Timed audio: the session's recording (retained) or a temporary copy for speaker analysis. */
   recorder: SpeakerRecorder | null;
 }
+
+/** A capture helper that keeps failing is restarted with backoff, then the session is paused instead of silently not recording. */
+const RESTART_LIMIT = 3;
+const RESTART_BASE_MS = 1500;
+const STABLE_RUN_MS = 60_000;
 
 export interface StartOptions { title: string; type: SessionType; source: AudioSourceMode | 'file'; filePath?: string; speed?: number; window?: { id: number; title?: string; app?: string } | null; projectId?: string | null; recordAudio?: boolean }
 
@@ -143,7 +151,7 @@ export class SessionManager {
     this.source = o.source;
     this.fileOpts = o.source === 'file' && o.filePath ? { path: o.filePath, speed: o.speed ?? 1, posSec: 0 } : null;
     this.warnings = []; this.partials.clear(); this.droppedDuplicates = 0;
-    this.transcriber.reset();
+    this.transcriber.reset(id);
     this.store.addTimeline(id, 0, 'start', o.source);
     try {
       await this.beginRun(0);
@@ -170,7 +178,7 @@ export class SessionManager {
       input = new HelperCapture({ source: this.source, micDeviceUid: s.audio.micDeviceUid, aec: s.audio.aec });
     }
     const retain = !!this.session?.record_audio;
-    const run: Run = { index: ++this.runCount, input, offsetMs, segmenters: new Map(), restarts: 0,
+    const run: Run = { index: ++this.runCount, input, offsetMs, segmenters: new Map(), restarts: 0, startedAt: now(), restartTimer: null,
       recorder: (retain || s.asr.diarization) && this.session ? new SpeakerRecorder(this.session.id, retain) : null };
     const seg = (src: SourceName): Segmenter => {
       let sg = run.segmenters.get(src);
@@ -216,6 +224,25 @@ export class SessionManager {
       else if (ev.type === 'ready') { this.broadcast('capture', ev); if (Array.isArray(ev.pending) && ev.pending.length) this.notice('warning', 'system_permission_pending', `Waiting for macOS permission for: ${ev.pending.join(', ')}. Look for a permission dialog and allow it.`); }
       else if (ev.type === 'source_started') this.notice('info', 'source_started', `${ev.source === 'system' ? 'Computer audio' : 'Microphone'} capture started.`);
     });
+    const captureFailed = (reason: string) => {
+      // A helper that exits while restarting also rejects its start(): one failure, one restart.
+      if (this.run !== run || this.status !== 'recording' || run.restartTimer) return;
+      const t = this.nowT();
+      if (now() - run.startedAt >= STABLE_RUN_MS) run.restarts = 0; // It had been running fine: not a crash loop.
+      const giveUp = run.restarts >= RESTART_LIMIT;
+      if (this.session) this.store.addTimeline(this.session.id, t, 'gap', `Audio capture stopped: ${reason}${giveUp ? `. It failed ${RESTART_LIMIT + 1} times in a row, so the session was paused.` : ''}`);
+      if (giveUp) { void this.captureGaveUp(reason); return; }
+      this.notice('error', 'capture_stopped', `Audio capture stopped unexpectedly (${reason}). Trying to restart…`);
+      run.restartTimer = setTimeout(() => {
+        run.restartTimer = null;
+        if (this.run !== run || this.status !== 'recording') return;
+        for (const sg of run.segmenters.values()) sg.flush();
+        run.segmenters.clear();
+        run.offsetMs = this.nowT(); // A restarted helper starts its input clock at zero again.
+        run.startedAt = now();
+        void run.input.start().catch((e) => captureFailed(`restart failed: ${(e as Error).message}`));
+      }, RESTART_BASE_MS * 2 ** run.restarts++);
+    };
     input.on('exit', (_code, reason) => {
       if (this.run !== run) return;
       if (input instanceof FileCapture && reason === 'file finished') {
@@ -223,18 +250,7 @@ export class SessionManager {
         this.fileOpts && (this.fileOpts.posSec = input.positionSec);
         return;
       }
-      if (this.status === 'recording' && reason !== 'stopped') {
-        const t = this.nowT();
-        this.notice('error', 'capture_stopped', `Audio capture stopped unexpectedly (${reason}). Trying to restart…`);
-        if (this.session) this.store.addTimeline(this.session.id, t, 'gap', `Audio capture stopped: ${reason}`);
-        if (run.restarts++ < 3) setTimeout(() => {
-          if (this.run !== run || this.status !== 'recording') return;
-          for (const sg of run.segmenters.values()) sg.flush();
-          run.segmenters.clear();
-          run.offsetMs = this.nowT(); // A restarted helper starts its input clock at zero again.
-          void run.input.start().catch((e) => this.notice('error', 'capture_restart_failed', (e as Error).message));
-        }, 1500);
-      }
+      if (reason !== 'stopped') captureFailed(reason);
     });
     this.run = run;
     try { await input.start(); }
@@ -264,9 +280,17 @@ export class SessionManager {
     return this.screen.snapshot();
   }
 
+  /** Restarting did not help: keep everything captured so far and pause, so the session no longer claims to be recording. */
+  private async captureGaveUp(reason: string): Promise<void> {
+    this.notice('error', 'capture_gave_up', `Audio capture keeps stopping (${reason}), so the session is paused. Everything captured so far is saved. Check the audio device, then resume.`);
+    try { await this.pause(); }
+    catch (e) { log('session', `could not pause after capture failed: ${(e as Error).message}`); }
+  }
+
   private async endRun(): Promise<void> {
     const run = this.run;
     if (!run) return;
+    if (run.restartTimer) { clearTimeout(run.restartTimer); run.restartTimer = null; }
     if (run.input instanceof FileCapture && this.fileOpts) this.fileOpts.posSec = run.input.positionSec;
     await run.input.stop();
     for (const sg of run.segmenters.values()) sg.flush();
@@ -333,7 +357,7 @@ export class SessionManager {
     try {
       await this.beforeResume?.(sessionId);
       await this.speech.ensure();
-      this.fileOpts = file ? { path: file.path, speed: file.speed, posSec: 0 } : null; this.warnings = []; this.transcriber.reset();
+      this.fileOpts = file ? { path: file.path, speed: file.speed, posSec: 0 } : null; this.warnings = []; this.transcriber.reset(s.id);
       const lastT = Math.max(s.duration_ms, this.store.lastSegment(s.id)?.t_end ?? 0);
       const offset = Math.max(now() - (s.started_at ?? s.created_at), lastT + 1000);
       this.store.addTimeline(s.id, lastT, 'gap', `Not recorded from ${fmtT(lastT)} to ${fmtT(offset)} (${s.status === 'interrupted' ? 'app restarted' : 'session resumed'}).`);
@@ -394,10 +418,10 @@ export class SessionManager {
 
   // ------------------------------------------------------------------ transcript commit + duplicate suppression
   private onFinal(pieces: FinalPiece[]): void {
-    if (!this.session) return;
     for (const p of pieces) {
       const t0 = Math.round(p.startSec * 1000);
       const t1 = Math.round(p.endSec * 1000);
+      if (p.session !== this.session?.id) { this.commitLate(p, t0, t1); continue; }
       if (this.source === 'both' && p.source === 'mic') {
         // Hold mic text briefly so it can be compared with computer audio covering the same moment.
         this.pendingMic.push({ piece: p, due: now() + 4000, t0, t1 });
@@ -421,11 +445,26 @@ export class SessionManager {
   }
 
   private commit(p: FinalPiece, t0: number, t1: number): void {
-    if (!this.session) return;
+    if (!this.session || p.session !== this.session.id) { this.commitLate(p, t0, t1); return; }
     const row: SegmentRow = this.store.addSegment({ session_id: this.session.id, t_start: t0, t_end: Math.max(t1, t0 + 200), text: p.text, lang: p.lang, source: p.source, run: this.run?.index ?? 0 });
     this.store.touchSession(this.session.id, t1);
     this.broadcast('segment', row);
     this.assistant.onActivity(this.session.id, 'segment');
+  }
+
+  /**
+   * Text that arrived after its session ended (transcription outlasted the wait in end()), possibly while another
+   * session records: it goes into the session it was captured in, never the current one.
+   */
+  private commitLate(p: FinalPiece, t0: number, t1: number): void {
+    const owner = p.session ? this.store.getSession(p.session) : undefined;
+    if (!owner) { log('session', 'dropped transcript that arrived after its session was deleted'); return; }
+    if (owner.audio_source === 'both' && p.source === 'mic'
+      && this.store.segments(owner.id, t0 - 3000, t1 + 3000).some((s) => s.source === 'system' && similarity(s.text, p.text) > 0.45)) { this.droppedDuplicates++; return; }
+    const row = this.store.addSegment({ session_id: owner.id, t_start: t0, t_end: Math.max(t1, t0 + 200), text: p.text, lang: p.lang, source: p.source, run: this.store.lastSegment(owner.id)?.run ?? 0 });
+    this.store.touchSession(owner.id, t1);
+    this.broadcast('segment', row);
+    log('session', `saved transcript that arrived late for ${owner.id} at ${fmtT(t0)}`);
   }
 }
 

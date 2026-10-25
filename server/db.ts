@@ -614,9 +614,14 @@ export class Store {
   latestOutput(sessionId: string, kind: string, status = 'done'): OutputRow | undefined {
     return this.db.prepare('SELECT * FROM ai_outputs WHERE session_id = ? AND kind = ? AND status = ? ORDER BY created_at DESC LIMIT 1').get(sessionId, kind, status) as OutputRow | undefined;
   }
-  /** Mark outputs that were in flight when the server stopped, so they don't appear stuck. */
+  /**
+   * Mark outputs that were in flight when the server stopped, so they don't appear stuck. A handoff draft in
+   * progress goes back to review if it already had items (as a failed redraft does), otherwise to error.
+   */
   failStaleOutputs(): void {
     this.db.prepare("UPDATE ai_outputs SET status = 'error', error = 'Interrupted: the app stopped before this finished.' WHERE status IN ('pending', 'streaming')").run();
+    this.db.prepare(`UPDATE handoffs SET status = CASE WHEN EXISTS (SELECT 1 FROM handoff_items WHERE handoff_id = handoffs.id) THEN 'draft' ELSE 'error' END,
+      error = 'Interrupted: the app stopped before the draft finished.', updated_at = ? WHERE status = 'generating'`).run(now());
   }
 
   // ---------- screen captures ----------

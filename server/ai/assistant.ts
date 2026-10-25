@@ -66,9 +66,10 @@ export class Assistant {
   private registry: ProviderRegistry;
   private broadcast: Broadcast;
   private queue = new AsyncQueue(2);
-  private controllers = new Map<string, AbortController>();
+  private controllers = new Map<string, { controller: AbortController; sessionId: string }>();
   private autoEpoch = 0;
   private autoInflight: AbortController | null = null;
+  private autoInflightSession: string | null = null;
   private autoCheck = new Map<string, { wall: number; t: number }>();
   private autoCardWalls: number[] = [];
   private overviewInflight = new Set<string>();
@@ -133,13 +134,14 @@ export class Assistant {
     });
     this.broadcast('ai', publicOutput(row));
     const controller = new AbortController();
-    this.controllers.set(id, controller);
+    this.controllers.set(id, { controller, sessionId: o.sessionId });
     this.queue.push(async () => {
-      if (controller.signal.aborted) return;
       let pendingDelta = '';
       let flushTimer: NodeJS.Timeout | null = null;
       const flush = () => { if (pendingDelta) { this.broadcast('ai-delta', { id, delta: pendingDelta }); pendingDelta = ''; } flushTimer = null; };
       try {
+        // Cancelled while queued: still settle below, so callers waiting on it (overview, handoff) are released.
+        if (controller.signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
         this.update(id, { status: 'streaming' });
         const built = await o.build(controller.signal);
         let text: string;
@@ -162,8 +164,8 @@ export class Assistant {
           provider: meta.provider, model: meta.model, billing: meta.billing, completed_at: Date.now(),
         });
         this.backoffUntil = 0;
-        o.after?.(this.store.getOutput(id)!);
-        this.onOutputDone(this.store.getOutput(id)!);
+        const done = this.store.getOutput(id);
+        if (done) { o.after?.(done); this.onOutputDone(done); } // Gone if the meeting was deleted meanwhile.
       } catch (e) {
         if (flushTimer) clearTimeout(flushTimer);
         const err = e as ProviderError;
@@ -189,10 +191,18 @@ export class Assistant {
   cancel(id: string): boolean {
     const c = this.controllers.get(id);
     if (!c) return false;
-    c.abort();
+    c.controller.abort();
     const row = this.store.getOutput(id);
     if (row && row.status === 'pending') this.update(id, { status: 'cancelled', error: 'Cancelled.' });
     return true;
+  }
+
+  /** The meeting is being deleted: stop its queued and running work and forget its scheduling state. */
+  cancelSession(sessionId: string): void {
+    for (const c of this.controllers.values()) if (c.sessionId === sessionId) c.controller.abort();
+    if (this.autoInflight && this.autoInflightSession === sessionId) { this.autoInflight.abort(); this.autoInflight = null; }
+    this.autoCheck.delete(sessionId);
+    this.lastOverviewWall.delete(sessionId);
   }
 
   private complete(req: CompletionRequest) { return this.registry.complete(req); }
@@ -478,6 +488,7 @@ export class Assistant {
     const epoch = this.autoEpoch;
     const controller = new AbortController();
     this.autoInflight = controller;
+    this.autoInflightSession = sessionId;
     this.stats.autoRequests++;
     const maxCards = Math.max(1, Math.min(2, freq.maxPer10 - this.autoCardWalls.length));
     this.queue.push(async () => {
