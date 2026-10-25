@@ -151,7 +151,7 @@ export class SessionManager {
     this.source = o.source;
     this.fileOpts = o.source === 'file' && o.filePath ? { path: o.filePath, speed: o.speed ?? 1, posSec: 0 } : null;
     this.warnings = []; this.partials.clear(); this.droppedDuplicates = 0;
-    this.transcriber.reset();
+    this.transcriber.reset(id);
     this.store.addTimeline(id, 0, 'start', o.source);
     try {
       await this.beginRun(0);
@@ -357,7 +357,7 @@ export class SessionManager {
     try {
       await this.beforeResume?.(sessionId);
       await this.speech.ensure();
-      this.fileOpts = file ? { path: file.path, speed: file.speed, posSec: 0 } : null; this.warnings = []; this.transcriber.reset();
+      this.fileOpts = file ? { path: file.path, speed: file.speed, posSec: 0 } : null; this.warnings = []; this.transcriber.reset(s.id);
       const lastT = Math.max(s.duration_ms, this.store.lastSegment(s.id)?.t_end ?? 0);
       const offset = Math.max(now() - (s.started_at ?? s.created_at), lastT + 1000);
       this.store.addTimeline(s.id, lastT, 'gap', `Not recorded from ${fmtT(lastT)} to ${fmtT(offset)} (${s.status === 'interrupted' ? 'app restarted' : 'session resumed'}).`);
@@ -418,10 +418,10 @@ export class SessionManager {
 
   // ------------------------------------------------------------------ transcript commit + duplicate suppression
   private onFinal(pieces: FinalPiece[]): void {
-    if (!this.session) return;
     for (const p of pieces) {
       const t0 = Math.round(p.startSec * 1000);
       const t1 = Math.round(p.endSec * 1000);
+      if (p.session !== this.session?.id) { this.commitLate(p, t0, t1); continue; }
       if (this.source === 'both' && p.source === 'mic') {
         // Hold mic text briefly so it can be compared with computer audio covering the same moment.
         this.pendingMic.push({ piece: p, due: now() + 4000, t0, t1 });
@@ -445,11 +445,26 @@ export class SessionManager {
   }
 
   private commit(p: FinalPiece, t0: number, t1: number): void {
-    if (!this.session) return;
+    if (!this.session || p.session !== this.session.id) { this.commitLate(p, t0, t1); return; }
     const row: SegmentRow = this.store.addSegment({ session_id: this.session.id, t_start: t0, t_end: Math.max(t1, t0 + 200), text: p.text, lang: p.lang, source: p.source, run: this.run?.index ?? 0 });
     this.store.touchSession(this.session.id, t1);
     this.broadcast('segment', row);
     this.assistant.onActivity(this.session.id, 'segment');
+  }
+
+  /**
+   * Text that arrived after its session ended (transcription outlasted the wait in end()), possibly while another
+   * session records: it goes into the session it was captured in, never the current one.
+   */
+  private commitLate(p: FinalPiece, t0: number, t1: number): void {
+    const owner = p.session ? this.store.getSession(p.session) : undefined;
+    if (!owner) { log('session', 'dropped transcript that arrived after its session was deleted'); return; }
+    if (owner.audio_source === 'both' && p.source === 'mic'
+      && this.store.segments(owner.id, t0 - 3000, t1 + 3000).some((s) => s.source === 'system' && similarity(s.text, p.text) > 0.45)) { this.droppedDuplicates++; return; }
+    const row = this.store.addSegment({ session_id: owner.id, t_start: t0, t_end: Math.max(t1, t0 + 200), text: p.text, lang: p.lang, source: p.source, run: this.store.lastSegment(owner.id)?.run ?? 0 });
+    this.store.touchSession(owner.id, t1);
+    this.broadcast('segment', row);
+    log('session', `saved transcript that arrived late for ${owner.id} at ${fmtT(t0)}`);
   }
 }
 

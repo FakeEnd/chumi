@@ -5,9 +5,10 @@ import type { Utterance } from '../audio/vad.ts';
 import type { SourceName } from '../audio/capture.ts';
 import { log } from '../util.ts';
 
-export interface FinalPiece { source: SourceName; uttId: number; startSec: number; endSec: number; text: string; lang: string | null }
+/** `session`: the session the audio was captured in, which may have ended (or been followed by another) by the time the text arrives. */
+export interface FinalPiece { session: string | null; source: SourceName; uttId: number; startSec: number; endSec: number; text: string; lang: string | null }
 
-interface Job { kind: 'final' | 'partial'; source: SourceName; utt: Utterance; enqueued: number; depth?: number; retried?: boolean }
+interface Job { kind: 'final' | 'partial'; session: string | null; source: SourceName; utt: Utterance; enqueued: number; depth?: number; retried?: boolean }
 
 /**
  * Schedules speech requests: finals in order (never dropped), partials only when idle and only the newest per source,
@@ -26,6 +27,7 @@ export class Transcriber extends EventEmitter<{
   private busy = false;
   private finalizedUtts = new Map<SourceName, number>(); // highest utterance id already finalized per source
   private lastText = new Map<SourceName, string>();
+  private session: string | null = null;
   stopped = false;
   backlogSec = 0;
 
@@ -35,7 +37,7 @@ export class Transcriber extends EventEmitter<{
 
   pushProgress(source: SourceName, utt: Utterance): void {
     if (this.stopped || !this.speech.partials) return;
-    this.partials.set(source, { kind: 'partial', source, utt, enqueued: Date.now() });
+    this.partials.set(source, { kind: 'partial', session: this.session, source, utt, enqueued: Date.now() });
     this.pump();
   }
 
@@ -43,14 +45,18 @@ export class Transcriber extends EventEmitter<{
     if (this.stopped) return;
     const p = this.partials.get(source);
     if (p && p.utt.id <= utt.id) this.partials.delete(source);
-    this.finals.push({ kind: 'final', source, utt, enqueued: Date.now() });
+    this.finals.push({ kind: 'final', session: this.session, source, utt, enqueued: Date.now() });
     this.backlogSec = this.finals.reduce((s, j) => s + (j.utt.endSec - j.utt.startSec), 0);
     this.pump();
   }
 
-  /** New session: forget per-source context so nothing leaks between sessions. */
-  reset(): void {
+  /**
+   * New session: forget per-source context so nothing leaks between sessions. A request still in flight
+   * finishes for the session it was captured in: its text is tagged with that session and changes nothing here.
+   */
+  reset(session: string | null = null): void {
     this.finals = []; this.partials.clear(); this.lastText.clear(); this.backlogSec = 0; this.stopped = false;
+    this.session = session;
   }
 
   get pendingFinals(): number { return this.finals.length + (this.busy ? 1 : 0); }
@@ -119,6 +125,7 @@ export class Transcriber extends EventEmitter<{
   private async run(job: Job): Promise<void> {
     const { language, glossary } = this.cfg();
     const durSec = job.utt.samples.length / 16000;
+    const current = () => job.session === this.session;
     try {
       const prompt = this.prompt(job.source);
       const res = await this.speech.transcribe(job.utt.samples, { language, prompt: prompt.text, glossary, timeoutMs: job.kind === 'final' ? 90000 : 20000 });
@@ -126,14 +133,14 @@ export class Transcriber extends EventEmitter<{
       const fix = (t: string) => (lang === 'zh' && this.cfg().chineseScript === 'simplified' ? toSimplified(t) : t);
       // Every engine's text is checked: a service that fails hands the same prompt to local Whisper, and Qwen3-ASR reads it too.
       const clean = (t: string) => stripPromptEcho(cleanSegmentText(t), prompt);
-      if (job.kind === 'final' && (job.depth ?? 0) < 2 && durSec > 4 && Transcriber.isMixed(res.langProbs)) {
+      if (job.kind === 'final' && current() && (job.depth ?? 0) < 2 && durSec > 4 && Transcriber.isMixed(res.langProbs)) {
         // Mixed English/Mandarin detection: transcribe each half separately instead of letting Whisper translate one language into the other.
         const [a, b] = Transcriber.split(job.utt);
         this.finals.unshift({ ...job, utt: a, depth: (job.depth ?? 0) + 1 }, { ...job, utt: b, depth: (job.depth ?? 0) + 1 });
         return;
       }
       if (job.kind === 'partial') {
-        if ((this.finalizedUtts.get(job.source) ?? 0) >= job.utt.id) return; // final already arrived
+        if (!current() || (this.finalizedUtts.get(job.source) ?? 0) >= job.utt.id) return; // final already arrived, or another session's
         const text = fix(res.segments.map((s) => clean(s.text)).filter((t, i) => keepSegment(res.segments[i], t, durSec)).join(' ').trim());
         if (text) this.emit('partial', job.source, job.utt.id, job.utt.startSec, text);
         return;
@@ -153,8 +160,9 @@ export class Transcriber extends EventEmitter<{
         if (last && (continuesWord || (!sentenceDone && last.text.length + text.length < 260))) {
           last.text = `${last.text}${lang === 'zh' || continuesWord ? '' : ' '}${text}`.trim();
           last.endSec = endSec;
-        } else pieces.push({ source: job.source, uttId: job.utt.id, startSec, endSec, text, lang });
+        } else pieces.push({ session: job.session, source: job.source, uttId: job.utt.id, startSec, endSec, text, lang });
       }
+      if (!current()) { if (pieces.length) this.emit('final', pieces); return; }
       this.emit('partialClear', job.source, job.utt.id);
       if (pieces.length) {
         this.lastText.set(job.source, pieces.map((p) => p.text).join(' '));
@@ -163,7 +171,8 @@ export class Transcriber extends EventEmitter<{
     } catch (e) {
       const msg = (e as Error).message;
       log('asr', `${job.kind} transcription failed: ${msg}`);
-      if (job.kind === 'final') {
+      // Another session is being transcribed now: don't report into it or hold its queue up with a retry.
+      if (job.kind === 'final' && current()) {
         this.emit('error', `Transcription failed for ${durSec.toFixed(1)} s of audio: ${msg}`);
         // Retry once after the engine restarts; audio is kept in memory until then.
         if (!job.retried) {
