@@ -171,17 +171,20 @@ async function readJson(req: IncomingMessage): Promise<Record<string, any>> {
 }
 
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2' };
+// The interface shows AI answers and transcript text as HTML (escaped in web/src/util.ts). Should markup ever get through,
+// the page still runs only its own scripts, loads nothing from other hosts and can't be framed by another site.
+const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 function serveStatic(res: ServerResponse, pathname: string): void {
   if (!existsSync(WEB_DIST)) {
-    send(res, 200, '<!doctype html><meta charset="utf-8"><title>Chumi</title><body style="font-family:system-ui;padding:40px"><h2>Chumi server is running</h2><p>The web interface has not been built yet. Run <code>npm run build:web</code>, then reload.</p></body>', { 'content-type': 'text/html; charset=utf-8' });
+    send(res, 200, '<!doctype html><meta charset="utf-8"><title>Chumi</title><body style="font-family:system-ui;padding:40px"><h2>Chumi server is running</h2><p>The web interface has not been built yet. Run <code>npm run build:web</code>, then reload.</p></body>', { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': CSP });
     return;
   }
   const rel = normalize(decodeURIComponent(pathname)).replace(/^([/\\])+/, '');
   let file = resolve(WEB_DIST, rel);
   if (!file.startsWith(WEB_DIST) || !existsSync(file) || statSync(file).isDirectory()) file = join(WEB_DIST, 'index.html');
   const ext = extname(file);
-  res.writeHead(200, { 'content-type': MIME[ext] ?? 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-store' : 'public, max-age=31536000, immutable' });
+  res.writeHead(200, { 'content-type': MIME[ext] ?? 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-store' : 'public, max-age=31536000, immutable', ...(ext === '.html' ? { 'content-security-policy': CSP } : {}) });
   res.end(readFileSync(file));
 }
 
