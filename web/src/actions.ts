@@ -1,6 +1,7 @@
 import { api, subscribe } from './api.ts';
 import { getState, notify, setState, upsertOutput, type AppState } from './store.ts';
 import { projectContextOn } from './projectContext.ts';
+import { saveCompact } from './compactMode.ts';
 import { t } from './i18n.ts';
 import type { SpeakerAnnotation, SpeakerCorrection, SpeakerView } from '../../shared/speakers.ts';
 import type { AgentId } from '../../shared/agents.ts';
@@ -132,6 +133,8 @@ export async function deleteSession(id: string): Promise<boolean> {
 }
 /** Every session list (Home, History) reloads when this changes. */
 export const bumpSessions = () => setState((s) => ({ sessionsRev: s.sessionsRev + 1 }));
+/** Compact view on or off (the session view only: the home page always shows the header). */
+export function setCompact(on: boolean): void { saveCompact(on); setState({ compact: on }); }
 export function exportUrl(id: string, format: 'md' | 'txt'): string { return `/api/sessions/${id}/export?format=${format}`; }
 /** Encoding a long recording takes a few seconds: prepare it first (with errors shown), then download it. */
 export async function exportAudio(id: string): Promise<void> {

@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
-import { useStore } from './store.ts';
-import { connectEvents } from './actions.ts';
-import { SessionToolbar, TopBar } from './components/TopBar.tsx';
+import { getState, useStore } from './store.ts';
+import { connectEvents, setCompact } from './actions.ts';
+import { isCompactShortcut } from './compactMode.ts';
+import { CompactBar, SessionToolbar, TopBar } from './components/TopBar.tsx';
 import { Home } from './components/Home.tsx';
 import { Transcript } from './components/Transcript.tsx';
 import { Overview } from './components/Overview.tsx';
@@ -22,17 +23,27 @@ export function App() {
   const data = useStore((s) => s.data);
   const pref = useStore((s) => s.settings?.ui?.language);
   const system = useStore((s) => s.systemLanguage);
+  const compact = useStore((s) => s.compact) && !!data;
   const lang = resolveLang(pref, system);
   setLang(lang); // before children render; the key below re-renders everything when it changes
   useEffect(() => connectEvents(), []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isCompactShortcut(e) || !getState().data) return;
+      e.preventDefault();
+      setCompact(!getState().compact);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   if (!loaded) return <div className="boot">{t('Connecting to Chumi…')}</div>;
   return (
-    <div className="app" key={lang}>
-      <TopBar />
+    <div className={`app ${compact ? 'compact' : ''}`} key={lang}>
+      {compact ? <CompactBar /> : <TopBar />}
       <Notices />
       {data ? (
         <>
-          <SessionToolbar />
+          {!compact && <SessionToolbar />}
           <SessionColumns
             left={
               <section className="left">

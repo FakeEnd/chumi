@@ -179,6 +179,7 @@ flowchart LR
 - 线下讨论用麦克风；Zoom、Teams 或录播课程用电脑声音（戴耳机也可以）；混合会议两者同时开，自带回声消除和重复内容过滤。
 - 支持英文、普通话以及中英混杂。可添加术语和人名提示来提高识别准确率。
 - 暂停与继续、全局快速开始快捷键、音量指示，以及清晰的权限设置引导。
+- 简洁模式（`⌘⇧.`，Windows 上为 `Ctrl+Shift+.`）隐藏顶栏和工具栏，只留下概览、转写和助手。
 - 可选的会后说话人标注（`npm run setup:speakers`）：在本地把声音分为 A/B/C，由你命名和纠正。见 [docs/speaker-diarization.md](docs/speaker-diarization.md)。
 
 **理解**

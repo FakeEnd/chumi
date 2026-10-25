@@ -1193,4 +1193,7 @@ export const ZH: Record<string, string> = {
   "Play from {t}": "从 {t} 开始播放",
   "Resize columns": "调整两栏宽度",
   "Drag to resize · double-click to reset": "拖动调整宽度 · 双击恢复默认",
+  "Compact view": "简洁模式",
+  "Compact view: only the transcript and the assistant ({key})": "简洁模式：只显示转写和助手（{key}）",
+  "Exit compact view ({key})": "退出简洁模式（{key}）",
 };

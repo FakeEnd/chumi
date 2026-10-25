@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { setState, useStore } from '../store.ts';
-import { assignProject, catchup, endSession, openSession, pauseSession, quickStart, renameSession, resumeLive, saveProfile, saveSettings, summarize } from '../actions.ts';
+import { assignProject, catchup, endSession, openSession, pauseSession, quickStart, renameSession, resumeLive, saveProfile, saveSettings, setCompact, summarize } from '../actions.ts';
 import { ProjectSelect } from './Projects.tsx';
 import { SessionTypeSelect } from './SessionTypes.tsx';
 import { fmtDate, fmtT, sourceLabel } from '../util.ts';
 import { locale, msg, t } from '../i18n.ts';
 import type { Depth } from '../types.ts';
-import { IconBolt, IconClock, IconGear, IconSpark, IconUser, IconWave, IconWindow } from './icons.tsx';
+import { IconBolt, IconClock, IconCompact, IconExpand, IconGear, IconSpark, IconUser, IconWave, IconWindow } from './icons.tsx';
 import { AudioPlayer } from './AudioPlayer.tsx';
 import { HandoffButton } from './Handoff.tsx';
+import { compactShortcutLabel, inMacShell } from '../compactMode.ts';
 
 export const DEPTH_LABEL: Record<Depth, string> = { quick: msg('Quick'), standard: msg('Standard'), deep: msg('Deep') };
 
@@ -33,6 +34,10 @@ function Clock() {
   const speed = live.file?.speed ?? 1;
   const ms = live.status === 'recording' ? live.nowT + (Date.now() - at) * speed : live.nowT;
   return <span className="clock">{fmtT(ms)}</span>;
+}
+
+function RecPill({ recording }: { recording: boolean }) {
+  return <span className={`status-pill ${recording ? 'rec' : 'paused'}`}>{recording ? <span className="live-dot" /> : '❚❚'} {recording ? 'REC' : t('Paused')} <Clock /></span>;
 }
 
 const BILLING: Record<string, string> = { subscription: msg('subscription'), api: msg('paid API'), credits: msg('credits'), none: msg('no cost') };
@@ -108,7 +113,7 @@ export function TopBar() {
           {status === 'ending' && <span className="status-pill">{t('Saving…')}</span>}
           {(recording || status === 'paused') && (
             <>
-              <span className={`status-pill ${recording ? 'rec' : 'paused'}`}>{recording ? <span className="live-dot" /> : '❚❚'} {recording ? 'REC' : t('Paused')} <Clock /></span>
+              <RecPill recording={recording} />
               {recording ? <button className="btn" onClick={() => pauseSession()}>{t('Pause')}</button> : <button className="btn" onClick={() => resumeLive()}>{t('Resume')}</button>}
               <button className="btn danger" onClick={() => { if (confirm(t('End this session? The transcript is saved and the final summary will be generated.'))) void endSession(); }}>{t('End')}</button>
               {!viewingLive && <button className="btn link" onClick={() => activeSession && void openSession(activeSession.id)}>{t('Back to live')}</button>}
@@ -128,6 +133,22 @@ export function TopBar() {
           </nav>
         </div>
       </div>
+    </header>
+  );
+}
+
+/** Compact view's only chrome: the way back. In Chumi.app a slim top bar stays, because it is also the window's title bar
+ *  (window buttons, dragging), and shows whether a session is recording. In a browser the button floats in a corner. */
+export function CompactBar() {
+  const status = useStore((s) => s.live?.status);
+  const platform = useStore((s) => s.platform);
+  const label = t('Exit compact view ({key})', { key: compactShortcutLabel(platform) });
+  const exit = (floating: boolean) => <button className={`icon-btn compact-exit ${floating ? 'floating' : ''}`} onClick={() => setCompact(false)} title={label} aria-label={label}><IconExpand /></button>;
+  if (!inMacShell()) return exit(true);
+  return (
+    <header className="topbar compact">
+      {(status === 'recording' || status === 'paused') && <RecPill recording={status === 'recording'} />}
+      {exit(false)}
     </header>
   );
 }
@@ -156,6 +177,7 @@ export function SessionToolbar() {
   const data = useStore((s) => s.data);
   const settings = useStore((s) => s.settings);
   const profile = useStore((s) => s.profile);
+  const platform = useStore((s) => s.platform);
   if (!data || !settings) return null;
   const status = live?.status ?? 'idle';
   const isLive = live?.session?.id === data.session.id && (status === 'recording' || status === 'paused');
@@ -205,6 +227,8 @@ export function SessionToolbar() {
             ))}
           </div>
         )}
+        <span className="toolbar-sep" aria-hidden="true" />
+        <button className="icon-btn compact-enter" onClick={() => setCompact(true)} title={t('Compact view: only the transcript and the assistant ({key})', { key: compactShortcutLabel(platform) })} aria-label={t('Compact view')}><IconCompact /></button>
       </div>
     </div>
   );

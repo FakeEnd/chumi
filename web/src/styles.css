@@ -557,6 +557,15 @@ html[data-shell="mac"] .topbar { padding-left: var(--traffic-inset, 86px); min-h
 html[data-shell="mac"][data-fullscreen="1"] .topbar { padding-left: 16px; }
 html[data-shell="mac"] .topbar .title-input { -webkit-user-select: text; user-select: text; }
 
+/* Compact view (⌘⇧.): the session view keeps only its columns. Chumi.app keeps a slim top bar as the title bar;
+   a browser gets a small exit button in the bottom-left corner. */
+.toolbar .icon-btn, .topbar.compact .icon-btn { width: var(--control-h-sm); height: var(--control-h-sm); }
+.app.compact .main { padding-top: 12px; }
+html[data-shell="mac"] .topbar.compact { min-height: 30px; padding-top: 0; padding-bottom: 0; justify-content: flex-end; gap: 8px; }
+html[data-shell="mac"] .app.compact .main { padding-top: 8px; }
+.compact-exit.floating { position: fixed; left: 4px; bottom: 4px; z-index: 30; width: 24px; height: 24px; padding: 0; background: var(--panel); box-shadow: var(--shadow-1); opacity: .55; }
+.compact-exit.floating:hover, .compact-exit.floating:focus-visible { opacity: 1; }
+
 /* Projects (Settings) */
 .project-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; max-width: 640px; }
 .project-form > .btn { align-self: flex-start; }

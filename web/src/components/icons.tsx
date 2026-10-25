@@ -23,3 +23,5 @@ export const IconTerminal = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><r
 export const IconPlay = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M7 4.5v15l12-7.5z" fill="currentColor" /></svg>;
 export const IconPause = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M8 5v14M16 5v14" strokeWidth={3} /></svg>;
 export const IconLink = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></svg>;
+export const IconCompact = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5" /></svg>;
+export const IconExpand = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>;
