@@ -17,20 +17,11 @@
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
-<p align="center">
-  <!-- 封面放在播放器外：GitHub 会移除视频的 poster 属性和内部的备用内容。 -->
-  <a href="https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc"><img src="docs/assets/chumi-promo-zh-poster.jpg" width="760" alt="观看 59 秒 Chumi 介绍视频：NLP 组会中帮我跟上和按你的水平解释、从某一行回放录音、审核过的交接、Claude Code 通过 Chumi 的 MCP 服务接着干，以及下一个问题引用 agent 之前的会话"></a>
-</p>
-<p align="center"><sub>▶ <a href="https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc">观看 59 秒介绍视频（有背景音乐）</a> · <a href="README.md">English version</a> · 播放器空白或卡住？<a href="docs/assets/chumi-promo-zh.mp4?raw=1">下载 MP4</a> · 快剪版下载：<a href="docs/assets/chumi-promo-zh-1.5x.mp4?raw=1">40 秒</a>、<a href="docs/assets/chumi-promo-zh-2x.mp4?raw=1">30 秒</a></sub></p>
-
-<details>
-<summary>在 GitHub 页面内播放</summary>
-
 <!-- 附件地址单独成行，GitHub 才能生成原生播放器。 -->
 
 https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc
 
-</details>
+<p align="center"><sub>▶ 59 秒介绍视频（有背景音乐）· <a href="README.md">English version</a> · 播放器空白或卡住？<a href="docs/assets/chumi-promo-zh.mp4?raw=1">下载 MP4</a> · 快剪版下载：<a href="docs/assets/chumi-promo-zh-1.5x.mp4?raw=1">40 秒</a>、<a href="docs/assets/chumi-promo-zh-2x.mp4?raw=1">30 秒</a></sub></p>
 
 ---
 
