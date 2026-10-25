@@ -124,6 +124,7 @@ curl -fsSL https://raw.githubusercontent.com/FakeEnd/chumi/main/scripts/install.
 - **检查安装：** `npm run doctor` 会给出缺失部分的修复命令。
 - **在浏览器中使用：** 运行 `npm start`，然后打开 http://127.0.0.1:4777。
 - **Windows（桌面预览版）：** 安装包自带麦克风和电脑声音采集、本地语音识别和 Codex，已在 Windows 11 上通过真实的端到端验证。见 [docs/windows.md](docs/windows.md)。
+- **iPhone（开发原型）：** [`ios/`](ios/README.zh-CN.md) 里的原生 SwiftUI 工程支持手机录音、本地 Apple Speech 转写，以及配对 Mac 后的会议问答。需要完整 Xcode，尚未完成 iOS 编译和真机验证。见 [iPhone 开发指南](ios/README.zh-CN.md)。
 
 ## 选择 AI
 

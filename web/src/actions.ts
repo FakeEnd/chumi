@@ -111,6 +111,7 @@ export function connectEvents(): () => void {
     asr: (a) => setState((s) => ({ live: s.live ? { ...s.live, asr: { ...s.live.asr, state: a.state, message: a.message } } : s.live })),
     'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); bumpSessions(); notify('info', t('Session saved. Preparing the final summary…'), 'ended'); },
     'session-updated': (sess) => setState((s) => ({ sessionsRev: s.sessionsRev + 1, ...(s.data && s.data.session.id === sess.id ? { data: { ...s.data, session: sess } } : {}) })),
+    'mobile-sync': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); bumpSessions(); },
     'session-deleted': (e: { id: string }) => setState((s) => ({ sessionsRev: s.sessionsRev + 1, ...(s.viewId === e.id ? { viewId: null, data: null } : {}) })),
     handoff: (e: { sessionId: string; handoff: Handoff | null }) => setHandoff(e.sessionId, e.handoff),
     speakers: (e: SpeakerUpdate) => mergeSpeakerUpdate(e),

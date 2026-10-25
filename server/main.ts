@@ -39,12 +39,18 @@ import { SpeakerService } from './speakers/service.ts';
 import { speakerRuntime } from './speakers/runtime.ts';
 import { discardSpeakerAudio, hasRecordedAudio, speakerAudioAvailable } from './speakers/audio.ts';
 import type { SpeakerCorrection } from '../shared/speakers.ts';
+import { loadMobileConfiguration } from './mobile-config.ts';
+import { startMobileServer } from './mobile/server.ts';
 import { DESKTOP } from './desktop.ts';
 
 ensureDirs();
 const PORT = Number(process.env.PORT || 4777);
 const HOST = '127.0.0.1';
 const DEV = !!process.env.CHUMI_DEV;
+// The existing desktop listener stays loopback-only. Mobile access is a separate opt-in TLS gateway.
+const mobileConfig = process.env.CHUMI_MOBILE === '1'
+  ? loadMobileConfiguration(join(DATA_DIR, 'mobile', 'companion.json')) : null;
+let mobileServer: Awaited<ReturnType<typeof startMobileServer>> | null = null;
 
 const store = new Store();
 store.failStaleOutputs();
@@ -372,6 +378,7 @@ route('GET', '/api/frames/:id', (_req, res, p) => {
   return undefined;
 });
 route('POST', '/api/sessions/:id/resume', async (req, _res, p) => {
+  if (store.getSession(p.id)?.audio_source === 'mobile') throw new HttpError(409, 'Continue this recording on its iPhone.');
   const b = await readJson(req);
   if (b.source === 'file') {
     devOnly();
@@ -843,6 +850,20 @@ server.listen(PORT, HOST, () => {
   void speech.ensure().catch((e) => log('asr', `not ready: ${(e as Error).message}`));
   void registry.status(true).catch(() => {});
 });
+
+if (mobileConfig) {
+  void startMobileServer({
+    store, assistant, host: mobileConfig.host, port: mobileConfig.port, token: mobileConfig.token, tls: mobileConfig.tls,
+    onSessionChanged: (id) => { syncMybot(id); broadcast('mobile-sync', { sessionId: id }); },
+  }).then((started) => {
+    mobileServer = started;
+    if (shuttingDown) { void started.close(); return; }
+    log('mobile', `iPhone companion enabled at ${mobileConfig.url} (pairing required)`);
+  }).catch((error) => {
+    log('mobile', `Could not enable iPhone companion: ${(error as Error).message}`);
+    broadcast('notice', { level: 'error', code: 'mobile_start_failed', message: 'The iPhone companion could not start. See the server log.' });
+  });
+}
 setInterval(() => { void registry.status(true).catch(() => {}); }, 90_000).unref();
 
 let shuttingDown = false;
@@ -853,6 +874,7 @@ async function shutdown(sig: string): Promise<void> {
   // Keep everything captured so far; the session is marked "interrupted" and can be resumed (with a gap marker).
   try { await Promise.race([manager.suspendForShutdown().catch(() => {}), new Promise((r) => setTimeout(r, 6000))]); } catch { /* ignore */ }
   await speakers.shutdown();
+  await mobileServer?.close();
   server.close();
   hotkey.stop();
   await Promise.race([Promise.all([whisper.stop(), registry.shutdown(), localModelDownloader.shutdown()]), new Promise((r) => setTimeout(r, 3000))]);

@@ -94,6 +94,8 @@ export class SessionManager {
   /** Mark sessions left open by a crash/quit as interrupted, with a recorded gap marker; keep the audio captured so far. */
   recoverOnBoot(): void {
     for (const s of this.store.openSessions()) {
+      // The iPhone owns these recordings. Restarting the Mac says nothing about its capture state.
+      if (s.audio_source === 'mobile') continue;
       try { if (recoverOpenTakes(s.id)) log('session', `recovered the audio of ${s.id}`); }
       catch (e) { log('session', `could not recover the audio of ${s.id}: ${(e as Error).message}`); }
       const lastT = Math.max(this.store.lastSegment(s.id)?.t_end ?? 0, s.duration_ms, (s.last_activity_at ?? s.started_at ?? s.created_at) - (s.started_at ?? s.created_at));
@@ -350,6 +352,7 @@ export class SessionManager {
     if (this.status !== 'idle') throw new Error('Another session is active.');
     const s = this.store.getSession(sessionId);
     if (!s) throw new Error('Session not found');
+    if (s.audio_source === 'mobile') throw new Error('Continue this recording on its iPhone.');
     this.invalidateDeferredSummary(sessionId);
     // Reserve the session before cancelling a worker or starting ASR; Quick Start/delete cannot race it.
     this.status = 'starting'; this.session = s; this.source = source; this.emitState();
