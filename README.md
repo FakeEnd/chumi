@@ -17,20 +17,11 @@
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
-<p align="center">
-  <!-- Keep the poster outside the player: GitHub removes poster attributes and nested fallback content from videos. -->
-  <a href="https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d"><img src="docs/assets/chumi-promo-poster.jpg" width="760" alt="Watch the 59-second Chumi video: a catch-up and an explanation during an NLP lab meeting, playing the recording back from a line, a reviewed handoff, Claude Code picking up the work through Chumi's MCP server, and the next question answered from the agent's earlier session"></a>
-</p>
-<p align="center"><sub>▶ <a href="https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d">Watch the 59-second tour, with music</a> · <a href="README.zh-CN.md">中文版</a> · player blank or stuck? <a href="docs/assets/chumi-promo.mp4?raw=1">Download the MP4</a> · faster cuts to download: <a href="docs/assets/chumi-promo-1.5x.mp4?raw=1">40 s</a>, <a href="docs/assets/chumi-promo-2x.mp4?raw=1">30 s</a></sub></p>
-
-<details>
-<summary>Play here on GitHub</summary>
-
 <!-- Keep this attachment URL on its own line so GitHub generates its native player. -->
 
 https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d
 
-</details>
+<p align="center"><sub>▶ The 59-second tour, with music · <a href="README.zh-CN.md">中文版</a> · player blank or stuck? <a href="docs/assets/chumi-promo.mp4?raw=1">Download the MP4</a> · faster cuts to download: <a href="docs/assets/chumi-promo-1.5x.mp4?raw=1">40 s</a>, <a href="docs/assets/chumi-promo-2x.mp4?raw=1">30 s</a></sub></p>
 
 ---
 
