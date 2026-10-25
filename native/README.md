@@ -141,7 +141,8 @@ macOS attributes privacy permissions to the *responsible* process:
 
 ## Chumi.app
 
-* Finds node: `/opt/homebrew/bin/node`, `/usr/local/bin/node`, then `zsh -lc 'command -v node'`.
+* Finds Node 24 or later: `/opt/homebrew/bin/node`, `/usr/local/bin/node`, then `zsh -lc 'command -v node'`. Older
+  versions are skipped (`node --version`).
 * If `http://127.0.0.1:4777/api/health` returns JSON with `"app":"chumi"`, it connects to that server
   and does not stop it on quit.
 * Otherwise it picks the first free port in 4777–4790 and runs `node <repo>/server/main.ts` with

@@ -56,28 +56,43 @@ final class ServerManager: @unchecked Sendable {
         Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/chumi-audio").path
     }
 
+    /// The server needs Node 24 or later (package.json "engines"; scripts/setup.sh checks the same).
+    static let minimumNodeMajor = 24
+
+    /// Homebrew's node, then the login shell's. Versions older than `minimumNodeMajor` are skipped.
     static func findNode() -> String? {
         let fm = FileManager.default
-        for candidate in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] where fm.isExecutableFile(atPath: candidate) {
+        for candidate in ["/opt/homebrew/bin/node", "/usr/local/bin/node"]
+        where fm.isExecutableFile(atPath: candidate) && isRecentNode(candidate) {
             return candidate
         }
         // Ask a login shell (picks up nvm/fnm/asdf PATH setup in ~/.zprofile / ~/.zshrc).
+        guard let out = output(of: "/bin/zsh", ["-lc", "command -v node"], timeout: 8) else { return nil }
+        let path = out.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.last { $0.hasPrefix("/") } ?? ""
+        return fm.isExecutableFile(atPath: path) && isRecentNode(path) ? path : nil
+    }
+
+    /// `node --version` prints e.g. "v24.1.0".
+    static func isRecentNode(_ path: String) -> Bool {
+        guard let version = output(of: path, ["--version"], timeout: 5)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              version.hasPrefix("v"), let major = Int(version.dropFirst().prefix { $0.isNumber }) else { return false }
+        return major >= minimumNodeMajor
+    }
+
+    /// Runs a program and returns its stdout, or nil if it cannot start or runs past the timeout.
+    static func output(of executable: String, _ arguments: [String], timeout: TimeInterval) -> String? {
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = ["-lc", "command -v node"]
+        p.executableURL = URL(fileURLWithPath: executable)
+        p.arguments = arguments
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
         p.standardInput = FileHandle.nullDevice
         do { try p.run() } catch { return nil }
-        let deadline = Date().addingTimeInterval(8)
+        let deadline = Date().addingTimeInterval(timeout)
         while p.isRunning && Date() < deadline { usleep(50_000) }
         if p.isRunning { p.terminate(); return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        let path = String(decoding: data, as: UTF8.self)
-            .split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
-            .last { $0.hasPrefix("/") } ?? ""
-        return fm.isExecutableFile(atPath: path) ? path : nil
+        return String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     }
 
     // MARK: - Health / ports
@@ -185,7 +200,7 @@ final class ServerManager: @unchecked Sendable {
         }
 
         guard let node = ServerManager.findNode() else {
-            return .failed("Node.js was not found (looked in /opt/homebrew/bin, /usr/local/bin and your login shell PATH).\n\nInstall Node.js (e.g. `brew install node`) and reopen Chumi.")
+            return .failed("Chumi needs Node.js \(ServerManager.minimumNodeMajor) or later and did not find it (looked in /opt/homebrew/bin, /usr/local/bin and your login shell PATH; older versions are skipped).\n\nInstall a current Node.js (e.g. `brew install node`) and reopen Chumi.")
         }
         guard let chosen = (ServerManager.defaultPort...ServerManager.lastPort).first(where: { !ServerManager.portBusy($0) }) else {
             return .failed("No free port between \(ServerManager.defaultPort) and \(ServerManager.lastPort) on 127.0.0.1.")
