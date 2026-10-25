@@ -6,6 +6,7 @@ import { SessionTypeSelect } from './SessionTypes.tsx';
 import { typeLabel } from '../util.ts';
 import { locale, t, tn } from '../i18n.ts';
 import { Dialog } from './Dialog.tsx';
+import { onEnter } from '../keys.ts';
 import { WindowPicker } from './WindowPicker.tsx';
 import { ProjectSelect } from './Projects.tsx';
 import type { WindowInfo } from '../types.ts';
@@ -26,14 +27,16 @@ export function StartDialog() {
   const [win, setWin] = useState<WindowInfo | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [record, setRecord] = useState(settings?.audio.saveRawAudio ?? false);
+  const blocked = busy || (source !== 'file' && !helperBuilt) || (capture && !win);
   const go = async () => {
+    if (blocked) return;
     setBusy(true);
     await startSession({ title: title || `${typeLabel(type)} ${new Date().toLocaleDateString(locale())}`, type, source, ...(source === 'file' ? { filePath: file, speed } : {}), window: capture && win ? { id: win.id, title: win.title, app: win.app } : null, project_id: projectId, record_audio: record });
     setBusy(false);
   };
   return (
-    <Dialog title={t('Start a session')} footer={<><span className="spacer" /><button className="btn primary" disabled={busy || (source !== 'file' && !helperBuilt) || (capture && !win)} onClick={go}>{busy ? t('Starting…') : t('Start listening')}</button></>}>
-      <label className="field"><span>{t('Title')}</span><input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('e.g. Lab meeting: enhancer model')} onKeyDown={(e) => e.key === 'Enter' && go()} /></label>
+    <Dialog title={t('Start a session')} footer={<><span className="spacer" /><button className="btn primary" disabled={blocked} onClick={go}>{busy ? t('Starting…') : t('Start listening')}</button></>}>
+      <label className="field"><span>{t('Title')}</span><input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('e.g. Lab meeting: enhancer model')} onKeyDown={onEnter(go)} /></label>
       <label className="field"><span>{t('Session type')}</span>
         <SessionTypeSelect value={type} onChange={setType} />
       </label>

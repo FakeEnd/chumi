@@ -12,15 +12,20 @@ export async function loadState(): Promise<void> {
     loaded: true, settings: s.settings, profile: s.profile, provider: s.provider, live: s.live, liveReceivedAt: Date.now(), partials: s.live?.partials ?? {},
     devMode: s.devMode, helperBuilt: s.helperBuilt, platform: s.platform ?? '', screenToolBuilt: s.screenToolBuilt, hotkey: s.hotkey ?? null, appMode: s.appMode, dataDir: s.dataDir, samples: s.samples ?? [], systemLanguage: s.systemLanguage ?? '',
   });
-  // Deep links (?session=<id>&dialog=settings&tab=ai) open a view directly; used for scripted screenshots too.
-  const q = new URLSearchParams(location.search);
   void loadProjects();
+  // Reconnected (laptop sleep, server restart): the server doesn't replay missed events, so fetch the open session again.
+  const viewing = getState().viewId;
+  if (viewing) return openSession(viewing);
+  // Deep links (?session=<id>&dialog=settings&tab=ai) open a view directly; used for scripted screenshots too.
+  // Read once: a reconnect must not reopen them.
+  const q = new URLSearchParams(location.search);
+  if (location.search) history.replaceState(history.state, '', location.pathname + location.hash);
   const want = q.get('session');
-  if (want && !getState().viewId) {
+  if (want) {
     // Evidence links from agents: ?session=…&t=…&t2=… focuses a passage, &frame=… opens a capture.
     const t = Number(q.get('t')), t2 = Number(q.get('t2')), frame = Number(q.get('frame'));
     const focus = q.get('t') && Number.isFinite(t) ? { t, t2: q.get('t2') && Number.isFinite(t2) ? t2 : undefined } : undefined;
-    await openSession(want, focus).catch(() => {});
+    await openSession(want, focus);
     if (q.get('frame') && Number.isFinite(frame)) setState({ dialog: 'frame', frameView: frame });
   }
   const dlg = q.get('dialog');
@@ -30,10 +35,49 @@ export async function loadState(): Promise<void> {
   if (liveId && !getState().viewId) await openSession(liveId);
 }
 
-/** focus: a passage to scroll to and highlight (evidence links), set together with the data so nothing scrolls past it. */
+// Live events for the session being fetched. The response can predate them, so they are merged into it.
+type Caught = { id: string; segments: Segment[]; frames: Frame[]; outputs: Output[] };
+let fetching: Caught | null = null;
+let openSeq = 0;
+const caught = (sessionId: string) => (fetching?.id === sessionId ? fetching : null);
+const finished = (o: Output) => o.status !== 'pending' && o.status !== 'streaming';
+/** A live line or capture that a fetched session may already contain. */
+const append = <T extends { id: number }>(list: T[], x: T) => (list.some((y) => y.id === x.id) ? list : [...list, x]);
+
+/** Adds what arrived during the fetch: lines and captures by id, and of two copies of an answer the one that finished. */
+function withCaught(d: SessionData, c: Caught): SessionData {
+  const outputs = d.outputs.slice();
+  for (const o of c.outputs) {
+    const i = outputs.findIndex((x) => x.id === o.id);
+    if (i < 0) outputs.push(o); else if (finished(o) || !finished(outputs[i])) outputs[i] = o;
+  }
+  return {
+    ...d, outputs,
+    segments: c.segments.reduce(append, d.segments).sort((a, b) => a.t_start - b.t_start || a.id - b.id),
+    frames: c.frames.reduce(append, d.frames).sort((a, b) => a.t - b.t || a.id - b.id),
+  };
+}
+
+/**
+ * focus: a passage to scroll to and highlight (evidence links), set together with the data so nothing scrolls past it.
+ * Opening the session already shown refreshes it and keeps the attached passage.
+ */
 export async function openSession(id: string, focus?: { t: number; t2?: number }): Promise<void> {
-  const d = await api<SessionData>(`/api/sessions/${id}`);
-  setState({ viewId: id, data: d, deltas: {}, focus: focus ? { ...focus, nonce: Date.now() } : null, attached: null });
+  const seq = ++openSeq, from = getState().viewId;
+  const c: Caught = { id, segments: [], frames: [], outputs: [] };
+  fetching = c;
+  const d = await guard(api<SessionData>(`/api/sessions/${id}`));
+  if (fetching === c) fetching = null;
+  // A later open wins, and leaving the view meanwhile (Home, deleted) cancels this one.
+  if (!d || seq !== openSeq || getState().viewId !== from) return;
+  const data = withCaught(d, c);
+  const done = new Set(data.outputs.filter(finished).map((o) => o.id));
+  setState((s) => {
+    const same = s.data?.session.id === id;
+    // Streamed text exists only here until the answer is saved, so keep it for answers still streaming.
+    const deltas = Object.fromEntries(Object.entries(s.deltas).filter(([oid]) => !done.has(oid)));
+    return { viewId: id, data, deltas, focus: focus ? { ...focus, nonce: Date.now() } : same ? s.focus : null, attached: same ? s.attached : null };
+  });
 }
 
 export function connectEvents(): () => void {
@@ -54,9 +98,9 @@ export function connectEvents(): () => void {
       if (!cur || cur.uttId > p.uttId) return {};
       const next = { ...s.partials }; delete next[p.source]; return { partials: next };
     }),
-    segment: (seg: Segment) => setState((s) => (s.data && s.data.session.id === seg.session_id ? { data: { ...s.data, segments: [...s.data.segments, seg] } } : {})),
-    ai: (o: Output) => upsertOutput(o),
-    frame: (f: Frame) => setState((s) => (s.data && s.data.session.id === f.session_id ? { data: { ...s.data, frames: [...s.data.frames, f] } } : {})),
+    segment: (seg: Segment) => { caught(seg.session_id)?.segments.push(seg); setState((s) => (s.data && s.data.session.id === seg.session_id ? { data: { ...s.data, segments: append(s.data.segments, seg) } } : {})); },
+    ai: (o: Output) => { caught(o.session_id)?.outputs.push(o); upsertOutput(o); },
+    frame: (f: Frame) => { caught(f.session_id)?.frames.push(f); setState((s) => (s.data && s.data.session.id === f.session_id ? { data: { ...s.data, frames: append(s.data.frames, f) } } : {})); },
     'ai-delta': (d: { id: string; delta: string }) => setState((s) => ({ deltas: { ...s.deltas, [d.id]: (s.deltas[d.id] ?? '') + d.delta } })),
     provider: (p) => setState({ provider: p }),
     hotkey: (h) => setState({ hotkey: h }),

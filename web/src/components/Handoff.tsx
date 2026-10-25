@@ -7,6 +7,7 @@ import { msg, plural, t } from '../i18n.ts';
 import { Dialog } from './Dialog.tsx';
 import { focusTime } from './Transcript.tsx';
 import { ProjectSelect } from './Projects.tsx';
+import { onEnter } from '../keys.ts';
 import type { EvidenceRef, Handoff, HandoffItem } from '../types.ts';
 import { AGENT_NAMES, type AgentId } from '../../../shared/agents.ts';
 
@@ -97,11 +98,12 @@ function ItemRow({ item, locked }: { item: HandoffItem; locked: boolean }) {
 function AddItem({ handoff, kind }: { handoff: Handoff; kind: HandoffItem['kind'] }) {
   const [text, setText] = useState('');
   const [open, setOpen] = useState(false);
+  const add = () => { if (!text.trim()) return; void addHandoffItem(handoff.id, kind, text); setText(''); setOpen(false); };
   if (!open) return <button className="link-btn small" onClick={() => setOpen(true)}>+ {t('Add your own')}</button>;
   return (
     <div className="field-row">
-      <input className="grow" autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={t('Describe it in one sentence')} onKeyDown={(e) => { if (e.key === 'Enter' && text.trim()) { void addHandoffItem(handoff.id, kind, text); setText(''); setOpen(false); } }} />
-      <button className="btn small" disabled={!text.trim()} onClick={() => { void addHandoffItem(handoff.id, kind, text); setText(''); setOpen(false); }}>{t('Add')}</button>
+      <input className="grow" autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={t('Describe it in one sentence')} onKeyDown={onEnter(add)} />
+      <button className="btn small" disabled={!text.trim()} onClick={add}>{t('Add')}</button>
     </div>
   );
 }
@@ -155,6 +157,8 @@ export function HandoffDialog() {
   const data = useStore((s) => s.data);
   const live = useStore((s) => s.live);
   const [busy, setBusy] = useState(false);
+  /** Instructions to copy by hand, when the clipboard refused them. */
+  const [manual, setManual] = useState<string | null>(null);
   // Claude Code and Codex have their own buttons; other installed agents are offered in a menu.
   const [others, setOthers] = useState<Array<{ agent: AgentId; name: string }>>([]);
   useEffect(() => {
@@ -172,7 +176,12 @@ export function HandoffDialog() {
     const r = await continueHandoff(h.id, agent);
     setBusy(false);
     if (!r) return;
-    if (agent === 'copy') { await navigator.clipboard?.writeText(r.prompt).catch(() => {}); notify('info', t('Instructions copied. Paste them into your coding agent in the project folder.')); }
+    if (agent === 'copy') {
+      // WebKit may refuse a clipboard write that comes after a request instead of straight from the click.
+      const copied = await navigator.clipboard?.writeText(r.prompt).then(() => true, () => false);
+      setManual(copied ? null : r.prompt);
+      if (copied) notify('info', t('Instructions copied. Paste them into your coding agent in the project folder.'));
+    }
     else notify('info', t('Opened {agent} in Terminal in the project folder, starting from this handoff.', { agent: AGENT_NAMES[agent] }));
   };
   const footer = (
@@ -227,6 +236,12 @@ export function HandoffDialog() {
         );
       })}
       <Delivery h={h} />
+      {manual && (
+        <label className="field">
+          <span className="warn-text">{t('Chumi could not copy to the clipboard. Select the text below, copy it and paste it into your coding agent in the project folder.')}</span>
+          <textarea readOnly rows={8} value={manual} autoFocus onFocus={(e) => e.currentTarget.select()} />
+        </label>
+      )}
     </Dialog>
   );
 }

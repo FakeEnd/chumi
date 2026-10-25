@@ -75,12 +75,13 @@ export function dismiss(id: number): void { setState((s) => ({ notices: s.notice
 
 export function upsertOutput(o: Output): void {
   setState((s) => {
-    if (!s.data || s.data.session.id !== o.session_id) return {};
+    // Streamed text is dropped once the answer is saved, also for a session that isn't open.
+    const deltas = { ...s.deltas };
+    if (o.status !== 'streaming' && o.status !== 'pending') delete deltas[o.id];
+    if (!s.data || s.data.session.id !== o.session_id) return { deltas };
     const outs = s.data.outputs.slice();
     const i = outs.findIndex((x) => x.id === o.id);
     if (i >= 0) outs[i] = o; else outs.push(o);
-    const deltas = { ...s.deltas };
-    if (o.status !== 'streaming' && o.status !== 'pending') delete deltas[o.id];
     return { data: { ...s.data, outputs: outs }, deltas };
   });
 }

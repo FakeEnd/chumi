@@ -9,6 +9,7 @@ import { focusTime } from './Transcript.tsx';
 import type { Depth, Effort, Output } from '../types.ts';
 import { ProjectContextNote, ProjectContextSources, ProjectContextToggle } from './ProjectContext.tsx';
 import { splitCategory, type QuestionCategory } from '../../../shared/question-category.ts';
+import { onEnter } from '../keys.ts';
 
 const EFFORT_LABEL: Record<string, string> = { auto: msg('Auto'), low: msg('Low'), medium: msg('Medium'), high: msg('High'), xhigh: msg('Extra high'), max: msg('Max') };
 
@@ -166,7 +167,7 @@ function AskBox() {
       )}
       <textarea id="ask-input" rows={2} placeholder={attached ? t('Ask about the selected passage… (Enter to send)') : t('Ask anything about the discussion… (Enter to send, Shift+Enter for newline)')}
         value={draft} onChange={(e) => setState({ askDraft: e.target.value })}
-        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(draft); } }} />
+        onKeyDown={onEnter(() => send(draft))} />
       <div className="ask-row">
         <div className="ask-options">
           <div className="seg-control small" role="group" aria-label={t('Depth for this question')}>
