@@ -399,6 +399,7 @@ route('DELETE', '/api/sessions/:id', async (_req, _res, p) => {
   manager.invalidateDeferredSummary(p.id);
   await speakers.cancel(p.id);
   if (manager.session?.id === p.id) throw new HttpError(409, 'End the session before deleting it.');
+  assistant.cancelSession(p.id);
   store.deleteSession(p.id);
   for (const dir of [join(FRAMES_DIR, p.id), join(AUDIO_DIR, p.id)]) rmSync(dir, { recursive: true, force: true });
   mybot.remove(p.id);
