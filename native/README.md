@@ -24,7 +24,8 @@ native/
 bash native/build.sh
 ```
 
-* Target `arm64-apple-macos14.4` (override with `CHUMI_TARGET`), `swiftc -O -swift-version 5`.
+* Target `<this Mac's CPU>-apple-macos14.4`, so `arm64` on Apple Silicon and `x86_64` on Intel (override with
+  `CHUMI_TARGET`), `swiftc -O -swift-version 5`. `npm run doctor` reports binaries built for another CPU.
 * Signs ad-hoc by default (`codesign --force --sign - --timestamp=none`), helper first, then the app,
   then the dev copy of the helper. Set `CHUMI_SIGN_IDENTITY="Apple Development: …"` to use a real
   identity; the build then also enables the hardened runtime with the audio-input entitlement.

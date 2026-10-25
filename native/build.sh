@@ -9,7 +9,7 @@
 #
 # Env:
 #   CHUMI_SIGN_IDENTITY  codesign identity (e.g. "Apple Development: …"). Default: ad-hoc ("-").
-#   CHUMI_TARGET         swiftc target triple (default arm64-apple-macos14.4)
+#   CHUMI_TARGET         swiftc target triple (default: this Mac's CPU, arm64- or x86_64-apple-macos14.4)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,7 +17,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="$REPO_ROOT/build"
 OBJ_DIR="$BUILD_DIR/.intermediates"
 APP="$BUILD_DIR/Chumi.app"
-TARGET="${CHUMI_TARGET:-arm64-apple-macos14.4}"
+TARGET="${CHUMI_TARGET:-$(uname -m)-apple-macos14.4}"
 SIGN_IDENTITY="${CHUMI_SIGN_IDENTITY:--}"
 ENTITLEMENTS="$SCRIPT_DIR/entitlements.plist"
 
