@@ -85,8 +85,26 @@ export interface Settings {
   /** Interface language ('auto' follows the system). Explanation language is separate (profile).
    *  setupDismissed: the user hid the getting-started checklist on Home. */
   ui: { language: 'auto' | 'en' | 'zh'; setupDismissed: boolean };
+  /** The desktop pet in Chumi.app on macOS (docs/desktop-pet.md). */
+  pet: {
+    enabled: boolean;
+    /** Scale of the whole pet (the character, its toolbar and its cards), 0.5–2. */
+    size: number;
+    toolbar: boolean;
+    /** Cards under the toolbar during a meeting: none, the latest answer, or the recent ones (its ⌄ button switches). */
+    cards: 'none' | 'latest' | 'recent';
+    /** Which cards it shows, by tag, as in the window's filter chips. */
+    tags: PetTag[];
+    /** What its speech bubbles talk about: answers by tag, and 'chatter' (greetings, reactions). Failures always show. */
+    say: Array<PetTag | 'chatter'>;
+    /** Visible in screen shares and recordings. Off by default, so a shared screen doesn't show what you asked. */
+    inRecordings: boolean;
+  };
   devMode: boolean;
 }
+
+export const PET_TAGS = ['meeting', 'tangent', 'background', 'summary'] as const;
+export type PetTag = typeof PET_TAGS[number];
 
 export const DEFAULT_SETTINGS: Settings = {
   audio: { source: 'mic', micDeviceUid: null, aec: true, saveRawAudio: true },
@@ -121,6 +139,7 @@ export const DEFAULT_SETTINGS: Settings = {
   integrations: { mybot: { enabled: false, exportDir: '~/Library/Application Support/Chumi/exports/mybot', shareWithTeam: false, serverUrl: 'http://127.0.0.1:8788' } },
   screen: { sendImagesToAI: true, intervalSec: 3 },
   ui: { language: 'auto', setupDismissed: false },
+  pet: { enabled: true, size: 1, toolbar: true, cards: 'latest', tags: [...PET_TAGS], say: [...PET_TAGS, 'chatter'], inRecordings: false },
   devMode: false,
 };
 

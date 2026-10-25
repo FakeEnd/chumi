@@ -1,4 +1,4 @@
-// AppDelegate.swift — window, loading view, server lifecycle, main menu.
+// AppDelegate.swift — window, loading view, server lifecycle, main menu, desktop pet.
 
 import AppKit
 import WebKit
@@ -13,6 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var loadingView: NSView?
     private var statusLabel: NSTextField?
     private var quitting = false
+    private var pet: PetPanel?
+    private var petItem: NSMenuItem?
 
     // MARK: - Lifecycle
 
@@ -34,7 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { window.makeKeyAndOrderFront(nil) }
+        // The desktop pet is a visible window too, so check the main window itself.
+        if !flag || !window.isVisible { window.makeKeyAndOrderFront(nil) }
         return true
     }
 
@@ -155,6 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func showWeb(_ url: URL) {
         let controller = web ?? WebController(baseURL: url)
         web = controller
+        controller.onPetReset = { [weak self] in self?.pet?.resetPosition() }
         controller.onTopBar = { [weak self, weak controller] bar in
             guard let self, let controller else { return }
             self.chrome.barHeight = bar.maxY * controller.webView.pageZoom
@@ -164,7 +168,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         lastChrome = nil
         loadingView = nil
         controller.load(url)
+        startPet(url)
     }
+
+    // MARK: - Desktop pet
+
+    private func startPet(_ url: URL) {
+        let pet = self.pet ?? PetPanel()
+        if self.pet == nil {
+            pet.onOpen = { [weak self] session, t, t2 in
+                self?.showMainWindow()
+                if let session { self?.web?.open(session: session, t: t, t2: t2) }
+            }
+            pet.onEnabled = { [weak self] on in self?.petItem?.state = on ? .on : .off }
+            self.pet = pet
+        }
+        pet.load(url)
+    }
+
+    private func showMainWindow() {
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Settings → Desktop pet saves it; the pet page reports back and the menu follows (onEnabled).
+    @objc func togglePet(_ sender: Any?) { pet?.toggle() }
 
     // MARK: - Server
 
@@ -306,6 +335,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(.separator())
+        let petItem = windowMenu.addItem(withTitle: "Desktop Pet", action: #selector(togglePet(_:)), keyEquivalent: "")
+        petItem.target = self
+        petItem.state = .on  // until the pet page reports its setting
+        self.petItem = petItem
         windowMenu.addItem(.separator())
         windowMenu.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         windowItem.submenu = windowMenu

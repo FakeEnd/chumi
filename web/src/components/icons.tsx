@@ -22,6 +22,7 @@ export const IconFolder = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><pat
 export const IconTerminal = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 9 3 3-3 3M12 15h5" /></svg>;
 export const IconPlay = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M7 4.5v15l12-7.5z" fill="currentColor" /></svg>;
 export const IconPause = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M8 5v14M16 5v14" strokeWidth={3} /></svg>;
+export const IconPet = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><ellipse cx="8.4" cy="6.2" rx="2.1" ry="3.6" transform="rotate(-14 8.4 6.2)" /><ellipse cx="15.6" cy="6.2" rx="2.1" ry="3.6" transform="rotate(14 15.6 6.2)" /><path d="M12 8.5c4 0 6.5 2.6 6.5 6s-2.6 5.5-6.5 5.5-6.5-2.1-6.5-5.5 2.5-6 6.5-6z" /><path d="M9.8 14.2h.01M14.2 14.2h.01" strokeWidth={2.6} /></svg>;
 export const IconLink = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></svg>;
 export const IconCompact = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5" /></svg>;
 export const IconExpand = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>;

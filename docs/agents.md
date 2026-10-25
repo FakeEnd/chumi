@@ -48,7 +48,7 @@ If Chumi lives in `~/Documents`, macOS may ask once whether Terminal or the agen
 
    Owners and deadlines are filled in only when someone stated them; otherwise they read "not stated". Citations that match no transcript line are dropped, and an item without evidence says so.
 3. **Review.** Edit, confirm or reject every item, then **Confirm handoff**. Only confirmed actions are requested work. Open questions travel as unresolved context, never as tasks. **Redraft** replaces only items you have not touched.
-4. **Continue.** Choose a destination in **Continue in**, then click **Continue**. The default is **Codex app**; Chumi remembers your later choice in this browser or app profile.
+4. **Continue.** Choose a destination in **Continue in**, then click **Continue**. The default is **Codex app**; Chumi remembers your later choice in this browser or app profile. What Chumi did shows next to the button. The desktop pet's toolbar can also continue the latest meeting's confirmed handoff, to the same destination ([desktop-pet.md](desktop-pet.md)).
 
    - **Codex app:** opens a `codex://new?path=…&prompt=…` deep link for the project folder, with a short instruction already in the composer. Review it in Codex and click **Send** to begin. Opening the link does not send the message or execute work. Chumi reports only that opening was requested, not that a conversation was created or the handoff was read. If opening fails, choose **Copy instructions**.
    - **Codex in Terminal** and **Claude Code in Terminal:** open the CLI in the project folder with the handoff as its first message. Other installed agents (opencode, Qwen Code and Antigravity) remain available in the same selector. Antigravity starts as `agy -i`.
@@ -57,6 +57,8 @@ If Chumi lives in `~/Documents`, macOS may ask once whether Terminal or the agen
 Each Codex app launch saves a separate, immutable UTF-8 snapshot at `DATA_DIR/handoffs/<handoff-id>-codex-app-<random-token>.md`, written atomically with mode `0600` (owner-only POSIX permissions). Only the absolute file path, handoff ID and short instruction go into the deep link, so long handoffs do not make long URLs. Sending an older prepared composer still reads its original snapshot even if the handoff later changes or moves to another project. The instruction asks the agent to read the file, inspect the project, propose a plan and wait for your go-ahead before changing files.
 
 Chumi records delivery separately from execution progress. An MCP read can establish that an agent read the data; opening an app or copying instructions cannot. Neither action automatically marks work complete.
+
+For recordings and trials, a development server started with `CHUMI_DEV=1 CHUMI_NO_LAUNCH=1` does everything Continue does except the last step: it doesn't open Terminal or Codex app, and logs what it would have opened. The handoff snapshot, the delivery record and what the dialog says are the same.
 
 ## Track results and prepare for the next meeting
 

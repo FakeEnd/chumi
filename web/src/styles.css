@@ -44,7 +44,7 @@ input, select, textarea { font: inherit; color: var(--text); background: var(--p
 textarea { resize: vertical; width: 100%; }
 code { font-family: ui-monospace, Menlo, monospace; font-size: var(--fs-sm); background: var(--panel-2); padding: 2px 4px; border-radius: var(--r-sm); }
 .muted { color: var(--muted); } .small { font-size: var(--fs-sm); } .pad { padding: 12px; } .spacer { flex: 1; }
-.error-text { color: var(--bad); } .warn-text { color: var(--warn); }
+.error-text { color: var(--bad); } .warn-text { color: var(--warn); } .ok-text { color: var(--ok); }
 .boot { display: grid; place-items: center; height: 100%; color: var(--muted); }
 .app { display: flex; flex-direction: column; height: 100%; }
 
@@ -674,6 +674,7 @@ pre.cmd { background: var(--panel-2); border: 1px solid var(--border); border-ra
 /* Project handoffs, manual execution progress, and meeting preparation. */
 .handoff-destination { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .handoff-destination select { max-width: 250px; }
+.delivery-note { flex: 0 1 380px; min-width: 0; line-height: 1.4; }
 .action-progress { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 6px; }
 .action-progress-fields { border: 0; padding: 0; margin: 8px 0; min-width: 0; }
 .action-progress-fields:disabled { opacity: .7; }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { notify, setState, useStore } from '../store.ts';
+import { setState, useStore } from '../store.ts';
 import { addHandoffItem, assignProject, confirmHandoff, continueHandoff, prepareHandoff, refreshSession, reopenHandoff, retargetHandoff, updateHandoffItem } from '../actions.ts';
 import { api } from '../api.ts';
 import { fmtClock, fmtT } from '../util.ts';
@@ -164,6 +164,8 @@ export function HandoffDialog() {
   const [destination, setDestination] = useState(loadHandoffDestination);
   const [manualPrompt, setManualPrompt] = useState('');
   const [deliveryError, setDeliveryError] = useState('');
+  /** What Continue did, shown next to it: a toast would be behind the dialog. */
+  const [delivered, setDelivered] = useState('');
   const [others, setOthers] = useState<Array<{ agent: AgentId; name: string }>>([]);
   useEffect(() => {
     void api<{ agents: Array<{ agent: AgentId; name: string; installed: boolean }> }>('/api/agents/available')
@@ -178,7 +180,7 @@ export function HandoffDialog() {
   const selected = ['codex-app', 'codex', 'claude-code', 'copy'].includes(destination) || others.some((a) => a.agent === destination) ? destination : 'codex-app';
   const go = async (agent: HandoffDestination) => {
     if (pendingDelivery.current) return;
-    pendingDelivery.current = true; setBusy(true); setManualPrompt(''); setDeliveryError('');
+    pendingDelivery.current = true; setBusy(true); setManualPrompt(''); setDeliveryError(''); setDelivered('');
     try {
       const r = await continueHandoff(h.id, agent);
       if (!r) return;
@@ -186,15 +188,15 @@ export function HandoffDialog() {
         try {
           if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
           await navigator.clipboard.writeText(r.prompt);
-          notify('info', t('Instructions copied. Paste them into your coding agent in the project folder.'));
+          setDelivered(t('Instructions copied. Paste them into your coding agent in the project folder.'));
         } catch {
           setManualPrompt(r.prompt);
           setDeliveryError(t('Clipboard access failed. Select and copy the instructions below.'));
         }
       } else if (!r.launched) {
         setManualPrompt(r.prompt); setDeliveryError(t('The destination could not be opened. You can copy the instructions below.'));
-      } else if (agent === 'codex-app') notify('info', t('Requested Codex app to open the handoff. Review it there, then click Send to start.'));
-      else notify('info', t('Opened {agent} in Terminal in the project folder, starting from this handoff.', { agent: AGENT_NAMES[agent] }));
+      } else if (agent === 'codex-app') setDelivered(t('Requested Codex app to open the handoff. Review it there, then click Send to start.'));
+      else setDelivered(t('Opened {agent} in Terminal in the project folder, starting from this handoff.', { agent: AGENT_NAMES[agent] }));
     } catch (e) { setDeliveryError(e instanceof Error ? e.message : t('Could not open the handoff destination.')); }
     finally { pendingDelivery.current = false; setBusy(false); }
   };
@@ -202,6 +204,7 @@ export function HandoffDialog() {
     <>
       {!confirmed && <button className="btn small" disabled={generating || recording} onClick={() => void prepareHandoff(data.session.id)} title={t('Replaces items you have not reviewed; keeps what you confirmed, rejected or edited')}>{generating ? t('Drafting…') : t('Redraft')}</button>}
       {confirmed && <button className="btn small" disabled={busy} onClick={() => void reopenHandoff(h.id)}>{t('Edit')}</button>}
+      {confirmed && delivered && <span className="ok-text small delivery-note" role="status">{delivered}</span>}
       <span className="spacer" />
       {!confirmed && <button className="btn primary" disabled={generating || pending > 0 || h.project_mismatch || !h.items.some((i) => i.review === 'confirmed')} onClick={() => void confirmHandoff(h.id)}
         title={pending ? t('Confirm or reject every item first') : ''}>{pending ? plural(pending, 'Review {n} more item', 'Review {n} more items') : t('Confirm handoff')}</button>}

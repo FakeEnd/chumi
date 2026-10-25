@@ -34,7 +34,7 @@ import { LocalModelDownloader } from './ai/local-model-download.ts';
 import { isCompatiblePreset, normalizeCompatibleUrl, validateCompatibleSettings, COMPATIBLE_PRESETS } from '../shared/compatible-provider.ts';
 import type { ClaudeCliProvider } from './ai/claude-cli.ts';
 import type { CodexProvider } from './ai/codex.ts';
-import { EFFORTS, SOURCE_NAMES, isProviderId, normalizeLanguage, type Depth, type Effort, type Profile, type Settings } from './settings.ts';
+import { EFFORTS, PET_TAGS, SOURCE_NAMES, isProviderId, normalizeLanguage, type Depth, type Effort, type Profile, type Settings } from './settings.ts';
 import { SpeakerService } from './speakers/service.ts';
 import { speakerRuntime } from './speakers/runtime.ts';
 import { discardSpeakerAudio, hasRecordedAudio, speakerAudioAvailable } from './speakers/audio.ts';
@@ -51,6 +51,8 @@ import { launchCodexDesktop } from './projects/desktop-handoff.ts';
 const PORT = Number(process.env.PORT || 4777);
 const HOST = '127.0.0.1';
 const DEV = !!process.env.CHUMI_DEV;
+/** Dev only, for recordings and trials: Continue does everything except the OS open (Terminal, Codex app) and logs it. */
+const NO_LAUNCH = DEV && process.env.CHUMI_NO_LAUNCH === '1';
 // The existing desktop listener stays loopback-only. Mobile access is a separate opt-in TLS gateway.
 const mobileConfig = process.env.CHUMI_MOBILE === '1'
   ? loadMobileConfiguration(join(DATA_DIR, 'mobile', 'companion.json')) : null;
@@ -277,6 +279,11 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   }
   if (!['auto', 'en', 'zh'].includes(next.ui.language)) throw new HttpError(400, 'Unknown interface language');
   if (typeof next.ui.setupDismissed !== 'boolean') throw new HttpError(400, 'Invalid setup checklist setting');
+  const pet = next.pet, inList = (list: unknown, allowed: readonly string[]) => Array.isArray(list) && list.every((v) => allowed.includes(v));
+  if (![pet.enabled, pet.toolbar, pet.inRecordings].every((v) => typeof v === 'boolean') || !(Number.isFinite(pet.size) && pet.size >= 0.5 && pet.size <= 2)
+    || !['none', 'latest', 'recent'].includes(pet.cards) || !inList(pet.tags, PET_TAGS) || !inList(pet.say, [...PET_TAGS, 'chatter'])) throw new HttpError(400, 'Invalid desktop pet setting');
+  // Only the current fields, rounded to 5 %, so a field from an earlier version doesn't linger.
+  next.pet = { enabled: pet.enabled, size: Math.round(pet.size * 20) / 20, toolbar: pet.toolbar, cards: pet.cards, tags: pet.tags, say: pet.say, inRecordings: pet.inRecordings };
   if (!/^https?:\/\/[^\s/]+(\/\S*)?$/.test(String(next.integrations.mybot.serverUrl))) throw new HttpError(400, 'The mybot address must start with http:// (for example http://127.0.0.1:8788).');
   if (!['simplified', 'original'].includes(next.asr.chineseScript)) throw new HttpError(400, 'Unknown Chinese script option');
   if (!isSpeechEngine(next.asr.engine)) throw new HttpError(400, 'Unknown speech recognition engine.');
@@ -606,7 +613,9 @@ route('POST', '/api/handoffs/:id/continue', async (req, _res, p) => {
   if (via !== 'copy') {
     const project = store.getProject(h.project_id!)!;
     try {
-      if (via === 'codex-app') await launchCodexDesktop(h.id, project.workspace, prompt);
+      const skipped = (what: string) => log('handoff', `CHUMI_NO_LAUNCH: not opened: ${what}`);
+      if (via === 'codex-app') await launchCodexDesktop(h.id, project.workspace, prompt, NO_LAUNCH ? { openUrl: async (url) => skipped(url) } : {});
+      else if (NO_LAUNCH) skipped(agents.launchScript(via as AgentId, h.id, project.workspace, prompt));
       else agents.launch(via as AgentId, h.id, project.workspace, prompt);
       launched = true;
     } catch (e) { throw new HttpError(400, (e as Error).message); }

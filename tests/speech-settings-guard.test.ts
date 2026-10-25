@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { Store } from '../server/db.ts';
 import { deepMerge } from '../server/util.ts';
-import { EFFORTS, isProviderId, type Settings } from '../server/settings.ts';
+import { EFFORTS, PET_TAGS, isProviderId, type Settings } from '../server/settings.ts';
 import { validateCompatibleSettings } from '../shared/compatible-provider.ts';
 import { isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId } from '../server/asr/engines.ts';
 import { speechEngineChanged, speechRestartRequired } from '../server/asr/settings-guard.ts';
@@ -20,7 +20,7 @@ function fixture(status: LiveStatus, initial: Record<string, unknown> = {}) {
   store.saveSettings(deepMerge(store.getSettings(), initial) as Settings);
   const calls: string[] = [];
   const deps = {
-    store, manager: { status }, deepMerge, isProviderId, validateCompatibleSettings, EFFORTS, isInstalled: () => true,
+    store, manager: { status }, deepMerge, isProviderId, validateCompatibleSettings, EFFORTS, PET_TAGS, isInstalled: () => true,
     HttpError, isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId,
     speechEngineChanged, speechRestartRequired, speakerRuntime: () => ({ ready: true }), DEV: true,
     assistant: { setAutoExplain: () => {} }, whisper: { configure: () => calls.push('whisper') },

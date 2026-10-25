@@ -23,6 +23,7 @@ import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { APP_SHELL, buildWeb, DEMO, GLOSSARY } from './demo-common.ts';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const args = process.argv.slice(2);
@@ -39,71 +40,14 @@ const ONLY_AGENT = PREPARE || (args.includes('--only') && args[args.indexOf('--o
 const PROJECT_FOLDER = args.includes('--project-folder') ? resolve(args[args.indexOf('--project-folder') + 1]) : null;
 if (ONLY_AGENT && !PROJECT_FOLDER) throw new Error('--only agent and --prepare-agent need --project-folder');
 
-/** Everything the run types or asks, per language. */
-const L = {
-  en: {
-    title: 'Lab meeting: citation model',
-    project: 'Citation model',
-    pcQ: 'What did the agent find in our judge code, and what does it need before the length-matched rerun?',
-    q1: 'Why does the PI think the DPO gain might be judge bias?',
-    slideQ: 'Explain what is shown on this slide and how it relates to what the speakers are saying.',
-    explanation: 'English',
-    profile: {
-      background: 'Linguistics undergraduate, now a first-year PhD student in NLP.',
-      researchInterests: 'Grounded question answering; how language models use evidence.',
-      domains: [
-        { name: 'Linguistics', level: 4 }, { name: 'Programming', level: 3 }, { name: 'Statistics', level: 3 },
-        { name: 'Machine learning', level: 2 }, { name: 'LLM training', level: 1 }, { name: 'GPU systems', level: 0, notes: 'Do not assume any hardware knowledge.' },
-      ],
-      knownConcepts: ['tokenization', 'embeddings', 'cross-validation'],
-      needsBackground: ['preference optimization', 'GPU memory'],
-      style: 'Concise. Intuition first, then the mechanism.',
-    },
-  },
-  zh: {
-    title: '组会：引用模型',
-    project: '引用模型',
-    pcQ: '之前的 agent 在我们的 judge 代码里发现了什么问题？做 length matching 重跑之前还需要什么？',
-    q1: '为什么 PI 觉得 DPO 的提升可能是 judge 的偏差？',
-    slideQ: '解释这张幻灯片上的内容，以及它和发言内容的关系。',
-    explanation: 'Simplified Chinese',
-    profile: {
-      background: '语言学本科，现在是 NLP 方向一年级博士生。',
-      researchInterests: '有依据的问答；语言模型如何使用证据。',
-      domains: [
-        { name: '语言学', level: 4 }, { name: '编程', level: 3 }, { name: '统计学', level: 3 },
-        { name: '机器学习', level: 2 }, { name: '大模型训练', level: 1 }, { name: 'GPU 系统', level: 0, notes: '不要假设我了解任何硬件知识。' },
-      ],
-      knownConcepts: ['tokenization', 'embeddings', 'cross-validation'],
-      needsBackground: ['偏好优化', '显存'],
-      style: '简洁。先讲直觉，再讲机制。',
-    },
-  },
-}[LANG];
-
-/** Inside Chumi.app the top bar is the window's title bar; the screenshots show it the same way. */
-const APP_SHELL = `(() => {
-  const h = document.documentElement;
-  h.dataset.shell = 'mac';
-  h.style.setProperty('--traffic-inset', '94px');
-  if (!document.body) return false;
-  if (document.getElementById('demo-traffic')) return true;
-  const d = document.createElement('div');
-  d.id = 'demo-traffic';
-  d.innerHTML = '<i></i><i></i><i></i>';
-  Object.assign(d.style, { position: 'fixed', left: '18px', top: '0', height: '55px', display: 'flex', alignItems: 'center', gap: '10px', zIndex: '9999', pointerEvents: 'none' });
-  ['#ff5f57', '#febc2e', '#28c840'].forEach((c, i) => Object.assign(d.children[i].style, { width: '13px', height: '13px', borderRadius: '50%', display: 'block', background: c, boxShadow: 'inset 0 0 0 .5px rgba(0,0,0,.18)' }));
-  document.body.appendChild(d);
-  const fit = () => { const b = document.querySelector('.topbar'); if (b) d.style.height = b.offsetHeight + 'px'; };
-  fit(); setInterval(fit, 200);
-  return true;
-})()`;
+const L = DEMO[LANG];
 
 /** Measures elements on the current screen, in screenshot CSS px clipped to the viewport: [x, y, w, h]. */
 const MEASURE = `(sel, textRe) => {
   const clip = (r) => { const y0 = Math.max(0, r.top), y1 = Math.min(innerHeight, r.bottom); return r.width && y1 > y0 ? [r.left, y0, r.width, y1 - y0].map(Math.round) : null; };
+  // Some controls exist twice (one per toolbar layout) and one copy is hidden: measure the first one on screen.
   const els = [...document.querySelectorAll(sel)];
-  if (!textRe) return els.length ? clip(els[0].getBoundingClientRect()) : null;
+  if (!textRe) { for (const e of els) { const r = clip(e.getBoundingClientRect()); if (r) return r; } return null; }
   const re = new RegExp(textRe);
   for (const e of els) for (const n of e.querySelectorAll('li, p, td')) if (re.test(n.textContent)) { const r = clip(n.getBoundingClientRect()); if (r) return r; }
   return els.length ? clip(els[0].getBoundingClientRect()) : null;
@@ -117,8 +61,6 @@ const W = 1360, H = 860;
 // Faster playback makes the live transcriber fall behind (the Speech badge would say so), which normal use never does.
 // The agent-only run screenshots nothing live, so it can play faster and let transcription catch up at the end.
 const SPEED = ONLY_AGENT ? 6 : 3;
-// Vocabulary hints for this meeting's jargon (Settings → Transcription), as a user would add them.
-const GLOSSARY = ['DPO', 'LLM judge', 'KV cache', 'citation precision', 'citation recall', 'preference pairs', 'self-preference', 'length bias', 'paired bootstrap', "Cohen's kappa", 'n-gram overlap', 'preprint', 'annotation guidelines'];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = (...a: unknown[]) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...a);
 
@@ -200,7 +142,8 @@ async function main(): Promise<void> {
   const topic = lines.findIndex((l) => l.tags.includes('topic_change'));
   const debateEnd = lines.slice(0, topic).filter((l) => l.tags.includes('disagreement')).at(-1)!;
   const regions: Record<string, Record<string, unknown>> = {};
-  const server: ChildProcess = spawn(process.execPath, [join(ROOT, 'server/main.ts')], { env: { ...process.env, CHUMI_DEV: '1', CHUMI_NO_HOTKEY: '1', CHUMI_DATA_DIR: DATA, PORT: String(PORT) }, stdio: 'ignore' });
+  buildWeb(ROOT);
+  const server: ChildProcess = spawn(process.execPath, [join(ROOT, 'server/main.ts')], { env: { ...process.env, CHUMI_DEV: '1', CHUMI_NO_HOTKEY: '1', CHUMI_NO_LAUNCH: '1', CHUMI_DATA_DIR: DATA, PORT: String(PORT) }, stdio: 'ignore' });
   const stop = () => { chrome.kill('SIGTERM'); server.kill('SIGTERM'); setTimeout(() => { if (!process.env.KEEP_DATA) rmSync(DATA, { recursive: true, force: true }); process.exit(130); }, 1500); };
   const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${CDP_PORT}`, `--user-data-dir=${join(DATA, 'chrome')}`, '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', `--window-size=${W},${H}`, 'about:blank'], { stdio: 'ignore' });
   try {
@@ -343,12 +286,13 @@ async function main(): Promise<void> {
       if (h.status === 'error') throw new Error(`handoff draft failed: ${h.error}`);
       for (const item of h.items) await api(`/api/handoff-items/${item.id}`, { review: 'confirmed' }, 'PATCH');
       await api(`/api/handoffs/${h.id}/confirm`, {});
-      await page.goto(`${B}/?session=${sid}`); await page.waitFor('.handoff-box');
-      await page.eval(`[...document.querySelectorAll('.handoff-box .btn-row .btn')].at(-1).click(), true`);
+      // The handoff button in the top bar (one per toolbar layout; the hidden copy has no size).
+      await page.goto(`${B}/?session=${sid}`); await page.waitFor('.handoff-btn');
+      await page.eval(`(() => { for (const b of document.querySelectorAll('.handoff-btn')) if (b.getBoundingClientRect().width) { b.click(); return true; } })()`);
       await page.waitFor('.dialog .hitem');
       await page.shot('handoff');
       regions.handoff = { dialog: await page.measure('.dialog'), item: await page.measure('.dialog .hitem'), origin: await page.measure('.dialog .hitem .tag'),
-        evidence: await page.measure('.dialog .hitem .evidence'), cont: await page.measure('.dialog .btn.primary') };
+        evidence: await page.measure('.dialog .hitem .evidence'), cont: await page.measure('.dialog .btn.primary'), place: await page.measure('.dialog .handoff-destination') };
 
       // Scene 8 — the next question knows what the agents did: Project context on, answered from earlier agent sessions.
       log('scene 8: project context');
@@ -356,10 +300,13 @@ async function main(): Promise<void> {
       // The pinned final summary would push the answer out of view: fold it, and scroll the Ask box (with the
       // Project context toggle) to the top of the column. The sources list stays folded: session titles can contain local paths.
       await page.goto(`${B}/?session=${sid}`); await page.waitFor('.card-answer');
-      await page.eval(`(() => { document.querySelector('.card-final_summary .card-head')?.click(); return true; })()`);
-      await sleep(300);
+      // The newest card (the summary) opens by default and the answer is folded: fold one, open the other.
+      const flip = (sel: string, open: boolean) => page.eval(`(() => { const c = document.querySelector('${sel}'); if (c && c.classList.contains('open') !== ${open}) c.querySelector('.card-head').click(); return true; })()`);
+      await flip('.card-final_summary', false); await sleep(300);
+      await flip('.card-answer', true); await sleep(400);
       await page.eval(`(() => { document.querySelector('.askbox').scrollIntoView({ block: 'start' }); return true; })()`);
       await sleep(500);
+      if (!await page.measure('.card-answer .pc-sources')) throw new Error('the project-context answer is not in view');
       await page.shot('project-context');
       regions.pc = { toggle: await page.measure('.chip-toggle'), card: await page.measure('.card-answer'), sources: await page.measure('.card-answer .pc-sources') };
     }
@@ -383,9 +330,9 @@ async function main(): Promise<void> {
     regions.home = { recent: await page.measure('.recent-list li') };
     }
 
-    // An agent-only run keeps the boxes measured by the last full run.
+    // Scenes not shot in this run (the agent loop needs --project-folder) keep the boxes measured last time.
     const file = join(OUT, 'regions.js');
-    const previous = ONLY_AGENT && existsSync(file) ? JSON.parse(readFileSync(file, 'utf8').replace(/^[\s\S]*?window\.REGIONS = /, '').replace(/;\s*$/, '')) : {};
+    const previous = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8').replace(/^[\s\S]*?window\.REGIONS = /, '').replace(/;\s*$/, '')) : {};
     writeFileSync(file, `// Written by scripts/demo-shoot.ts: element boxes in the ${LANG} screenshots (CSS px of a ${W}×${H} page).\nwindow.REGIONS = ${JSON.stringify({ ...previous, ...regions }, null, 1)};\n`);
     log('saved', join(OUT, 'regions.js'));
   } finally {
