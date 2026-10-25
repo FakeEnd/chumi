@@ -44,7 +44,7 @@ bash scripts/setup.sh
 | 选项 | 作用 |
 |---|---|
 | `--yes` | 不提问，全部使用默认选择（不会替你安装 Homebrew，也不会替你登录） |
-| `--mirror` | 从 hf-mirror.com 下载语音模型（在中国大陆通常更快）；也可以用 `CHUMI_MODEL_BASE_URL` 指定其他镜像 |
+| `--mirror` | 从 hf-mirror.com 下载语音模型（在中国大陆通常更快）；也可以用 `CHUMI_MODEL_BASE_URL` 指定其他镜像。每次下载都会核对官方文件的 SHA-256 |
 | `--sample` | 同时生成测试用的 20 分钟示例组会 |
 | `--no-ai` | 跳过连接 AI 这一步；之后可以在 设置 → AI 服务 中选择 |
 

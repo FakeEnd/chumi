@@ -1,4 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
@@ -10,7 +11,10 @@ import { toSimplified } from './clean.ts';
 import { readWav } from '../audio/wav.ts';
 import type { SpeechService } from './speech.ts';
 
-/** whisper.cpp ggml models (MIT), from the official repository on Hugging Face. */
+/**
+ * whisper.cpp ggml models (MIT), from the official repository on Hugging Face. A mirror must serve the same files:
+ * every download is checked against the SHA-256 in MODEL_CATALOG.
+ */
 const BASE_URL = process.env.CHUMI_MODEL_BASE_URL || 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
 
 export interface ModelInfo {
@@ -20,23 +24,32 @@ export interface ModelInfo {
   speed: 1 | 2 | 3 | 4 | 5;     // relative, 5 = fastest
   accuracy: 1 | 2 | 3 | 4 | 5;  // relative, 5 = best (incl. Mandarin and mixed speech)
   minRamGB: number;
+  /** Of the file: the Hugging Face LFS object id in ggerganov/whisper.cpp (recorded 2026-10-24). */
+  sha256: string;
   note: { en: string; zh: string };
 }
 
 export const MODEL_CATALOG: ModelInfo[] = [
   { id: 'ggml-tiny-q5_1.bin', name: 'Tiny', sizeMB: 31, speed: 5, accuracy: 1, minRamGB: 4,
+    sha256: '818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7',
     note: { en: 'Fastest and smallest. Misses many technical terms; weak on Mandarin.', zh: '最快最小。专业术语常听错，中文效果较差。' } },
   { id: 'ggml-base-q5_1.bin', name: 'Base', sizeMB: 57, speed: 5, accuracy: 2, minRamGB: 4,
+    sha256: '422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898',
     note: { en: 'For very old or low-memory Macs.', zh: '适合很旧或内存很小的 Mac。' } },
   { id: 'ggml-small-q5_1.bin', name: 'Small', sizeMB: 181, speed: 4, accuracy: 3, minRamGB: 8,
+    sha256: 'ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb',
     note: { en: 'Good balance for Intel Macs and 8 GB machines.', zh: '适合 Intel 芯片或 8 GB 内存的 Mac，速度与准确度较均衡。' } },
   { id: 'ggml-medium-q5_0.bin', name: 'Medium', sizeMB: 514, speed: 3, accuracy: 4, minRamGB: 8,
+    sha256: '19fea4b380c3a618ec4723c3eef2eb785ffba0d0538cf43f8f235e7b3b34220f',
     note: { en: 'More accurate than Small; slower on Intel Macs.', zh: '比 Small 更准确；在 Intel Mac 上较慢。' } },
   { id: 'ggml-large-v3-turbo-q5_0.bin', name: 'Large v3 Turbo (compact)', sizeMB: 547, speed: 4, accuracy: 5, minRamGB: 8,
+    sha256: '394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2',
     note: { en: 'Near-best accuracy at a smaller size. Recommended for 8–16 GB Apple Silicon.', zh: '接近最佳准确度，体积更小。推荐 8–16 GB 内存的 Apple 芯片 Mac。' } },
   { id: 'ggml-large-v3-turbo-q8_0.bin', name: 'Large v3 Turbo', sizeMB: 834, speed: 4, accuracy: 5, minRamGB: 16,
+    sha256: '317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1',
     note: { en: 'Best balance for Apple Silicon with 16 GB or more. The default.', zh: '16 GB 及以上内存的 Apple 芯片 Mac 的最佳选择（默认）。' } },
   { id: 'ggml-large-v3-q5_0.bin', name: 'Large v3', sizeMB: 1031, speed: 2, accuracy: 5, minRamGB: 16,
+    sha256: 'd75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1',
     note: { en: 'Full Large v3: slightly more robust on hard audio, but several times slower.', zh: '完整版 Large v3：嘈杂音频下略稳一些，但慢好几倍。' } },
 ];
 
@@ -77,13 +90,14 @@ export function isInstalled(id: string): boolean {
 
 export interface DownloadState { id: string; received: number; total: number; status: 'downloading' | 'done' | 'error' | 'cancelled'; error?: string }
 
-/** One model download at a time, streamed to <file>.part and renamed only when complete and the right size. */
+/** One model download at a time, streamed to <file>.part and renamed only when complete and its SHA-256 matches. */
 export class ModelDownloader extends EventEmitter<{ progress: [DownloadState] }> {
   current: DownloadState | null = null;
   private controller: AbortController | null = null;
 
   async start(id: string): Promise<void> {
-    if (!MODEL_CATALOG.some((m) => m.id === id)) throw new Error('Unknown model');
+    const info = MODEL_CATALOG.find((m) => m.id === id);
+    if (!info) throw new Error('Unknown model');
     if (this.current?.status === 'downloading') throw new Error('Another model is already downloading.');
     if (isInstalled(id)) return;
     mkdirSync(MODELS_DIR, { recursive: true });
@@ -98,9 +112,11 @@ export class ModelDownloader extends EventEmitter<{ progress: [DownloadState] }>
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       state.total = Number(res.headers.get('content-length') ?? 0);
       emit(true);
-      const counter = new TransformStream<Uint8Array, Uint8Array>({ transform: (chunk, ctl) => { state.received += chunk.byteLength; emit(); ctl.enqueue(chunk); } });
+      const hash = createHash('sha256');
+      const counter = new TransformStream<Uint8Array, Uint8Array>({ transform: (chunk, ctl) => { state.received += chunk.byteLength; hash.update(chunk); emit(); ctl.enqueue(chunk); } });
       await pipeline(Readable.fromWeb(res.body.pipeThrough(counter) as never), createWriteStream(part));
       if (state.total && statSync(part).size !== state.total) throw new Error('Download incomplete');
+      if (hash.digest('hex') !== info.sha256) throw new Error('The file does not match its published SHA-256 checksum');
       renameSync(part, join(MODELS_DIR, id));
       state.status = 'done';
     } catch (e) {

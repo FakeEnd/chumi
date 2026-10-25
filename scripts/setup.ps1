@@ -11,7 +11,9 @@ param(
   [string]$Proxy = '',
   [string]$ModelBaseUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main',
   # whisper.cpp publishes its Windows builds with the numbered release tags.
-  [string]$WhisperRelease = 'b5454'
+  [string]$WhisperRelease = 'b5454',
+  # SHA-256 of the whisper.cpp zip, needed only with another -WhisperRelease (the default's are pinned below).
+  [string]$WhisperSha256 = ''
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -22,6 +24,18 @@ function Download($url, $out) {
   if ($Proxy) { $args = @('-x', $Proxy) + $args }
   & curl.exe @args
   if ($LASTEXITCODE -ne 0) { throw "Download failed: $url" }
+}
+function Assert-Sha256($file, $expected) {
+  # -ne on strings ignores case; Get-FileHash prints upper-case hex.
+  if ((Get-FileHash -Algorithm SHA256 $file).Hash -ne $expected) {
+    Remove-Item -Force $file
+    throw "$(Split-Path $file -Leaf) does not match its published SHA-256 checksum, so it was deleted. Run this again to download it afresh."
+  }
+}
+# GitHub's published SHA-256 digests of the whisper.cpp release assets.
+$WhisperAssetSha256 = @{
+  'b5454/whisper-bin-x64.zip' = '6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb'
+  'b5454/whisper-bin-win-cuda-12.4.0-x64.zip' = 'afef0b881c500958921c3f5523b50e59ee2ec9b6f5cbd25b324c51ed308a957a'
 }
 
 Step 'Checking prerequisites'
@@ -41,8 +55,11 @@ if (Test-Path (Join-Path $whisper 'whisper-server.exe')) {
   # The CUDA 12 build includes cuBLAS; the smaller CUDA 11.8 build does not and silently falls back to the CPU.
   $asset = if ($gpu) { 'whisper-bin-win-cuda-12.4.0-x64.zip' } else { 'whisper-bin-x64.zip' }
   Write-Host ($(if ($gpu) { "NVIDIA GPU found ($gpu): using the CUDA build (about 680 MB)." } else { 'No NVIDIA GPU found: using the CPU build.' }))
+  $sha = if ($WhisperSha256) { $WhisperSha256 } else { $WhisperAssetSha256["$WhisperRelease/$asset"] }
+  if (-not $sha) { throw "No SHA-256 is pinned for whisper.cpp $WhisperRelease ($asset). Pass -WhisperSha256 with the digest from its GitHub release page." }
   $zip = Join-Path $env:TEMP $asset
   Download "https://github.com/ggml-org/whisper.cpp/releases/download/$WhisperRelease/$asset" $zip
+  Assert-Sha256 $zip $sha
   $unpacked = Join-Path 'build' 'whisper-unpack'
   if (Test-Path $unpacked) { Remove-Item -Recurse -Force $unpacked }
   New-Item -ItemType Directory -Force $unpacked | Out-Null
@@ -66,7 +83,10 @@ $models = if ($env:CHUMI_MODELS_DIR) { $env:CHUMI_MODELS_DIR } else { Join-Path 
 New-Item -ItemType Directory -Force $models | Out-Null
 $installed = { node --input-type=module -e "import('./server/asr/models.ts').then((m) => process.exit(m.isInstalled('$model') ? 0 : 1))"; $LASTEXITCODE -eq 0 }
 if (-not (& $installed)) {
+  # The same SHA-256 the app checks (server/asr/models.ts), whichever copy -ModelBaseUrl points to.
+  $sha = node --input-type=module -e "import('./server/asr/models.ts').then((m) => console.log(m.MODEL_CATALOG.find((x) => x.id === '$model').sha256))"
   Download "$ModelBaseUrl/$model" (Join-Path $models "$model.part")
+  Assert-Sha256 (Join-Path $models "$model.part") $sha
   Move-Item -Force (Join-Path $models "$model.part") (Join-Path $models $model)
   if (-not (& $installed)) { throw "The model download looks incomplete. Delete $models\$model and run this again." }
 } else { Write-Host "$model is already in $models" }

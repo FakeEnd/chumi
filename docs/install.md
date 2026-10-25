@@ -44,7 +44,7 @@ bash scripts/setup.sh
 | Option | What it does |
 |---|---|
 | `--yes` | Accept the defaults without asking. It never installs Homebrew or signs you in for you. |
-| `--mirror` | Download the speech model from hf-mirror.com, which is often faster in mainland China. To use another copy, set `CHUMI_MODEL_BASE_URL`. |
+| `--mirror` | Download the speech model from hf-mirror.com, which is often faster in mainland China. To use another copy, set `CHUMI_MODEL_BASE_URL`. Every download is checked against the official file's SHA-256. |
 | `--sample` | Also generate the 20-minute sample meeting used for testing. |
 | `--no-ai` | Skip the AI step. You can choose one later in Settings → AI provider. |
 

@@ -122,6 +122,12 @@ else
   mkdir -p "$MODELS"
   curl -L --fail --retry 3 -C - --progress-bar -o "$MODELS/$MODEL.part" "$BASE/$MODEL" \
     || fail "The model download failed." "Check your connection and run setup again (it resumes). Behind a firewall, try: bash scripts/setup.sh --mirror"
+  # The same SHA-256 the app checks (server/asr/models.ts), whichever copy it came from.
+  SHA=$(node --input-type=module -e "import('./server/asr/models.ts').then((m) => console.log(m.MODEL_CATALOG.find((x) => x.id === '$MODEL').sha256))")
+  if [[ "$(shasum -a 256 "$MODELS/$MODEL.part" | cut -d ' ' -f 1)" != "$SHA" ]]; then
+    rm -f "$MODELS/$MODEL.part"
+    fail "The downloaded model does not match its published checksum, so it was deleted." "Run setup again to download it afresh. If this keeps happening, $BASE is not serving the official file."
+  fi
   mv "$MODELS/$MODEL.part" "$MODELS/$MODEL"
   installed || fail "The downloaded model looks incomplete." "Delete \"$MODELS/$MODEL\" and run setup again."
   ok "Speech model $MODEL"
