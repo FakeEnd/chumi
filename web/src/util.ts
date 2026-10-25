@@ -27,6 +27,9 @@ marked.use({
   breaks: false,
   renderer: {
     html(token) { return esc((token as { text: string }).text); },
+    // After an inline <code>, <kbd>, <pre> or <script> tag, marked flags the text that follows as raw HTML ("escaped")
+    // and passes it through untouched. Tags are shown as text here, so that text is escaped like the rest.
+    text(token) { return 'escaped' in token && token.escaped ? esc(token.text) : false; },
     link(token) {
       const t = token as unknown as { href: string; text: string };
       const ok = /^https?:\/\//i.test(t.href);

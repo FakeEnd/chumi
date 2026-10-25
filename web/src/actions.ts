@@ -1,132 +1,117 @@
 import { api, subscribe } from './api.ts';
-import { getState, notify, setState, type AppState } from './store.ts';
+import { getState, notify, setState, upsertOutput, type AppState } from './store.ts';
 import { projectContextOn } from './projectContext.ts';
 import { saveCompact } from './compactMode.ts';
 import { t } from './i18n.ts';
-import { emptySnapshotChanges, mergeSnapshotChanges, snapshotDeltas, type SnapshotChanges } from './sessionSnapshot.ts';
 import type { SpeakerAnnotation, SpeakerCorrection, SpeakerView } from '../../shared/speakers.ts';
 import type { AgentId } from '../../shared/agents.ts';
 import type { ActionProgress } from '../../shared/project-work.ts';
 import type { Depth, Effort, Frame, Handoff, Output, Profile, Project, Segment, SessionData, Settings, SpeakerUpdate, WindowInfo } from './types.ts';
 
-let navigationVersion = 0;
-let stateRequest = 0;
-interface SessionRequest {
-  id: string; navigation: boolean; fromView: string | null; controller: AbortController;
-  changes: SnapshotChanges; retry: boolean;
-}
-let sessionRequest: SessionRequest | null = null;
-
 export async function loadState(): Promise<void> {
-  const request = ++stateRequest;
-  const before = getState(), initial = !before.loaded, navigation = navigationVersion;
   const s = await api('/api/state');
-  if (request !== stateRequest) return;
-  const latest = getState();
-  const live = latest.live && latest.live.serverTime > (s.live?.serverTime ?? 0) ? latest.live : s.live;
   setState({
-    loaded: true,
-    settings: latest.settings === before.settings ? s.settings : latest.settings,
-    profile: latest.profile === before.profile ? s.profile : latest.profile,
-    provider: latest.provider === before.provider ? s.provider : latest.provider,
-    live, liveReceivedAt: Date.now(), partials: latest.partials === before.partials ? live?.partials ?? {} : latest.partials,
+    loaded: true, settings: s.settings, profile: s.profile, provider: s.provider, live: s.live, liveReceivedAt: Date.now(), partials: s.live?.partials ?? {},
     devMode: s.devMode, helperBuilt: s.helperBuilt, platform: s.platform ?? '', screenToolBuilt: s.screenToolBuilt, hotkey: s.hotkey ?? null, appMode: s.appMode, dataDir: s.dataDir, samples: s.samples ?? [], systemLanguage: s.systemLanguage ?? '',
   });
-  // Deep links (?session=<id>&dialog=settings&tab=ai) open a view directly; used for scripted screenshots too.
-  const q = new URLSearchParams(location.search);
   void loadProjects();
+  // Reconnected (laptop sleep, server restart): the server doesn't replay missed events, so fetch the open session again.
+  const viewing = getState().viewId;
+  if (viewing) return openSession(viewing);
+  // Deep links (?session=<id>&dialog=settings&tab=ai) open a view directly; used for scripted screenshots too.
+  // Read once: a reconnect must not reopen them.
+  const q = new URLSearchParams(location.search);
+  if (location.search) history.replaceState(history.state, '', location.pathname + location.hash);
   const want = q.get('session');
-  if (initial && navigation === navigationVersion && want && !getState().viewId) {
+  if (want) {
     // Evidence links from agents: ?session=…&t=…&t2=… focuses a passage, &frame=… opens a capture.
     const t = Number(q.get('t')), t2 = Number(q.get('t2')), frame = Number(q.get('frame'));
     const focus = q.get('t') && Number.isFinite(t) ? { t, t2: q.get('t2') && Number.isFinite(t2) ? t2 : undefined } : undefined;
-    await openSession(want, focus).catch(() => {});
-    if (getState().viewId === want && q.get('frame') && Number.isFinite(frame)) setState({ dialog: 'frame', frameView: frame });
+    await openSession(want, focus);
+    if (q.get('frame') && Number.isFinite(frame)) setState({ dialog: 'frame', frameView: frame });
   }
   const dlg = q.get('dialog');
-  if (initial && dlg && ['profile', 'settings', 'history', 'start', 'window'].includes(dlg)) setState({ dialog: dlg as AppState['dialog'], settingsTab: q.get('tab') ?? 'language' });
+  if (dlg && ['profile', 'settings', 'history', 'start', 'window'].includes(dlg)) setState({ dialog: dlg as AppState['dialog'], settingsTab: q.get('tab') ?? 'language' });
   // A live session opens directly; otherwise start on the Home screen (recent sessions are listed there).
-  const liveId = getState().live?.session?.id ?? null;
-  if (initial && navigation === navigationVersion && liveId && !getState().viewId) await openSession(liveId);
-  else if (getState().viewId) await refreshSession(getState().viewId!);
+  const liveId = s.live?.session?.id ?? null;
+  if (liveId && !getState().viewId) await openSession(liveId);
 }
 
-/** focus: a passage to scroll to and highlight (evidence links), set together with the data so nothing scrolls past it. */
-export async function openSession(id: string, focus?: { t: number; t2?: number }): Promise<void> {
-  ++navigationVersion;
-  await fetchSession(id, true, focus);
-}
+// Live events for the session being fetched. The response can predate them, so they are merged into it.
+// `changed`: its title, project, speakers or handoff changed meanwhile. Those have no event cursor, so it is read again.
+type Caught = { id: string; segments: Segment[]; frames: Frame[]; outputs: Output[]; changed: boolean };
+let fetching: Caught | null = null;
+let openSeq = 0;
+const caught = (sessionId: string) => (fetching?.id === sessionId ? fetching : null);
+const changedDuringFetch = (sessionId: string) => { const c = caught(sessionId); if (c) c.changed = true; };
+const finished = (o: Output) => o.status !== 'pending' && o.status !== 'streaming';
+/** A live line or capture that a fetched session may already contain. */
+const append = <T extends { id: number }>(list: T[], x: T) => (list.some((y) => y.id === x.id) ? list : [...list, x]);
 
-/** Refresh server data in place: the reader's scroll/focus, draft and selected passage stay intact. */
-export async function refreshSession(id: string): Promise<void> {
-  if (getState().viewId !== id) return;
-  if (sessionRequest?.navigation) { invalidateSnapshot(id); return; }
-  await fetchSession(id, false);
-}
-
-export function goHome(): void {
-  ++navigationVersion;
-  sessionRequest?.controller.abort(); sessionRequest = null;
-  setState({ viewId: null, data: null, deltas: {}, focus: null, attached: null });
-}
-
-async function fetchSession(id: string, navigation: boolean, focus?: { t: number; t2?: number }): Promise<void> {
-  sessionRequest?.controller.abort();
-  const request: SessionRequest = { id, navigation, fromView: getState().viewId, controller: new AbortController(), changes: emptySnapshotChanges(), retry: false };
-  sessionRequest = request;
-  try {
-    while (sessionRequest === request) {
-      request.retry = false; request.changes = emptySnapshotChanges();
-      const snapshot = await api<SessionData>(`/api/sessions/${id}`, { signal: request.controller.signal });
-      if (sessionRequest !== request || getState().viewId !== request.fromView) return;
-      // Titles, project assignments, speaker corrections and handoffs have no common event cursor.
-      // Re-read after those infrequent changes; append-only events and output progress can be merged safely.
-      if (request.retry) continue;
-      const data = mergeSnapshotChanges(snapshot, request.changes);
-      const current = getState();
-      const switching = current.viewId !== id;
-      setState({
-        viewId: id, data, deltas: snapshotDeltas(data, current.deltas),
-        ...(switching ? { focus: null, attached: null } : {}),
-        ...(focus ? { focus: { ...focus, nonce: Date.now() } } : {}),
-      });
-      return;
-    }
-  } catch (error) {
-    if (sessionRequest === request && getState().viewId === id && (error as { status?: number }).status === 404) { goHome(); return; }
-    if (!request.controller.signal.aborted) throw error;
-  } finally {
-    if (sessionRequest === request) sessionRequest = null;
+/** Adds what arrived during the fetch: lines and captures by id, and of two copies of an answer the one that finished. */
+function withCaught(d: SessionData, c: Caught): SessionData {
+  const outputs = d.outputs.slice();
+  for (const o of c.outputs) {
+    const i = outputs.findIndex((x) => x.id === o.id);
+    if (i < 0) outputs.push(o); else if (finished(o) || !finished(outputs[i])) outputs[i] = o;
   }
+  return {
+    ...d, outputs,
+    segments: c.segments.reduce(append, d.segments).sort((a, b) => a.t_start - b.t_start || a.id - b.id),
+    frames: c.frames.reduce(append, d.frames).sort((a, b) => a.t - b.t || a.id - b.id),
+  };
 }
 
-function invalidateSnapshot(id: string | undefined): void {
-  if (id && sessionRequest?.id === id) sessionRequest.retry = true;
-}
-
-function receiveContent(kind: keyof SnapshotChanges, item: Segment | Frame | Output): void {
-  if (sessionRequest?.id === item.session_id) (sessionRequest.changes[kind] as Array<Segment | Frame | Output>).push(item);
+/**
+ * focus: a passage to scroll to and highlight (evidence links), set together with the data so nothing scrolls past it.
+ * Opening the session already shown refreshes it and keeps the attached passage.
+ */
+export async function openSession(id: string, focus?: { t: number; t2?: number }): Promise<void> {
+  const seq = ++openSeq, from = getState().viewId;
+  let c: Caught, d: SessionData | undefined;
+  for (let read = 1; ; read++) {
+    c = { id, segments: [], frames: [], outputs: [], changed: false };
+    fetching = c;
+    d = await api<SessionData>(`/api/sessions/${id}`).catch((e) => {
+      // Deleted while we were disconnected: leave it rather than keep showing it.
+      if ((e as { status?: number }).status === 404 && seq === openSeq && getState().viewId === id) goHome();
+      else notify('error', (e as Error).message, 'action');
+      return undefined;
+    });
+    if (fetching === c) fetching = null;
+    // A later open wins, and leaving the view meanwhile (Home, deleted) cancels this one.
+    if (!d || seq !== openSeq || getState().viewId !== from) return;
+    if (!c.changed || read === 2) break;
+  }
+  const data = withCaught(d, c);
+  const done = new Set(data.outputs.filter(finished).map((o) => o.id));
   setState((s) => {
-    if (s.data?.session.id !== item.session_id) return {};
-    const changes = emptySnapshotChanges();
-    (changes[kind] as Array<Segment | Frame | Output>).push(item);
-    const data = mergeSnapshotChanges(s.data, changes);
-    const deltas = { ...s.deltas };
-    if (kind === 'outputs' && data.outputs.some((o) => o.id === item.id && o.status !== 'pending' && o.status !== 'streaming')) delete deltas[item.id];
-    return { data, ...(kind === 'outputs' ? { deltas } : {}) };
+    const same = s.data?.session.id === id;
+    // Streamed text exists only here until the answer is saved, so keep it for answers still streaming.
+    const deltas = Object.fromEntries(Object.entries(s.deltas).filter(([oid]) => !done.has(oid)));
+    return { viewId: id, data, deltas, focus: focus ? { ...focus, nonce: Date.now() } : same ? s.focus : null, attached: same ? s.attached : null };
   });
+}
+
+/** Refresh the session being viewed in place (its attached passage stays); nothing if another one is shown. */
+export async function refreshSession(id: string): Promise<void> {
+  if (getState().viewId === id) await openSession(id);
+}
+
+/** Back to Home. An open still loading is cancelled, so it can't bring the session back. */
+export function goHome(): void {
+  ++openSeq; fetching = null;
+  setState({ viewId: null, data: null, deltas: {}, focus: null, attached: null });
 }
 
 export function connectEvents(): () => void {
   return subscribe({
     hello: (d) => setState({ live: d.live, liveReceivedAt: Date.now() }),
     live: (live) => {
-      invalidateSnapshot(live.session?.id);
-      invalidateSnapshot(getState().live?.session?.id);
       const prev = getState().live;
       setState({ live, liveReceivedAt: Date.now(), partials: live.partials ?? {} });
       const id = live.session?.id;
-      if (id && id !== prev?.session?.id) void openSession(id).catch((e) => notify('error', (e as Error).message));
+      if (id && id !== prev?.session?.id) void openSession(id);
       if (id && getState().data?.session.id === id) setState((s) => ({ data: s.data ? { ...s.data, session: live.session, live: true } : s.data }));
     },
     tick: (t) => setState((s) => ({ live: s.live ? { ...s.live, nowT: t.nowT, asr: { ...s.live.asr, ...t.asr } } : s.live, liveReceivedAt: Date.now() })),
@@ -138,12 +123,17 @@ export function connectEvents(): () => void {
       if (!cur || cur.uttId > p.uttId) return {};
       const next = { ...s.partials }; delete next[p.source]; return { partials: next };
     }),
-    segment: (seg: Segment) => receiveContent('segments', seg),
-    ai: (o: Output) => receiveContent('outputs', o),
-    frame: (f: Frame) => receiveContent('frames', f),
+    segment: (seg: Segment) => { caught(seg.session_id)?.segments.push(seg); setState((s) => (s.data && s.data.session.id === seg.session_id ? { data: { ...s.data, segments: append(s.data.segments, seg) } } : {})); },
+    ai: (o: Output) => {
+      caught(o.session_id)?.outputs.push(o);
+      // A late progress event can arrive after a read that already has the finished answer (a refresh is a new answer).
+      const have = getState().data?.outputs.find((x) => x.id === o.id);
+      if (!have || !finished(have) || finished(o)) upsertOutput(o);
+    },
+    frame: (f: Frame) => { caught(f.session_id)?.frames.push(f); setState((s) => (s.data && s.data.session.id === f.session_id ? { data: { ...s.data, frames: append(s.data.frames, f) } } : {})); },
     'ai-delta': (d: { id: string; delta: string }) => setState((s) => {
       const output = s.data?.outputs.find((o) => o.id === d.id);
-      if (output && output.status !== 'pending' && output.status !== 'streaming') return {};
+      if (output && finished(output)) return {};
       return { deltas: { ...s.deltas, [d.id]: (s.deltas[d.id] ?? '') + d.delta } };
     }),
     provider: (p) => setState({ provider: p }),
@@ -153,24 +143,20 @@ export function connectEvents(): () => void {
     profile: (p: Profile) => setState({ profile: p }),
     notice: (n) => notify(n.level, n.message, n.code),
     asr: (a) => setState((s) => ({ live: s.live ? { ...s.live, asr: { ...s.live.asr, state: a.state, message: a.message } } : s.live })),
-    'session-ended': (e) => { invalidateSnapshot(e.sessionId); void refreshSession(e.sessionId).catch((err) => notify('error', (err as Error).message)); bumpSessions(); notify('info', t('Session saved. Preparing the final summary…'), 'ended'); },
+    'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); bumpSessions(); notify('info', t('Session saved. Preparing the final summary…'), 'ended'); },
     'session-updated': (sess) => {
-      invalidateSnapshot(sess.id);
+      changedDuringFetch(sess.id);
       setState((s) => ({ sessionsRev: s.sessionsRev + 1, projectWorkRev: s.projectWorkRev + 1, ...(s.data && s.data.session.id === sess.id ? { data: { ...s.data, session: sess } } : {}) }));
     },
-    'session-deleted': (e: { id: string }) => {
-      if (sessionRequest?.id === e.id) { sessionRequest.controller.abort(); sessionRequest = null; }
-      if (getState().viewId === e.id) goHome();
-      bumpSessions();
-    },
+    'mobile-sync': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); bumpSessions(); },
+    'session-deleted': (e: { id: string }) => setState((s) => ({ sessionsRev: s.sessionsRev + 1, ...(s.viewId === e.id ? { viewId: null, data: null } : {}) })),
     handoff: (e: { sessionId: string; handoff: Handoff | null }) => setHandoff(e.sessionId, e.handoff),
     speakers: (e: SpeakerUpdate) => mergeSpeakerUpdate(e),
     projects: () => void loadProjects(),
     'project-work': () => setState((s) => ({ projectWorkRev: s.projectWorkRev + 1 })),
   }, (ok) => {
     setState((s) => ({ connected: ok, ...(ok ? { projectWorkRev: s.projectWorkRev + 1 } : {}) }));
-    if (ok) void loadState().catch((e) => notify('error', (e as Error).message));
-    else { ++stateRequest; if (sessionRequest) sessionRequest.retry = true; }
+    if (ok) void loadState().catch(() => {});
   });
 }
 
@@ -198,7 +184,8 @@ export const pauseSession = () => guard(api('/api/session/pause', { body: {} }))
 export const resumeLive = () => guard(api('/api/session/resume', { body: {} }));
 export async function endSession(): Promise<void> {
   const r = await guard(api('/api/session/end', { body: {} }));
-  if (r?.sessionId) await guard(refreshSession(r.sessionId));
+  // Refreshed only if it is still the one shown: the user may have opened another meanwhile.
+  if (r?.sessionId) await refreshSession(r.sessionId);
 }
 export const resumeSaved = (id: string, source: string) => guard(api(`/api/sessions/${id}/resume`, { body: { source } }));
 
@@ -211,14 +198,14 @@ export const explain = async (term: string, selection: { fromT: number; toT: num
 
 /** A failed submission stays editable; a late success cannot erase work typed or selected after sending. */
 export async function submitQuestion(question: string, mode: 'ask' | 'explain', depth: Depth, effort?: Effort): Promise<{ accepted: boolean; cleared: boolean }> {
-  const before = getState(), navigation = navigationVersion, text = question.trim();
+  const before = getState(), seq = openSeq, text = question.trim();
   if (!before.data || (!text && !before.attached)) return { accepted: false, cleared: false };
   const accepted = mode === 'explain'
     ? await explain(text || before.attached!.text.slice(0, 80), before.attached, depth, undefined, effort)
     : await ask(text || t('What does this passage mean?'), before.attached, depth, [], effort);
   let cleared = false;
   if (accepted) setState((s) => {
-    if (navigation !== navigationVersion || s.viewId !== before.viewId || s.askDraft !== before.askDraft || s.attached !== before.attached) return {};
+    if (seq !== openSeq || s.viewId !== before.viewId || s.askDraft !== before.askDraft || s.attached !== before.attached) return {};
     cleared = true;
     return { askDraft: question === before.askDraft ? '' : s.askDraft, attached: null };
   });
@@ -242,7 +229,7 @@ export async function saveProfile(p: Profile, quiet = false): Promise<boolean> {
 export async function renameSession(id: string, patch: { title?: string; type?: string }): Promise<void> { await guard(api(`/api/sessions/${id}`, { method: 'PATCH', body: patch })); }
 export async function deleteSession(id: string): Promise<boolean> {
   const r = await guard(api(`/api/sessions/${id}`, { method: 'DELETE' }));
-  if (r && getState().viewId === id) goHome();
+  if (r && getState().viewId === id) setState({ viewId: null, data: null });
   if (r) bumpSessions();
   return !!r;
 }
@@ -262,7 +249,7 @@ export async function refreshProvider(): Promise<void> { const p = await guard(a
 
 // Speaker updates replace annotations without resetting the viewed passage or attached question.
 export function mergeSpeakerUpdate(update: SpeakerUpdate): void {
-  invalidateSnapshot(update.sessionId);
+  changedDuringFetch(update.sessionId);
   setState((s) => {
     if (!s.data || s.data.session.id !== update.sessionId || update.session.revision < s.data.session.revision) return {};
     // Keep unchanged objects, so memoized transcript rows and cards only re-render where something changed.
@@ -318,7 +305,7 @@ export async function assignProject(sessionId: string, projectId: string | null)
 
 // ---------------------------------------------------------------- reviewed handoff
 function setHandoff(sessionId: string, handoff: Handoff | null): void {
-  invalidateSnapshot(sessionId);
+  changedDuringFetch(sessionId);
   setState((s) => {
     if (!s.data || s.data.session.id !== sessionId) return { projectWorkRev: s.projectWorkRev + 1 };
     const current = s.data.handoff;

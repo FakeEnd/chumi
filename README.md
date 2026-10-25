@@ -17,14 +17,11 @@
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
-<p align="center">
-  <!-- Uploaded as a comment on PR #5, so GitHub streams it inline from this user-attachments URL. A video file in the
-       repository only downloads. Renderers that strip <video> show the poster link inside instead. -->
-  <video src="https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d" controls width="760" poster="https://raw.githubusercontent.com/FakeEnd/chumi/main/docs/assets/chumi-promo-poster.jpg">
-    <a href="https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d"><img src="docs/assets/chumi-promo-poster.jpg" width="760" alt="Watch the 59-second Chumi video: a catch-up and an explanation during an NLP lab meeting, playing the recording back from a line, a reviewed handoff, Claude Code picking up the work through Chumi's MCP server, and the next question answered from the agent's earlier session"></a>
-  </video>
-</p>
-<p align="center"><sub>▶ The 59-second tour, with music · player not loading? <a href="https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d">Open the video</a> · <a href="https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc">中文版</a> · faster cuts to download: <a href="docs/assets/chumi-promo-1.5x.mp4">40 s</a>, <a href="docs/assets/chumi-promo-2x.mp4">30 s</a></sub></p>
+<!-- Keep this attachment URL on its own line so GitHub generates its native player. -->
+
+https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d
+
+<p align="center"><sub>▶ The 59-second tour, with music · <a href="README.zh-CN.md">中文版</a> · player blank or stuck? <a href="docs/assets/chumi-promo.mp4?raw=1">Download the MP4</a> · faster cuts to download: <a href="docs/assets/chumi-promo-1.5x.mp4?raw=1">40 s</a>, <a href="docs/assets/chumi-promo-2x.mp4?raw=1">30 s</a></sub></p>
 
 ---
 
@@ -127,6 +124,7 @@ On first launch, the **Get Chumi ready** checklist on Home covers the rest: AI s
 - **Check an install:** `npm run doctor` prints the fix for anything missing.
 - **In a browser:** `npm start`, then open http://127.0.0.1:4777.
 - **Windows (desktop preview):** an installer with microphone and computer-audio capture, local speech recognition and Codex. It has passed real end-to-end checks on Windows 11. See [docs/windows.md](docs/windows.md).
+- **iPhone (prototype):** a SwiftUI app in [`ios/`](ios/README.md) records and transcribes on the phone with Apple Speech, and pairs with Chumi on the Mac for AI help. It needs full Xcode and hasn't yet been compiled or tested on a device. See [the iPhone guide](ios/README.md).
 
 ## Choose an AI
 

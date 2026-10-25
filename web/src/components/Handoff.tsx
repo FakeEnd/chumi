@@ -7,6 +7,7 @@ import { msg, plural, t } from '../i18n.ts';
 import { Dialog } from './Dialog.tsx';
 import { focusTime } from './Transcript.tsx';
 import { ProjectSelect } from './Projects.tsx';
+import { onEnter } from '../keys.ts';
 import type { EvidenceRef, Handoff, HandoffItem } from '../types.ts';
 import { AGENT_NAMES, type AgentId } from '../../../shared/agents.ts';
 import { ActionProgress } from './ActionProgress.tsx';
@@ -100,11 +101,12 @@ function ItemRow({ item, locked, trackProgress, refresh }: { item: HandoffItem; 
 function AddItem({ handoff, kind }: { handoff: Handoff; kind: HandoffItem['kind'] }) {
   const [text, setText] = useState('');
   const [open, setOpen] = useState(false);
+  const add = () => { if (!text.trim()) return; void addHandoffItem(handoff.id, kind, text); setText(''); setOpen(false); };
   if (!open) return <button className="link-btn small" onClick={() => setOpen(true)}>+ {t('Add your own')}</button>;
   return (
     <div className="field-row">
-      <input className="grow" autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={t('Describe it in one sentence')} onKeyDown={(e) => { if (e.key === 'Enter' && text.trim()) { void addHandoffItem(handoff.id, kind, text); setText(''); setOpen(false); } }} />
-      <button className="btn small" disabled={!text.trim()} onClick={() => { void addHandoffItem(handoff.id, kind, text); setText(''); setOpen(false); }}>{t('Add')}</button>
+      <input className="grow" autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={t('Describe it in one sentence')} onKeyDown={onEnter(add)} />
+      <button className="btn small" disabled={!text.trim()} onClick={add}>{t('Add')}</button>
     </div>
   );
 }

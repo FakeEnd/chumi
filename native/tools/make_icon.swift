@@ -1,15 +1,25 @@
 // make_icon.swift — renders the Chumi app icon (same design as assets/logo.svg) to a 1024×1024 PNG.
-// Usage: make_icon <out.png>
+// Usage: make_icon <out.png> [--full-bleed]
+// --full-bleed draws the tile edge to edge, square and opaque, as iOS app icons need (iOS applies its own mask):
+//   make_icon ios/Chumi/Assets.xcassets/AppIcon.appiconset/AppIcon.png --full-bleed
 import AppKit
 
-let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "icon.png"
+let args = CommandLine.arguments.dropFirst()
+let fullBleed = args.contains("--full-bleed")
+let out = args.first { !$0.hasPrefix("--") } ?? "icon.png"
 let size = 1024
 let cs = CGColorSpaceCreateDeviceRGB()
+let alpha = fullBleed ? CGImageAlphaInfo.noneSkipLast : CGImageAlphaInfo.premultipliedLast
 guard let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0, space: cs,
-                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { exit(1) }
+                          bitmapInfo: alpha.rawValue) else { exit(1) }
 // Use SVG coordinates (y down) so the geometry matches assets/logo.svg exactly.
 ctx.translateBy(x: 0, y: CGFloat(size))
 ctx.scaleBy(x: 1, y: -1)
+if fullBleed {
+    // Map the 824-unit tile (100…924) onto the whole canvas.
+    ctx.scaleBy(x: CGFloat(size) / 824, y: CGFloat(size) / 824)
+    ctx.translateBy(x: -100, y: -100)
+}
 
 func rgb(_ hex: UInt32) -> CGColor {
     CGColor(red: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
@@ -24,7 +34,9 @@ func fillGradient(_ path: CGPath, _ g: CGGradient, from: CGPoint, to: CGPoint) {
 }
 
 // App tile
-let tile = CGPath(roundedRect: CGRect(x: 100, y: 100, width: 824, height: 824), cornerWidth: 190, cornerHeight: 190, transform: nil)
+let tileRect = CGRect(x: 100, y: 100, width: 824, height: 824)
+let tile = fullBleed ? CGPath(rect: tileRect, transform: nil)
+    : CGPath(roundedRect: tileRect, cornerWidth: 190, cornerHeight: 190, transform: nil)
 fillGradient(tile, gradient(0x4338CA, 0x0E9FB8), from: CGPoint(x: 100, y: 100), to: CGPoint(x: 924, y: 924))
 
 // Speech bubble (rounded body + tail)

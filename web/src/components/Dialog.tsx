@@ -1,10 +1,11 @@
 import { useEffect, type ReactNode } from 'react';
 import { setState } from '../store.ts';
 import { t } from '../i18n.ts';
+import { composing } from '../keys.ts';
 
 export function Dialog({ title, children, wide = false, footer, className = '' }: { title: string; children: ReactNode; wide?: boolean; footer?: ReactNode; className?: string }) {
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setState({ dialog: null }); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !composing(e)) setState({ dialog: null }); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);

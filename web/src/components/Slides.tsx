@@ -5,8 +5,11 @@ import { fmtT } from '../util.ts';
 import { Dialog } from './Dialog.tsx';
 import { WindowPicker } from './WindowPicker.tsx';
 import { focusTime } from './Transcript.tsx';
-import type { WindowInfo } from '../types.ts';
+import type { Frame, WindowInfo } from '../types.ts';
 import { plural, t, tn } from '../i18n.ts';
+
+// A selector must return the same value while nothing changed, so no fresh [] for a missing session.
+const NO_FRAMES: Frame[] = [];
 
 /** Horizontal strip of captured slides/screens for the open session. */
 export function SlideStrip() {
@@ -37,7 +40,7 @@ export function SlideStrip() {
 
 export function FrameViewer() {
   const id = useStore((s) => s.frameView);
-  const frames = useStore((s) => s.data?.frames ?? []);
+  const frames = useStore((s) => s.data?.frames ?? NO_FRAMES);
   const depth = useStore((s) => s.settings?.assist.defaultDepth ?? 'standard');
   const idx = frames.findIndex((f) => f.id === id);
   const f = frames[idx];

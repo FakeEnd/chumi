@@ -8,9 +8,9 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { Store } from '../server/db.ts';
-import { findAudioHelper, REPO_ROOT, WEB_DIST, which } from '../server/paths.ts';
+import { findAudioHelper, findClaude, findHotkeyTool, findScreenTool, REPO_ROOT, WEB_DIST, which } from '../server/paths.ts';
 import { isInstalled } from '../server/asr/models.ts';
 import { speakerRuntime } from '../server/speakers/runtime.ts';
 
@@ -42,6 +42,13 @@ const helper = findAudioHelper();
 add(helper ? 'ok' : 'problem', 'Audio helper built', helper ? undefined : 'bash native/build.sh');
 const app = join(REPO_ROOT, 'build', 'Chumi.app');
 add(existsSync(app) ? 'ok' : 'problem', 'Chumi.app built', existsSync(app) ? undefined : 'bash native/build.sh');
+// A binary built for the other CPU fails with "Bad CPU type" (hw.optional.arm64 is 1 on Apple Silicon, even under Rosetta).
+const cpu = run('/usr/sbin/sysctl', ['-in', 'hw.optional.arm64'])?.trim() === '1' ? 'arm64' : 'x86_64';
+const archsOf = (b: string) => [...(run('/usr/bin/file', ['-b', b]) ?? '').matchAll(/executable (\w+)/g)].map((m) => m[1]);
+const wrongCpu = [join(app, 'Contents', 'MacOS', 'Chumi'), helper, findHotkeyTool(), findScreenTool()]
+  .filter((b): b is string => !!b && existsSync(b))
+  .filter((b) => { const archs = archsOf(b); return archs.length > 0 && !archs.some((a) => a.startsWith(cpu)); });
+if (wrongCpu.length) add('problem', `Built for another CPU (this Mac is ${cpu}): ${wrongCpu.map((b) => basename(b)).join(', ')}`, 'bash native/build.sh');
 
 // AI
 const provider = settings.ai.provider;
@@ -51,10 +58,14 @@ if (provider === 'codex') {
   else if (!status?.includes('ChatGPT')) add('problem', 'AI: Codex is not signed in with ChatGPT', 'codex login   (choose "Sign in with ChatGPT")');
   else add('ok', 'AI: ChatGPT plan through Codex, signed in');
 } else if (provider === 'claude-cli') {
-  const status = which('claude') ? run('claude', ['auth', 'status']) : null;
-  if (!which('claude')) add('problem', 'AI: Claude plan selected, but Claude Code is not installed', 'npm install -g @anthropic-ai/claude-code && claude auth login');
-  else if (!/"loggedIn":\s*true/.test(status ?? '')) add('problem', 'AI: Claude Code is not signed in', 'claude auth login');
+  const claude = findClaude();
+  // Found only in the Claude app's folder: Chumi can use it, but `claude` in Terminal does not reach it.
+  const cmd = claude && !which('claude') ? `'${claude}'` : 'claude';
+  const status = claude ? run(claude, ['auth', 'status']) : null;
+  if (!claude) add('problem', 'AI: Claude plan selected, but Claude Code is not installed', 'npm install -g @anthropic-ai/claude-code && claude auth login');
+  else if (!/"loggedIn":\s*true/.test(status ?? '')) add('problem', 'AI: Claude Code is not signed in', `${cmd} auth login`);
   else add('ok', 'AI: Claude plan through Claude Code, signed in');
+  if (claude && cmd !== 'claude') add('note', `Claude Code found in the Claude app: ${claude}. The claude command in Terminal does not reach it`, `ln -sf ${cmd} ~/.local/bin/claude`);
 } else if (provider === 'compatible') {
   const c = settings.ai.compatible, profile = c.profiles[c.preset];
   add(profile.enabled && profile.model ? 'ok' : 'problem', `AI: ${c.preset} model ${profile.model || '(none chosen)'}`, profile.enabled && profile.model ? undefined : 'Open Chumi → Settings → AI provider → Other models, choose a model, and save');

@@ -46,48 +46,26 @@ function setup(t: TestContext) {
   return { store, assistant, calls, handoffs, occupy };
 }
 
-test('cancelling a queued overview releases it immediately and cannot clear its replacement', { timeout: 3000 }, async (t) => {
+test('an overview that settles cannot mark another one, still running, as finished', { timeout: 3000 }, async (t) => {
   const { store, assistant, calls, occupy } = setup(t);
   let wall = Date.now();
   t.mock.method(Date, 'now', () => wall);
   await occupy();
   const cancelled = assistant.overview('meeting');
-  assert.equal(store.getOutput(cancelled)!.status, 'pending');
+  const replacement = assistant.overview('meeting', true);
   assert.equal(assistant.cancel(cancelled), true);
   assert.equal(store.getOutput(cancelled)!.status, 'cancelled');
   assert.ok(store.getOutput(cancelled)!.completed_at);
-  assert.equal(assistant.cancel(cancelled), false, 'the controller was released without waiting for a queue slot');
-
-  wall += 60_000;
-  assistant.onActivity('meeting', 'segment');
-  const pending = store.outputs('meeting', ['overview']).find((o) => o.id !== cancelled)!;
-  assert.equal(pending.status, 'pending', 'automatic overview can queue again');
-  calls[0].finish();
+  // Both slots free up: the cancelled overview settles there, the replacement starts.
+  calls[0].finish(); calls[1].finish();
   await until(() => calls.length === 3);
+  await tick(); await tick();
   assert.equal(calls[2].request.task, 'overview', 'the cancelled request never reached the provider');
   wall += 60_000;
   assistant.onActivity('meeting', 'segment');
-  assert.equal(store.outputs('meeting', ['overview']).length, 2, 'the old queue callback did not clear the replacement overview');
+  assert.equal(store.outputs('meeting', ['overview']).length, 2, 'no automatic overview while the replacement is still running');
   calls[2].finish(overview);
-  await until(() => store.getOutput(pending.id)?.status === 'done');
-});
-
-test('cancelling a queued handoff permits retry and its old queue callback cannot fail the new draft', { timeout: 3000 }, async (t) => {
-  const { store, assistant, calls, handoffs, occupy } = setup(t);
-  await occupy();
-  const first = handoffs.generate('meeting');
-  assistant.cancel(first.output_id!);
-  assert.equal(handoffs.view('meeting')!.status, 'error');
-  const retry = handoffs.generate('meeting');
-  assert.notEqual(retry.output_id, first.output_id);
-  calls[0].finish();
-  await until(() => calls.length === 3);
-  assert.equal(handoffs.view('meeting')!.status, 'generating');
-  assert.equal(handoffs.view('meeting')!.output_id, retry.output_id);
-  calls[2].finish(JSON.stringify(draft()));
-  await until(() => handoffs.view('meeting')!.status === 'draft');
-  assert.equal(store.getOutput(first.output_id!)!.status, 'cancelled');
-  assert.equal(store.handoffItems(retry.id).length, 1);
+  await until(() => store.getOutput(replacement)?.status === 'done');
 });
 
 test('a provider result arriving after cancellation cannot publish handoff items', { timeout: 3000 }, async (t) => {

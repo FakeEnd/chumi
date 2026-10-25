@@ -13,3 +13,10 @@ samples/**/*.wav
 config/local.json
 *.log
 .DS_Store
+
+# per-user tool state (Claude Code worktrees and settings, Xcode user data)
+.claude/
+**/xcuserdata/
+*.xcuserstate
+# iOS signing files
+ios/**/*.mobileprovision

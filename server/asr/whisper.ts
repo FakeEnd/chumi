@@ -27,6 +27,11 @@ function killStale(): void {
   try { rmSync(PID_FILE); } catch { /* ignore */ }
 }
 
+/** Remove the PID file only if it still names this process (a replacement may have written its own). */
+function clearPidFile(pid: number | undefined): void {
+  try { if (pid && Number(readFileSync(PID_FILE, 'utf8').trim()) === pid) rmSync(PID_FILE); } catch { /* already gone */ }
+}
+
 function freePort(start: number): Promise<number> {
   return new Promise((resolve) => {
     const tryPort = (p: number) => {
@@ -95,25 +100,41 @@ export class WhisperServer extends EventEmitter<{ state: [AsrState, string | nul
     const keepTail = (d: Buffer) => { tail = (tail + d.toString()).slice(-4000); };
     proc.stdout!.on('data', keepTail); proc.stderr!.on('data', keepTail);
     proc.on('exit', (code) => {
+      clearPidFile(proc.pid);
+      if (this.proc !== proc) return; // Already given up on (startup timed out) or replaced: its exit changes nothing.
       this.proc = null;
-      try { rmSync(PID_FILE); } catch { /* ignore */ }
       if (!this.wanted) { this.setState('stopped'); return; }
       log('asr', `whisper-server exited (code ${code}). Tail:\n${tail.slice(-800)}`);
       this.setState('error', `Speech engine stopped unexpectedly (code ${code}); restarting…`);
       const delay = Math.min(30000, 1000 * 2 ** this.restarts++);
       setTimeout(() => { if (this.wanted) this.ensure().catch(() => {}); }, delay);
     });
+    proc.on('error', (e) => {
+      log('asr', `whisper-server could not run: ${e.message}`);
+      if (this.proc === proc) this.proc = null; // Ends the startup wait below.
+    });
     const deadline = Date.now() + 120_000;
     while (Date.now() < deadline) {
-      if (!this.proc) throw new Error('whisper-server exited during startup');
+      if (this.proc !== proc) throw new Error('whisper-server exited during startup');
       try {
         const r = await fetch(`http://127.0.0.1:${this.port}/`, { signal: AbortSignal.timeout(1000) });
         if (r.ok) { this.restarts = 0; this.setState('ready'); log('asr', `whisper-server ready on ${this.port}`); return; }
       } catch { /* not up yet */ }
       await new Promise((r) => setTimeout(r, 300));
     }
+    // Stop it, or the next attempt would start a second server next to this one.
+    this.discard(proc);
     this.setState('error', 'Speech engine did not start within 2 minutes.');
     throw new Error(this.message!);
+  }
+
+  /** Stop a process this server no longer tracks; SIGKILL if it ignores SIGTERM. */
+  private discard(proc: ChildProcess): void {
+    if (this.proc === proc) this.proc = null;
+    if (proc.exitCode !== null || proc.signalCode !== null) return;
+    const kill = setTimeout(() => { try { proc.kill('SIGKILL'); } catch { /* already gone */ } }, 3000);
+    proc.once('exit', () => clearTimeout(kill));
+    try { proc.kill('SIGTERM'); } catch { /* already gone */ }
   }
 
   async stop(): Promise<void> {

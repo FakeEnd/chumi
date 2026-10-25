@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { CODEX_WORKDIR, which } from '../paths.ts';
+import { aiWorkdir, findClaude } from '../paths.ts';
 import { runCommand, spawnCommand, stopProcess } from '../platform.ts';
 import { ProviderError, type AIProvider, type CompletionRequest, type CompletionResult, type ProviderStatus } from './provider.ts';
 
@@ -24,6 +24,10 @@ const STRIP_ENV = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_
 
 interface RateInfo { status?: string; resetsAt?: number; rateLimitType?: string; isUsingOverage?: boolean; overageStatus?: string; utilization?: number }
 
+/** A request that prints nothing for this long is stuck; none may take longer than the cap. Either frees its AI queue slot. */
+const IDLE_MS = 5 * 60_000;
+const OVERALL_MS = 15 * 60_000;
+
 export class ClaudeCliProvider implements AIProvider {
   readonly id = 'claude-cli';
   readonly label = 'Claude plan (via Claude Code CLI)';
@@ -33,8 +37,12 @@ export class ClaudeCliProvider implements AIProvider {
   private lastRate: RateInfo | null = null;
   private overageBlocked = false;
   private lastStatus: ProviderStatus | null = null;
+  private limits: { idleMs: number; overallMs: number };
 
-  constructor(cfg: () => { model: string }) { this.cfg = cfg; }
+  constructor(cfg: () => { model: string }, limits: { idleMs?: number; overallMs?: number } = {}) {
+    this.cfg = cfg;
+    this.limits = { idleMs: limits.idleMs ?? IDLE_MS, overallMs: limits.overallMs ?? OVERALL_MS };
+  }
 
   private childEnv(): NodeJS.ProcessEnv {
     const env = { ...process.env };
@@ -45,7 +53,7 @@ export class ClaudeCliProvider implements AIProvider {
   async status(refresh = false): Promise<ProviderStatus> {
     if (!refresh && this.lastStatus && Date.now() - this.lastStatus.checkedAt < 60_000) return this.lastStatus;
     const base = { id: this.id, label: this.label, checkedAt: Date.now(), model: this.cfg().model };
-    const bin = which('claude');
+    const bin = findClaude();
     if (!bin) {
       return this.lastStatus = { ...base, billing: 'none', billingLabel: 'Not installed', state: 'not_installed', ready: false,
         quota: { known: false, summary: 'Quota information unavailable.' }, message: 'Claude Code CLI not found.', setupHint: 'Install Claude Code, then run: claude auth login' };
@@ -97,7 +105,7 @@ export class ClaudeCliProvider implements AIProvider {
   async complete(req: CompletionRequest): Promise<CompletionResult> {
     const st = await this.status();
     if (!st.ready) throw new ProviderError(st.state === 'signed_out' ? 'auth' : st.state === 'quota_blocked' ? 'quota_gate' : 'unavailable', `${st.message ?? 'Claude is not ready.'} ${st.setupHint ?? ''}`.trim());
-    const bin = which('claude')!;
+    const bin = findClaude()!;
     const model = this.cfg().model;
     let instructions = req.instructions;
     if (req.jsonSchema) instructions += `\n\nReturn ONLY a JSON object (no prose, no code fences) matching this JSON Schema:\n${JSON.stringify(req.jsonSchema)}`;
@@ -105,44 +113,71 @@ export class ClaudeCliProvider implements AIProvider {
       '--system-prompt', instructions, '--tools', '', '--strict-mcp-config', '--no-session-persistence'];
     const effort = req.effort && !/haiku/i.test(model) ? req.effort : null;
     if (effort) args.push('--effort', effort);
-    const proc = spawnCommand(bin, args, { cwd: CODEX_WORKDIR, env: this.childEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-    // One user message: screen captures (if any) as image blocks, then the text.
+    // One user message: screen captures (if any) as image blocks, then the text. Read before spawning, so a missing file leaves no child behind.
     const content = [
       ...(req.images ?? []).map((im) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: readFileSync(im.path).toString('base64') } })),
       { type: 'text', text: req.input },
     ];
+    if (req.signal?.aborted) throw new ProviderError('aborted', 'Request cancelled.');
+    const proc = spawnCommand(bin, args, { cwd: aiWorkdir(), env: this.childEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    let killTimer: NodeJS.Timeout | undefined;
+    const stop = () => { stopProcess(proc); killTimer ??= setTimeout(() => stopProcess(proc, 'SIGKILL'), 2000); };
+    let timedOut: string | null = null;
+    const expire = (why: string) => { timedOut ??= why; stop(); };
+    const { idleMs, overallMs } = this.limits;
+    const minutes = (ms: number) => `${Math.round(ms / 6000) / 10} min`;
+    const arm = () => setTimeout(() => expire(`Claude Code sent nothing for ${minutes(idleMs)}; the request was stopped.`), idleMs);
+    let idle = arm();
+    const cap = setTimeout(() => expire(`Claude Code did not finish within ${minutes(overallMs)}; the request was stopped.`), overallMs);
+    const alive = () => { clearTimeout(idle); idle = arm(); };
+    proc.stdin!.on('error', () => { /* the process already exited; reported below */ });
     proc.stdin!.end(JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n');
-    const onAbort = () => stopProcess(proc);
+    const onAbort = () => stop();
     req.signal?.addEventListener('abort', onAbort, { once: true });
     let text = '', result: string | null = null, errMsg: string | null = null, buf = '', stderr = '';
     let billingViolation: string | null = null;
-    proc.stderr!.on('data', (d: Buffer) => { stderr = (stderr + d.toString()).slice(-2000); });
+    const onLine = (raw: string) => {
+      const line = raw.trim();
+      if (!line) return;
+      let m: Record<string, any>;
+      try { m = JSON.parse(line); } catch { return; }
+      if (m.type === 'system' && m.subtype === 'init' && m.apiKeySource && m.apiKeySource !== 'none') {
+        billingViolation = `Claude Code is using an API key (${m.apiKeySource}); request aborted to avoid API billing.`;
+        stop();
+      } else if (m.type === 'stream_event' && m.event?.type === 'content_block_delta' && m.event.delta?.type === 'text_delta') {
+        text += m.event.delta.text; req.onDelta?.(m.event.delta.text);
+      } else if (m.type === 'rate_limit_event' && m.rate_limit_info) {
+        this.lastRate = m.rate_limit_info as RateInfo;
+        if (this.lastRate.isUsingOverage) { this.overageBlocked = true; this.lastStatus = null; }
+      } else if (m.type === 'result') {
+        if (m.is_error) errMsg = String(m.result ?? m.subtype ?? 'error'); else result = String(m.result ?? '');
+      }
+    };
+    proc.stderr!.on('data', (d: Buffer) => { alive(); stderr = (stderr + d.toString()).slice(-2000); });
     proc.stdout!.on('data', (d: Buffer) => {
+      alive();
       buf += d.toString('utf8');
       let i;
-      while ((i = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-        if (!line) continue;
-        let m: Record<string, any>;
-        try { m = JSON.parse(line); } catch { continue; }
-        if (m.type === 'system' && m.subtype === 'init' && m.apiKeySource && m.apiKeySource !== 'none') {
-          billingViolation = `Claude Code is using an API key (${m.apiKeySource}); request aborted to avoid API billing.`;
-          stopProcess(proc);
-        } else if (m.type === 'stream_event' && m.event?.type === 'content_block_delta' && m.event.delta?.type === 'text_delta') {
-          text += m.event.delta.text; req.onDelta?.(m.event.delta.text);
-        } else if (m.type === 'rate_limit_event' && m.rate_limit_info) {
-          this.lastRate = m.rate_limit_info as RateInfo;
-          if (this.lastRate.isUsingOverage) { this.overageBlocked = true; this.lastStatus = null; }
-        } else if (m.type === 'result') {
-          if (m.is_error) errMsg = String(m.result ?? m.subtype ?? 'error'); else result = String(m.result ?? '');
-        }
-      }
+      while ((i = buf.indexOf('\n')) >= 0) { onLine(buf.slice(0, i)); buf = buf.slice(i + 1); }
     });
-    const code = await new Promise<number | null>((resolve) => proc.on('exit', resolve));
+    // 'close' comes after stdout is fully read, so the final result line is never missed. If something the CLI
+    // started keeps the pipes open after it exits, stop waiting shortly after the exit.
+    const done = await new Promise<{ code: number | null; error: Error | null }>((resolve) => {
+      let lingering: NodeJS.Timeout | undefined;
+      const finish = (v: { code: number | null; error: Error | null }) => { clearTimeout(lingering); resolve(v); };
+      proc.on('error', (error) => finish({ code: null, error }));
+      proc.on('exit', (code) => { lingering = setTimeout(() => finish({ code, error: null }), 5000); });
+      proc.on('close', (code) => finish({ code, error: null }));
+    });
+    clearTimeout(idle); clearTimeout(cap); clearTimeout(killTimer);
+    onLine(buf);
+    const code = done.code;
     req.signal?.removeEventListener('abort', onAbort);
     if (req.signal?.aborted) throw new ProviderError('aborted', 'Request cancelled.');
     if (billingViolation) throw new ProviderError('billing_safety', billingViolation);
     if (this.overageBlocked) throw new ProviderError('quota_gate', 'Claude Code reported paid extra usage; Chumi discarded the result and paused AI requests to avoid charges.');
+    if (done.error) throw new ProviderError('unavailable', `Could not run Claude Code: ${done.error.message}`, true);
+    if (timedOut) throw new ProviderError('network', timedOut, true);
     if (errMsg) {
       if (/rate.?limit|usage limit|limit reached|429/i.test(errMsg)) throw new ProviderError('quota', `Claude plan limit reached: ${errMsg}`);
       if (/auth|log ?in|credential|401/i.test(errMsg)) throw new ProviderError('auth', `Claude Code authentication problem: ${errMsg}. Run "claude auth login".`);

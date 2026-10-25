@@ -67,12 +67,13 @@ export class Assistant {
   private registry: ProviderRegistry;
   private broadcast: Broadcast;
   private queue = new AsyncQueue(2);
-  private controllers = new Map<string, AbortController>();
-  private pendingSettlers = new Map<string, () => void>();
+  private controllers = new Map<string, { controller: AbortController; sessionId: string }>();
   private autoEpoch = 0;
   private autoInflight: AbortController | null = null;
+  private autoInflightSession: string | null = null;
   private autoCheck = new Map<string, { wall: number; t: number }>();
   private autoCardWalls: number[] = [];
+  /** One token per running overview, so a newer one isn't marked finished when an older one settles. */
   private overviewInflight = new Map<string, Set<symbol>>();
   private lastOverviewWall = new Map<string, number>();
   private backoffUntil = 0;
@@ -135,17 +136,7 @@ export class Assistant {
     });
     this.broadcast('ai', publicOutput(row));
     const controller = new AbortController();
-    this.controllers.set(id, controller);
-    // Queued cancellations settle immediately; the queue callback must not settle a replacement again.
-    let settled = false;
-    const settle = () => {
-      if (settled) return;
-      settled = true;
-      this.controllers.delete(id);
-      this.pendingSettlers.delete(id);
-      o.onSettled?.();
-    };
-    this.pendingSettlers.set(id, settle);
+    this.controllers.set(id, { controller, sessionId: o.sessionId });
     this.queue.push(async () => {
       let pendingDelta = '';
       let flushTimer: NodeJS.Timeout | null = null;
@@ -154,8 +145,8 @@ export class Assistant {
         pendingDelta = ''; flushTimer = null;
       };
       try {
-        if (controller.signal.aborted) return;
-        this.pendingSettlers.delete(id);
+        // Cancelled while queued: still settle below, so callers waiting on it (overview, handoff) are released.
+        if (controller.signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
         this.update(id, { status: 'streaming' });
         const built = await o.build(controller.signal);
         if (controller.signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
@@ -180,8 +171,8 @@ export class Assistant {
           provider: meta.provider, model: meta.model, billing: meta.billing, completed_at: Date.now(),
         });
         this.backoffUntil = 0;
-        o.after?.(this.store.getOutput(id)!);
-        this.onOutputDone(this.store.getOutput(id)!);
+        const done = this.store.getOutput(id);
+        if (done) { o.after?.(done); this.onOutputDone(done); } // Gone if the meeting was deleted meanwhile.
       } catch (e) {
         if (flushTimer) clearTimeout(flushTimer);
         const err = e as ProviderError;
@@ -191,7 +182,8 @@ export class Assistant {
         log('ai', `${o.kind} failed (${kind}): ${err.message}`);
         this.update(id, { status: kind === 'aborted' ? 'cancelled' : 'error', error: message, data_json: JSON.stringify({ ...asked, errorKind: kind }), completed_at: Date.now() });
       } finally {
-        settle();
+        this.controllers.delete(id);
+        o.onSettled?.();
       }
     }, o.prio);
     return id;
@@ -206,11 +198,18 @@ export class Assistant {
   cancel(id: string): boolean {
     const c = this.controllers.get(id);
     if (!c) return false;
-    c.abort();
+    c.controller.abort();
     const row = this.store.getOutput(id);
     if (row && row.status === 'pending') this.update(id, { status: 'cancelled', error: 'Cancelled.', completed_at: Date.now() });
-    this.pendingSettlers.get(id)?.();
     return true;
+  }
+
+  /** The meeting is being deleted: stop its queued and running work and forget its scheduling state. */
+  cancelSession(sessionId: string): void {
+    for (const c of this.controllers.values()) if (c.sessionId === sessionId) c.controller.abort();
+    if (this.autoInflight && this.autoInflightSession === sessionId) { this.autoInflight.abort(); this.autoInflight = null; }
+    this.autoCheck.delete(sessionId);
+    this.lastOverviewWall.delete(sessionId);
   }
 
   private complete(req: CompletionRequest) { return this.registry.complete(req); }
@@ -501,6 +500,7 @@ export class Assistant {
     const epoch = this.autoEpoch;
     const controller = new AbortController();
     this.autoInflight = controller;
+    this.autoInflightSession = sessionId;
     this.stats.autoRequests++;
     const maxCards = Math.max(1, Math.min(2, freq.maxPer10 - this.autoCardWalls.length));
     this.queue.push(async () => {

@@ -17,14 +17,11 @@
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
-<p align="center">
-  <!-- 作为 PR #5 的评论上传，GitHub 才能从这个 user-attachments 地址在页面里直接播放；放在仓库里的视频文件只能下载。
-       不支持 <video> 的页面会显示里面的封面链接。 -->
-  <video src="https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc" controls width="760" poster="https://raw.githubusercontent.com/FakeEnd/chumi/main/docs/assets/chumi-promo-zh-poster.jpg">
-    <a href="https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc"><img src="docs/assets/chumi-promo-zh-poster.jpg" width="760" alt="观看 59 秒 Chumi 介绍视频：在 NLP 组会中回顾讨论、按个人背景讲解、从任意转写行回放录音；审阅交接内容后，由 Claude Code 通过 Chumi 的 MCP 服务继续工作，并在后续提问中引用智能体的历史会话"></a>
-  </video>
-</p>
-<p align="center"><sub>▶ 59 秒介绍视频（有背景音乐）· 播放器打不开？<a href="https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc">直接打开视频</a> · <a href="https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d">英文版</a> · 加速版下载：<a href="docs/assets/chumi-promo-zh-1.5x.mp4">40 秒</a>、<a href="docs/assets/chumi-promo-zh-2x.mp4">30 秒</a></sub></p>
+<!-- 附件地址单独成行，GitHub 才能生成原生播放器。 -->
+
+https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc
+
+<p align="center"><sub>▶ 59 秒介绍视频（有背景音乐）· <a href="README.md">English version</a> · 播放器空白或卡住？<a href="docs/assets/chumi-promo-zh.mp4?raw=1">下载 MP4</a> · 快剪版下载：<a href="docs/assets/chumi-promo-zh-1.5x.mp4?raw=1">40 秒</a>、<a href="docs/assets/chumi-promo-zh-2x.mp4?raw=1">30 秒</a></sub></p>
 
 ---
 
@@ -127,6 +124,7 @@ curl -fsSL https://raw.githubusercontent.com/FakeEnd/chumi/main/scripts/install.
 - **检查安装：** 运行 `npm run doctor`，查看缺失组件及对应的修复命令。
 - **在浏览器中使用：** 运行 `npm start`，然后打开[本地页面](http://127.0.0.1:4777)。
 - **Windows（桌面预览版）：** 安装包自带麦克风和电脑声音采集、本地语音识别和 Codex，已在 Windows 11 上通过真实的端到端验证。见 [docs/windows.md](docs/windows.md)。
+- **iPhone（开发原型）：** [`ios/`](ios/README.zh-CN.md) 里的原生 SwiftUI 工程支持手机录音、本地 Apple Speech 转写，以及配对 Mac 后的会议问答。需要完整 Xcode，尚未完成 iOS 编译和真机验证。见 [iPhone 开发指南](ios/README.zh-CN.md)。
 
 ## 选择 AI
 

@@ -16,16 +16,18 @@ interface Run {
   input: AudioInput;
   offsetMs: number;            // session-time of the input clock's zero
   segmenters: Map<SourceName, Segmenter>;
+  /** Restarts since the input last ran for STABLE_RUN_MS; the pending restart, if one is scheduled. */
   restarts: number;
+  startedAt: number;
   restartTimer: NodeJS.Timeout | null;
-  restarting: boolean;
-  restartFailure: string | null;
   /** Timed audio: the session's recording (retained) or a temporary copy for speaker analysis. */
   recorder: SpeakerRecorder | null;
 }
 
-interface Ending { sessionId: string; t: number; pendingTranscription: boolean; onIdle: (() => void) | null }
-interface EndResult { sessionId: string; summaryId: string | null; pendingTranscription?: boolean }
+/** A capture helper that keeps failing is restarted with backoff, then the session is paused instead of silently not recording. */
+const RESTART_LIMIT = 3;
+const RESTART_BASE_MS = 1500;
+const STABLE_RUN_MS = 60_000;
 
 export interface StartOptions { title: string; type: SessionType; source: AudioSourceMode | 'file'; filePath?: string; speed?: number; window?: { id: number; title?: string; app?: string } | null; projectId?: string | null; recordAudio?: boolean }
 
@@ -57,10 +59,10 @@ export class SessionManager {
   /** Optional local processing barrier. It runs after recording ends, before its automatic summary. */
   beforeSummary: ((sessionId: string) => Promise<void> | null) | null = null;
   beforeResume: ((sessionId: string) => Promise<void>) | null = null;
-  /** Runs only once the final transcript and session status have been saved. */
+  /** Runs once the session's status has been saved as ended. */
   onEnded: ((sessionId: string) => void) | null = null;
   private stopping = false;
-  private ending: Ending | null = null;
+  /** A token per deferred summary, so an old speaker analysis can't start a resumed session's summary. */
   private pendingSpeakerSummaries = new Map<string, symbol>();
 
   invalidateDeferredSummary(sessionId: string): void { this.pendingSpeakerSummaries.delete(sessionId); }
@@ -95,6 +97,8 @@ export class SessionManager {
   /** Mark sessions left open by a crash/quit as interrupted, with a recorded gap marker; keep the audio captured so far. */
   recoverOnBoot(): void {
     for (const s of this.store.openSessions()) {
+      // The iPhone owns these recordings. Restarting the Mac says nothing about its capture state.
+      if (s.audio_source === 'mobile') continue;
       try { if (recoverOpenTakes(s.id)) log('session', `recovered the audio of ${s.id}`); }
       catch (e) { log('session', `could not recover the audio of ${s.id}: ${(e as Error).message}`); }
       const lastT = Math.max(this.store.lastSegment(s.id)?.t_end ?? 0, s.duration_ms, (s.last_activity_at ?? s.started_at ?? s.created_at) - (s.started_at ?? s.created_at));
@@ -106,7 +110,6 @@ export class SessionManager {
 
   nowT(): number {
     if (!this.session) return 0;
-    if (this.ending) return this.ending.t;
     if (this.run?.input instanceof FileCapture) return this.run.offsetMs + this.run.input.positionSec * 1000;
     if (this.status === 'paused' || this.status === 'idle') return this.store.getSession(this.session.id)?.duration_ms ?? 0;
     return now() - (this.session.started_at ?? this.session.created_at);
@@ -115,7 +118,6 @@ export class SessionManager {
   state(): Record<string, unknown> {
     return {
       status: this.status,
-      pendingTranscription: this.ending?.pendingTranscription ?? false,
       session: this.session ? this.store.getSession(this.session.id) : null,
       source: this.source,
       nowT: this.nowT(),
@@ -142,8 +144,6 @@ export class SessionManager {
   async start(o: StartOptions): Promise<SessionRow> {
     if (this.stopping) throw new Error('The app is shutting down.');
     if (this.status !== 'idle') throw new Error('A session is already active. End it first.');
-    // Fail before reserving or creating a different session if any previous finals remain.
-    this.transcriber.reset();
     this.status = 'starting'; this.emitState();
     try {
       await this.speech.ensure();
@@ -158,16 +158,16 @@ export class SessionManager {
     this.source = o.source;
     this.fileOpts = o.source === 'file' && o.filePath ? { path: o.filePath, speed: o.speed ?? 1, posSec: 0 } : null;
     this.warnings = []; this.partials.clear(); this.droppedDuplicates = 0;
+    this.transcriber.reset(id);
     this.store.addTimeline(id, 0, 'start', o.source);
     try {
       await this.beginRun(0);
       if (this.stopping) throw new Error('The app is shutting down.');
     } catch (e) {
-      if (this.stopping) throw e;
+      if (this.stopping) throw e;  // suspendForShutdown() saves the session as interrupted
       this.store.addTimeline(id, 0, 'error', (e as Error).message);
-      // A helper can fail after delivering audio. Keep its flushed finals attached to this session.
-      this.status = 'recording';
-      await this.end();
+      this.store.updateSession(id, { status: 'ended', ended_at: now() });
+      this.session = null; this.status = 'idle'; this.emitState();
       throw e;
     }
     this.status = 'recording';
@@ -187,8 +187,7 @@ export class SessionManager {
       input = new HelperCapture({ source: this.source, micDeviceUid: s.audio.micDeviceUid, aec: s.audio.aec });
     }
     const retain = !!this.session?.record_audio;
-    const run: Run = { index: ++this.runCount, input, offsetMs, segmenters: new Map(), restarts: 0,
-      restartTimer: null, restarting: false, restartFailure: null,
+    const run: Run = { index: ++this.runCount, input, offsetMs, segmenters: new Map(), restarts: 0, startedAt: now(), restartTimer: null,
       recorder: (retain || s.asr.diarization) && this.session ? new SpeakerRecorder(this.session.id, retain) : null };
     const seg = (src: SourceName): Segmenter => {
       let sg = run.segmenters.get(src);
@@ -238,6 +237,25 @@ export class SessionManager {
       else if (ev.type === 'ready') { this.broadcast('capture', ev); if (Array.isArray(ev.pending) && ev.pending.length) this.notice('warning', 'system_permission_pending', `Waiting for macOS permission for: ${ev.pending.join(', ')}. Look for a permission dialog and allow it.`); }
       else if (ev.type === 'source_started') this.notice('info', 'source_started', `${ev.source === 'system' ? 'Computer audio' : 'Microphone'} capture started.`);
     });
+    const captureFailed = (reason: string) => {
+      // A helper that exits while restarting also rejects its start(): one failure, one restart.
+      if (this.run !== run || this.status !== 'recording' || run.restartTimer) return;
+      const t = this.nowT();
+      if (now() - run.startedAt >= STABLE_RUN_MS) run.restarts = 0; // It had been running fine: not a crash loop.
+      const giveUp = run.restarts >= RESTART_LIMIT;
+      if (this.session) this.store.addTimeline(this.session.id, t, 'gap', `Audio capture stopped: ${reason}${giveUp ? `. It failed ${RESTART_LIMIT + 1} times in a row, so the session was paused.` : ''}`);
+      if (giveUp) { void this.captureGaveUp(reason); return; }
+      this.notice('error', 'capture_stopped', `Audio capture stopped unexpectedly (${reason}). Trying to restart…`);
+      run.restartTimer = setTimeout(() => {
+        run.restartTimer = null;
+        if (this.run !== run || this.status !== 'recording') return;
+        for (const sg of run.segmenters.values()) sg.flush();
+        run.segmenters.clear();
+        run.offsetMs = this.nowT(); // A restarted helper starts its input clock at zero again.
+        run.startedAt = now();
+        void run.input.start().catch((e) => captureFailed(`restart failed: ${(e as Error).message}`));
+      }, RESTART_BASE_MS * 2 ** run.restarts++);
+    };
     input.on('exit', (_code, reason) => {
       if (this.run !== run) return;
       if (input instanceof FileCapture && reason === 'file finished') {
@@ -245,51 +263,11 @@ export class SessionManager {
         this.fileOpts && (this.fileOpts.posSec = input.positionSec);
         return;
       }
-      if (this.status === 'recording' && reason !== 'stopped') {
-        // start() also rejects on this exit. Let that attempt finish before deciding its outcome.
-        if (run.restarting) { run.restartFailure = reason; return; }
-        if (run.restartTimer) return;
-        const t = this.nowT();
-        if (this.session) this.store.addTimeline(this.session.id, t, 'gap', `Audio capture stopped: ${reason}`);
-        if (run.restarts >= 3) { void this.pauseAfterCaptureFailure(run); return; }
-        this.notice('error', 'capture_stopped', `Audio capture stopped unexpectedly (${reason}). Trying to restart…`);
-        run.restarts++;
-        run.restartTimer = setTimeout(() => { run.restartTimer = null; void this.restartCapture(run); }, 1500);
-      }
+      if (reason !== 'stopped') captureFailed(reason);
     });
     this.run = run;
     try { await input.start(); }
     catch (error) { await this.endRun(); throw error; }
-  }
-
-  private async restartCapture(run: Run): Promise<void> {
-    if (this.run !== run || this.status !== 'recording' || this.stopping) return;
-    for (const sg of run.segmenters.values()) sg.flush();
-    run.segmenters.clear();
-    run.offsetMs = this.nowT(); // A restarted helper starts its input clock at zero again.
-    run.restarting = true;
-    run.restartFailure = null;
-    try {
-      await run.input.start();
-      // A helper may report ready and exit before the start promise's continuation runs.
-      if (run.restartFailure) throw new Error(run.restartFailure);
-    } catch (error) {
-      if (this.run !== run || this.status !== 'recording' || this.stopping) return;
-      this.notice('error', 'capture_restart_failed', (error as Error).message);
-      await this.pauseAfterCaptureFailure(run);
-    } finally { run.restarting = false; }
-  }
-
-  private async pauseAfterCaptureFailure(run: Run): Promise<void> {
-    if (this.run !== run || this.status !== 'recording' || this.stopping) return;
-    try {
-      await this.pause();
-      if (this.run !== run || (this.status as LiveStatus) !== 'paused' || this.stopping) return;
-      this.notice('error', 'capture_recovery_failed', 'Audio capture could not restart. The session is paused. Check your audio device, then choose Resume to try again.');
-      this.emitState();
-    } catch (error) {
-      this.notice('error', 'capture_pause_failed', `Audio capture stopped, but the session could not be paused: ${(error as Error).message}`);
-    }
   }
 
   /** Start, switch or stop window capture (slides / shared screen) for the active session. */
@@ -315,11 +293,17 @@ export class SessionManager {
     return this.screen.snapshot();
   }
 
+  /** Restarting did not help: keep everything captured so far and pause, so the session no longer claims to be recording. */
+  private async captureGaveUp(reason: string): Promise<void> {
+    this.notice('error', 'capture_gave_up', `Audio capture keeps stopping (${reason}), so the session is paused. Everything captured so far is saved. Check the audio device, then resume.`);
+    try { await this.pause(); }
+    catch (e) { log('session', `could not pause after capture failed: ${(e as Error).message}`); }
+  }
+
   private async endRun(): Promise<void> {
     const run = this.run;
     if (!run) return;
-    if (run.restartTimer) clearTimeout(run.restartTimer);
-    run.restartTimer = null;
+    if (run.restartTimer) { clearTimeout(run.restartTimer); run.restartTimer = null; }
     if (run.input instanceof FileCapture && this.fileOpts) this.fileOpts.posSec = run.input.positionSec;
     await run.input.stop();
     for (const sg of run.segmenters.values()) sg.flush();
@@ -332,15 +316,13 @@ export class SessionManager {
   async suspendForShutdown(): Promise<void> {
     this.stopping = true;
     this.pendingSpeakerSummaries.clear();
-    const ending = this.ending;
-    if (ending?.onIdle) this.transcriber.off('idle', ending.onIdle);
-    this.ending = null; // Any end() still awaiting its deadline must not finalize after shutdown.
+    // Also while starting or ending: an end() still waiting for transcription stops there (see end()).
     if (!this.session || this.status === 'idle') {
       this.transcriber.stop();
       return;
     }
     const id = this.session.id;
-    const t = ending?.t ?? this.nowT();
+    const t = this.nowT();
     this.status = 'ending';
     this.screen?.stop(); this.screen = null;
     await this.endRun();
@@ -398,9 +380,9 @@ export class SessionManager {
   async resumeSession(sessionId: string, source: AudioSourceMode | 'file', file?: { path: string; speed: number }): Promise<void> {
     if (this.stopping) throw new Error('The app is shutting down.');
     if (this.status !== 'idle') throw new Error('Another session is active.');
-    this.transcriber.reset();
     const s = this.store.getSession(sessionId);
     if (!s) throw new Error('Session not found');
+    if (s.audio_source === 'mobile') throw new Error('Continue this recording on its iPhone.');
     this.invalidateDeferredSummary(sessionId);
     // Reserve the session before cancelling a worker or starting ASR; Quick Start/delete cannot race it.
     this.status = 'starting'; this.session = s; this.source = source; this.emitState();
@@ -410,7 +392,7 @@ export class SessionManager {
       if (this.stopping) throw new Error('The app is shutting down.');
       await this.speech.ensure();
       if (this.stopping) throw new Error('The app is shutting down.');
-      this.fileOpts = file ? { path: file.path, speed: file.speed, posSec: 0 } : null; this.warnings = [];
+      this.fileOpts = file ? { path: file.path, speed: file.speed, posSec: 0 } : null; this.warnings = []; this.transcriber.reset(s.id);
       const lastT = Math.max(s.duration_ms, this.store.lastSegment(s.id)?.t_end ?? 0);
       const offset = Math.max(now() - (s.started_at ?? s.created_at), lastT + 1000);
       this.store.addTimeline(s.id, lastT, 'gap', `Not recorded from ${fmtT(lastT)} to ${fmtT(offset)} (${s.status === 'interrupted' ? 'app restarted' : 'session resumed'}).`);
@@ -423,51 +405,26 @@ export class SessionManager {
       this.startHeartbeat();
       this.emitState();
     } catch (error) {
-      if (this.stopping) throw error;
-      if (resumed && this.transcriber.pendingFinals) {
-        // Even a failed resume can have delivered audio before the helper exited.
-        this.status = 'recording';
-        await this.end();
-      } else {
-        if (resumed) this.store.updateSession(s.id, { status: 'interrupted' });
-        this.session = null; this.run = null; this.fileOpts = null; this.status = 'idle'; this.emitState();
-      }
+      if (this.stopping) throw error;  // suspendForShutdown() saves the session as interrupted
+      if (resumed) this.store.updateSession(s.id, { status: 'interrupted' });
+      this.session = null; this.run = null; this.fileOpts = null; this.status = 'idle'; this.emitState();
       throw error;
     }
   }
 
-  async end(): Promise<EndResult> {
+  async end(): Promise<{ sessionId: string; summaryId: string | null }> {
     if (this.stopping) throw new Error('The app is shutting down.');
     if (!this.session || (this.status !== 'recording' && this.status !== 'paused')) throw new Error('No active session.');
     const id = this.session.id;
     const t = this.nowT();
-    const ending: Ending = { sessionId: id, t, pendingTranscription: false, onIdle: null };
-    this.ending = ending;
     this.status = 'ending'; this.emitState();
     this.screen?.stop(); this.screen = null;
     await this.endRun();
-    if (this.ending !== ending) return { sessionId: id, summaryId: null };
-    // Persist the stopped clock even when transcription keeps working in the background.
-    this.store.touchSession(id, t);
-    const complete = await this.transcriber.drain(90_000);
-    if (this.ending !== ending || this.stopping) return { sessionId: id, summaryId: null };
-    if (complete || !this.transcriber.pendingFinals) return this.finishEnd(ending);
-    ending.pendingTranscription = true;
-    this.notice('info', 'transcription_finishing', 'Recording has stopped. Finishing transcription before the summary. You can start another session when this finishes.');
-    this.emitState();
-    // Keep the session reserved, including against deletion, until its last final is committed.
-    ending.onIdle = () => {
-      if (this.ending !== ending || this.stopping || this.transcriber.pendingFinals) return;
-      try { this.finishEnd(ending); }
-      catch (error) { this.notice('error', 'session_save_failed', `The session could not be saved: ${(error as Error).message}`); }
-    };
-    this.transcriber.once('idle', ending.onIdle);
-    return { sessionId: id, summaryId: null, pendingTranscription: true };
-  }
-
-  private finishEnd(ending: Ending): EndResult {
-    const { sessionId: id, t } = ending;
-    if (ending.onIdle) this.transcriber.off('idle', ending.onIdle);
+    // Persist the stopped clock before the (possibly long) wait for transcription.
+    if (!this.stopping) this.store.touchSession(id, t);
+    await this.transcriber.drain(90_000);
+    // The app quit during the wait: suspendForShutdown() has saved the session as interrupted.
+    if (this.stopping) return { sessionId: id, summaryId: null };
     this.flushMic(true);
     const lastT = Math.max(t, this.store.lastSegment(id)?.t_end ?? 0);
     this.store.updateSession(id, { status: 'ended', ended_at: now(), duration_ms: Math.round(lastT) });
@@ -476,9 +433,9 @@ export class SessionManager {
     this.heartbeat = null;
     this.run = null;
     this.session = null;
-    this.ending = null;
     this.fileOpts = null;
     this.status = 'idle';
+    // The session is saved and released first: a summary that can't start must not keep it reserved.
     let summaryId: string | null = null;
     try {
       const pendingSpeakers = this.beforeSummary?.(id);
@@ -515,10 +472,10 @@ export class SessionManager {
 
   // ------------------------------------------------------------------ transcript commit + duplicate suppression
   private onFinal(pieces: FinalPiece[]): void {
-    if (!this.session) return;
     for (const p of pieces) {
       const t0 = Math.round(p.startSec * 1000);
       const t1 = Math.round(p.endSec * 1000);
+      if (p.session !== this.session?.id) { this.commitLate(p, t0, t1); continue; }
       if (this.source === 'both' && p.source === 'mic') {
         // Hold mic text briefly so it can be compared with computer audio covering the same moment.
         this.pendingMic.push({ piece: p, due: now() + 4000, t0, t1 });
@@ -542,11 +499,26 @@ export class SessionManager {
   }
 
   private commit(p: FinalPiece, t0: number, t1: number): void {
-    if (!this.session) return;
+    if (!this.session || p.session !== this.session.id) { this.commitLate(p, t0, t1); return; }
     const row: SegmentRow = this.store.addSegment({ session_id: this.session.id, t_start: t0, t_end: Math.max(t1, t0 + 200), text: p.text, lang: p.lang, source: p.source, run: this.run?.index ?? 0 });
     this.store.touchSession(this.session.id, t1);
     this.broadcast('segment', row);
     this.assistant.onActivity(this.session.id, 'segment');
+  }
+
+  /**
+   * Text that arrived after its session ended (transcription outlasted the wait in end()), possibly while another
+   * session records: it goes into the session it was captured in, never the current one.
+   */
+  private commitLate(p: FinalPiece, t0: number, t1: number): void {
+    const owner = p.session ? this.store.getSession(p.session) : undefined;
+    if (!owner) { log('session', 'dropped transcript that arrived after its session was deleted'); return; }
+    if (owner.audio_source === 'both' && p.source === 'mic'
+      && this.store.segments(owner.id, t0 - 3000, t1 + 3000).some((s) => s.source === 'system' && similarity(s.text, p.text) > 0.45)) { this.droppedDuplicates++; return; }
+    const row = this.store.addSegment({ session_id: owner.id, t_start: t0, t_end: Math.max(t1, t0 + 200), text: p.text, lang: p.lang, source: p.source, run: this.store.lastSegment(owner.id)?.run ?? 0 });
+    this.store.touchSession(owner.id, t1);
+    this.broadcast('segment', row);
+    log('session', `saved transcript that arrived late for ${owner.id} at ${fmtT(t0)}`);
   }
 }
 

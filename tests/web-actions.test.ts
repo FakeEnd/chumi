@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import type { AppState } from '../web/src/store.ts';
 import type { Frame, Output, Segment, SessionData, SpeakerUpdate } from '../web/src/types.ts';
-import { emptySnapshotChanges, mergeSnapshotChanges, snapshotDeltas } from '../web/src/sessionSnapshot.ts';
 
 function deferred<T>() {
   let resolve!: (value: T) => void, reject!: (error: Error) => void;
@@ -56,11 +55,21 @@ function harness(initial: Partial<AppState> = {}) {
     throw new Error(`Unexpected request: ${path}`);
   };
   const setState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => { state = { ...state, ...(typeof patch === 'function' ? patch(state) : patch) }; };
+  // The same as store.ts's upsertOutput, against this harness's state.
+  const upsertOutput = (o: Output) => setState((s) => {
+    const deltas = { ...s.deltas } as Record<string, string>;
+    if (o.status !== 'streaming' && o.status !== 'pending') delete deltas[o.id];
+    if (!s.data || s.data.session.id !== o.session_id) return { deltas };
+    const outs = s.data.outputs.slice();
+    const i = outs.findIndex((x) => x.id === o.id);
+    if (i >= 0) outs[i] = o; else outs.push(o);
+    return { data: { ...s.data, outputs: outs }, deltas };
+  });
   const dependencies = {
-    api, getState: () => state, setState, notify: (_level: string, message: string) => notices.push(message),
+    api, getState: () => state, setState, upsertOutput, notify: (_level: string, message: string) => notices.push(message),
     subscribe: (events: typeof handlers, conn: typeof connection) => { handlers = events; connection = conn; return () => {}; },
-    projectContextOn: () => false, t: (text: string) => text, location: { search: '' },
-    emptySnapshotChanges, mergeSnapshotChanges, snapshotDeltas,
+    projectContextOn: () => false, t: (text: string) => text, saveCompact: () => {},
+    location: { search: '', pathname: '/', hash: '' }, history: { state: null, replaceState: () => {} },
   };
   const actions = new Function(...Object.keys(dependencies), `${source}\nreturn { loadState, openSession, refreshSession, goHome, connectEvents, endSession, submitQuestion };`)(...Object.values(dependencies)) as Actions;
   actions.connectEvents();
@@ -176,12 +185,12 @@ test('a deletion missed while disconnected clears the unavailable session on ref
   assert.equal(h.get().data, null);
 });
 
-test('end-session response leaves another viewed session alone, including pending transcription', async () => {
+test('end-session response leaves another viewed session alone', async () => {
   const h = harness(), pending = deferred<unknown>();
   h.reply('/api/session/end', pending.promise); h.reply('/api/sessions/b', session('b'));
   const end = h.actions.endSession();
   await h.actions.openSession('b');
-  pending.resolve({ sessionId: 'a', summaryId: null, pendingTranscription: true }); await end;
+  pending.resolve({ sessionId: 'a', summaryId: null }); await end;
   assert.equal(h.get().viewId, 'b');
   assert.equal(h.calls.some((c) => c.path === '/api/sessions/a'), false);
 });

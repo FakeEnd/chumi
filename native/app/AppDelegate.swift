@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var lastChrome: (CGFloat, Bool)?
     private var loadingView: NSView?
     private var statusLabel: NSTextField?
+    private var quitting = false
 
     // MARK: - Lifecycle
 
@@ -37,8 +38,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return true
     }
 
+    /// Quitting stops the server we started. During a recording, ask first. Then stop the server off the main
+    /// thread, because it can take several seconds to save the meeting.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard server.ownsRunningServer else { return .terminateNow }
+        if quitting { return .terminateCancel }  // already asking or saving
+        quitting = true
+        let server = self.server
+        DispatchQueue.global(qos: .userInitiated).async {
+            let recording = server.isRecording()
+            DispatchQueue.main.async { MainActor.assumeIsolated { self.finishQuit(recording: recording) } }
+        }
+        return .terminateLater
+    }
+
+    private func finishQuit(recording: Bool) {
+        if recording {
+            let alert = NSAlert()
+            alert.messageText = "Save the meeting and quit?"
+            alert.informativeText = "Chumi is recording. Quitting stops the recording and keeps everything captured so far. You can continue the meeting the next time you open Chumi."
+            alert.addButton(withTitle: "Keep Recording")
+            alert.addButton(withTitle: "Save and Quit")
+            guard alert.runModal() == .alertSecondButtonReturn else {
+                quitting = false
+                NSApp.reply(toApplicationShouldTerminate: false)
+                return
+            }
+            showLoading("Saving the meeting…")
+        }
+        let server = self.server
+        DispatchQueue.global(qos: .userInitiated).async {
+            server.stop()
+            DispatchQueue.main.async { MainActor.assumeIsolated { NSApp.reply(toApplicationShouldTerminate: true) } }
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
-        server.stop()
+        server.stop()  // normally a no-op: applicationShouldTerminate has already stopped the server
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }

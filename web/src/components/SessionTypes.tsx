@@ -4,6 +4,7 @@ import { saveSettings } from '../actions.ts';
 import { setState, useStore } from '../store.ts';
 import { msg, t } from '../i18n.ts';
 import { typeLabel } from '../util.ts';
+import { onEnter } from '../keys.ts';
 
 export function SessionTypeSelect({ value, onChange, className, manage = false }: { value: string; onChange: (id: string) => void; className?: string; manage?: boolean }) {
   const options = useStore((s) => s.settings?.sessionTypes) ?? DEFAULT_SESSION_TYPES;
@@ -74,7 +75,7 @@ export function SessionTypesTab() {
       </div>
       <div className="session-type-add">
         <input aria-label={t('New session type')} placeholder={t('e.g. Journal club')} maxLength={60} value={name}
-          onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
+          onChange={(e) => setName(e.target.value)} onKeyDown={onEnter(add)} />
         <button className="btn" disabled={!name.trim()} onClick={add}>{t('Add type')}</button>
       </div>
       <p className="small muted">{t('Removing a type hides it from new meetings. Existing meetings keep their type. If needed, Quick start switches to the first remaining type.')}</p>

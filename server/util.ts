@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { IncomingHttpHeaders } from 'node:http';
 
 export const now = (): number => Date.now();
 export const uid = (prefix = ''): string => prefix + randomUUID().replace(/-/g, '').slice(0, 16);
@@ -29,6 +30,20 @@ export function log(scope: string, ...args: unknown[]): void {
 
 export function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
+}
+
+/**
+ * Why a request to the local API came from a page on another site, or null if it didn't. Browsers label every
+ * request with Sec-Fetch-Site, including an <img> or a no-cors fetch that can't add a custom header; a page on another
+ * localhost port is "same-site", which is still someone else's page. Origin covers browsers without fetch metadata.
+ * Chumi's own page is "same-origin", a typed address or bookmark is "none", and clients outside a browser send neither.
+ */
+export function crossSiteSource(headers: IncomingHttpHeaders): string | null {
+  const site = headers['sec-fetch-site'];
+  if (site && site !== 'same-origin' && site !== 'none') return `Sec-Fetch-Site: ${site}`;
+  const origin = headers.origin;
+  if (origin && origin !== `http://${headers.host}`) return `Origin: ${origin}`;
+  return null;
 }
 
 /** Deep merge plain objects (arrays replaced). Used for partial settings updates. */

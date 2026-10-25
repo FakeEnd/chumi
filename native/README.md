@@ -2,12 +2,17 @@
 
 Windows uses the C++ helper in `windows/audio/` and the Electron shell in `windows/desktop/`. Build with `python scripts/build-windows.py`; installation and platform behaviour are documented in [docs/windows.md](../docs/windows.md). The audio frame and event protocol below is shared by both platforms.
 
-Two Swift programs, built with the Command Line Tools compiler (no Xcode project):
+Four Swift programs, built with the Command Line Tools compiler (no Xcode project):
 
 | Output | What it is |
 | --- | --- |
 | `build/chumi-audio` | Audio capture helper (dev copy). Streams 16 kHz mono PCM on stdout. |
 | `build/Chumi.app` | App shell: runs `node server/main.ts`, shows the web UI in a WKWebView. Contains the helper at `Contents/MacOS/chumi-audio`. |
+| `build/chumi-screen` | Window capture (ScreenCaptureKit) for slides and shared screens. |
+| `build/chumi-hotkey` | Global quick-start shortcut (Carbon `RegisterEventHotKey`, no Accessibility permission). |
+
+The two tools live outside the app bundle, so rebuilding them never changes Chumi.app's signature (which would make
+macOS ask for Microphone and System Audio permission again).
 
 ```
 native/
@@ -15,16 +20,21 @@ native/
   entitlements.plist    com.apple.security.device.audio-input (needed only with the hardened runtime)
   audio/                chumi-audio sources + embedded Info.plist
   app/                  Chumi.app sources + Info.plist template (ChumiRepoPath is filled in by build.sh)
+  screen/               chumi-screen sources
+  hotkey/               chumi-hotkey sources
   tools/make_icon.swift draws the app icon (optional build step)
 ```
 
 ## Build
 
 ```sh
-bash native/build.sh
+bash native/build.sh          # everything
+bash native/build.sh tools    # only chumi-screen and chumi-hotkey
+bash native/build.sh app      # only Chumi.app and the audio helper
 ```
 
-* Target `arm64-apple-macos14.4` (override with `CHUMI_TARGET`), `swiftc -O -swift-version 5`.
+* Target `<this Mac's CPU>-apple-macos14.4`, so `arm64` on Apple Silicon and `x86_64` on Intel (override with
+  `CHUMI_TARGET`), `swiftc -O -swift-version 5`. `npm run doctor` reports binaries built for another CPU.
 * Signs ad-hoc by default (`codesign --force --sign - --timestamp=none`), helper first, then the app,
   then the dev copy of the helper. Set `CHUMI_SIGN_IDENTITY="Apple Development: …"` to use a real
   identity; the build then also enables the hardened runtime with the audio-input entitlement.
@@ -140,7 +150,8 @@ macOS attributes privacy permissions to the *responsible* process:
 
 ## Chumi.app
 
-* Finds node: `/opt/homebrew/bin/node`, `/usr/local/bin/node`, then `zsh -lc 'command -v node'`.
+* Finds Node 24 or later: `/opt/homebrew/bin/node`, `/usr/local/bin/node`, then `zsh -lc 'command -v node'`. Older
+  versions are skipped (`node --version`).
 * If `http://127.0.0.1:4777/api/health` returns JSON with `"app":"chumi"`, it connects to that server
   and does not stop it on quit.
 * Otherwise it picks the first free port in 4777–4790 and runs `node <repo>/server/main.ts` with
@@ -153,11 +164,15 @@ macOS attributes privacy permissions to the *responsible* process:
 * Polls `/api/health` every 250 ms for up to 30 s, then loads `http://127.0.0.1:<port>/`. On failure
   it shows an alert with the log tail and offers Quit / Open Log / Try Again. If the server dies later,
   it offers Restart Server / Quit.
-* On quit: SIGTERM to the server, wait up to 3 s, then SIGKILL.
-* WKWebView: Web Inspector enabled (right-click → Inspect Element); JS alert/confirm/prompt as NSAlert
-  sheets; `target=_blank` / `window.open` and external links open in the default browser; `<input
-  type=file>` via NSOpenPanel; downloads (attachment / non-displayable responses / `download` links /
-  blob URLs) go to `~/Downloads` with unique names ("name (1).ext") and are revealed in Finder.
+* On quit: during a recording it asks first (Keep Recording / Save and Quit) and then shows "Saving the meeting…".
+  Off the main thread, it sends SIGTERM to the server, waits up to 12 s while the server saves, then sends SIGKILL.
+* WKWebView: the window only shows Chumi's own pages (127.0.0.1 or localhost on the server's port); other
+  main-frame navigations are cancelled. `http`, `https` and `mailto` links elsewhere, `target=_blank` and
+  `window.open` open in the default browser or mail app; other URL schemes are ignored, as in the Windows
+  shell. Web Inspector (right-click → Inspect Element) only in dev builds (`CHUMI_DEV=1 bash native/build.sh`).
+  JS alert/confirm/prompt as NSAlert sheets; `<input type=file>` via NSOpenPanel; downloads (attachment /
+  non-displayable responses / `download` links / blob URLs) go to `~/Downloads` with unique names
+  ("name (1).ext") and are revealed in Finder.
 * Menus: App (About, Hide, Quit ⌘Q), Edit (Undo/Redo/Cut/Copy/Paste/Select All), View (Reload ⌘R,
   Open in Browser ⇧⌘O, zoom, Show Server Log, Full Screen), Window (Close ⌘W, Minimize, Zoom, Bring
   All to Front). Closing the window keeps the app (and recording) running; click the Dock icon to

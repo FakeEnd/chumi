@@ -36,6 +36,13 @@ final class ServerManager: @unchecked Sendable {
 
     var baseURL: URL { URL(string: "http://127.0.0.1:\(port)/")! }
 
+    /// True while the server this app started is running (quitting then stops it).
+    var ownsRunningServer: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return ownsServer && process?.isRunning == true
+    }
+
     // MARK: - Paths
 
     var repoPath: String {
@@ -52,35 +59,55 @@ final class ServerManager: @unchecked Sendable {
         Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/chumi-audio").path
     }
 
+    /// The server needs Node 24 or later (package.json "engines"; scripts/setup.sh checks the same).
+    static let minimumNodeMajor = 24
+
+    /// Homebrew's node, then the login shell's. Versions older than `minimumNodeMajor` are skipped.
     static func findNode() -> String? {
         let fm = FileManager.default
-        for candidate in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] where fm.isExecutableFile(atPath: candidate) {
+        for candidate in ["/opt/homebrew/bin/node", "/usr/local/bin/node"]
+        where fm.isExecutableFile(atPath: candidate) && isRecentNode(candidate) {
             return candidate
         }
         // Ask a login shell (picks up nvm/fnm/asdf PATH setup in ~/.zprofile / ~/.zshrc).
+        guard let out = output(of: "/bin/zsh", ["-lc", "command -v node"], timeout: 8) else { return nil }
+        let path = out.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.last { $0.hasPrefix("/") } ?? ""
+        return fm.isExecutableFile(atPath: path) && isRecentNode(path) ? path : nil
+    }
+
+    /// `node --version` prints e.g. "v24.1.0".
+    static func isRecentNode(_ path: String) -> Bool {
+        guard let version = output(of: path, ["--version"], timeout: 5)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              version.hasPrefix("v"), let major = Int(version.dropFirst().prefix { $0.isNumber }) else { return false }
+        return major >= minimumNodeMajor
+    }
+
+    /// Runs a program and returns its stdout, or nil if it cannot start or runs past the timeout.
+    static func output(of executable: String, _ arguments: [String], timeout: TimeInterval) -> String? {
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = ["-lc", "command -v node"]
+        p.executableURL = URL(fileURLWithPath: executable)
+        p.arguments = arguments
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
         p.standardInput = FileHandle.nullDevice
         do { try p.run() } catch { return nil }
-        let deadline = Date().addingTimeInterval(8)
+        let deadline = Date().addingTimeInterval(timeout)
         while p.isRunning && Date() < deadline { usleep(50_000) }
         if p.isRunning { p.terminate(); return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        let path = String(decoding: data, as: UTF8.self)
-            .split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
-            .last { $0.hasPrefix("/") } ?? ""
-        return fm.isExecutableFile(atPath: path) ? path : nil
+        return String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     }
 
     // MARK: - Health / ports
 
     /// GET /api/health with a short timeout. Returns (HTTP status, parsed JSON object) or nil.
     static func health(port: Int, timeout: TimeInterval = 1.0) -> (Int, [String: Any]?)? {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/api/health") else { return nil }
+        get(port: port, path: "/api/health", timeout: timeout)
+    }
+
+    /// GET a JSON endpoint of the local server with a short timeout. Returns (HTTP status, parsed JSON object) or nil.
+    static func get(port: Int, path: String, timeout: TimeInterval) -> (Int, [String: Any]?)? {
+        guard let url = URL(string: "http://127.0.0.1:\(port)\(path)") else { return nil }
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
         req.httpMethod = "GET"
         let config = URLSessionConfiguration.ephemeral
@@ -176,7 +203,7 @@ final class ServerManager: @unchecked Sendable {
         }
 
         guard let node = ServerManager.findNode() else {
-            return .failed("Node.js was not found (looked in /opt/homebrew/bin, /usr/local/bin and your login shell PATH).\n\nInstall Node.js (e.g. `brew install node`) and reopen Chumi.")
+            return .failed("Chumi needs Node.js \(ServerManager.minimumNodeMajor) or later and did not find it (looked in /opt/homebrew/bin, /usr/local/bin and your login shell PATH; older versions are skipped).\n\nInstall a current Node.js (e.g. `brew install node`) and reopen Chumi.")
         }
         guard let chosen = (ServerManager.defaultPort...ServerManager.lastPort).first(where: { !ServerManager.portBusy($0) }) else {
             return .failed("No free port between \(ServerManager.defaultPort) and \(ServerManager.lastPort) on 127.0.0.1.")
@@ -207,8 +234,10 @@ final class ServerManager: @unchecked Sendable {
 
         p.terminationHandler = { [weak self] proc in
             guard let self else { return }
+            // restart() may have reset intentionalStop before the old process's handler runs, so a process this
+            // manager no longer tracks also counts as stopped on purpose.
             self.lock.lock()
-            let intentional = self.intentionalStop
+            let intentional = self.intentionalStop || proc !== self.process
             self.lock.unlock()
             let status = proc.terminationStatus
             self.appendLog("=== \(Date()) server exited with status \(status)\(intentional ? " (requested)" : "")\n")
@@ -242,6 +271,13 @@ final class ServerManager: @unchecked Sendable {
             usleep(250_000)
         }
         return .failed("The Chumi server did not become ready within 30 seconds.\n\nLast lines of \(logURL.path):\n\n\(logTail())")
+    }
+
+    /// True if the server we started is recording a meeting. Asks with a short timeout; false if it does not answer.
+    func isRecording() -> Bool {
+        guard ownsRunningServer,
+              let live = ServerManager.get(port: port, path: "/api/state", timeout: 2)?.1?["live"] as? [String: Any] else { return false }
+        return live["status"] as? String == "recording"
     }
 
     /// A normal child exit acknowledges that its bounded shutdown and database close have finished.

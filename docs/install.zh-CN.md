@@ -44,7 +44,7 @@ bash scripts/setup.sh
 | 选项 | 作用 |
 |---|---|
 | `--yes` | 自动采用默认选项（不会安装 Homebrew，也不会代你登录） |
-| `--mirror` | 从 hf-mirror.com 下载语音模型（在中国大陆通常更快）；也可以用 `CHUMI_MODEL_BASE_URL` 指定其他镜像 |
+| `--mirror` | 从 hf-mirror.com 下载语音模型（在中国大陆通常更快）；也可以用 `CHUMI_MODEL_BASE_URL` 指定其他镜像。每次下载都会核对官方文件的 SHA-256 |
 | `--sample` | 同时生成一段用于测试的 20 分钟示例组会 |
 | `--no-ai` | 跳过 AI 连接设置；之后可在“设置 → AI 服务”中选择 |
 
@@ -94,7 +94,7 @@ npm run doctor
 |---|---|
 | 刚装好 Homebrew 就提示 `brew: command not found` | 运行 Homebrew 安装结束后在“Next steps”中列出的两条命令，或新开一个终端窗口 |
 | 语音模型下载缓慢或无法下载 | 运行 `bash scripts/setup.sh --mirror`。如需在 Chumi 内下载其他模型，可用 `CHUMI_MODEL_BASE_URL=https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main npm start` 启动 |
-| 在中国大陆运行 `npm install` 很慢 | 运行 `npm config set registry https://registry.npmmirror.com`，然后重新运行安装程序 |
+| 在中国大陆安装 JavaScript 依赖（`npm ci`）很慢 | 运行 `npm config set registry https://registry.npmmirror.com`，然后重新运行安装程序 |
 | Homebrew 下载很慢 | 使用国内镜像，例如[中科大的 Homebrew 镜像说明](https://mirrors.ustc.edu.cn/help/brew.git.html) |
 | 安装程序提示需要 Node.js 24，但已安装该版本 | nvm 等版本管理工具可能仍在使用旧版本。运行 `nvm install 24`，或将 Homebrew 的 Node 所在目录移到 PATH 的前面 |
 | 首页的 AI 状态显示*未登录* | 运行 `codex login` 或 `claude auth login`，然后点击 **重新检查** |

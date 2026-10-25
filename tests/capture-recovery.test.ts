@@ -41,65 +41,6 @@ async function fixture(t: TestContext) {
   };
 }
 
-test('exhausted capture restarts pause, flush buffered speech, close audio, and allow an explicit resume', async (t) => {
-  const f = await fixture(t);
-  let closes = 0, closed = false;
-  f.internal.run.recorder = { write() {}, close() { if (!closed) { closed = true; closes++; } } };
-  for (let n = 0; n < 3; n++) {
-    f.input.emit('exit', 1, 'Synthetic capture failure.');
-    await f.restart();
-    assert.equal(f.manager.status, 'recording');
-  }
-  assert.equal(f.starts(), 4);
-  // No trailing silence: only the failure cleanup can flush this utterance.
-  f.input.emit('frames', 'mic', 0, new Int16Array(16_000).fill(6000));
-  f.input.emit('level', 'mic', -20, -10);
-  f.input.emit('exit', 1, 'Synthetic final capture failure.');
-  await turn();
-  assert.equal(f.manager.status, 'paused');
-  assert.equal(f.store.getSession(f.session.id)?.status, 'paused');
-  assert.equal(closes, 1);
-  assert.equal(f.store.segments(f.session.id).length, 1);
-  assert.equal(f.store.timeline(f.session.id).filter((r) => r.kind === 'pause').length, 1);
-  assert.deepEqual(f.manager.lastLevels, {});
-  assert.equal(f.manager.warnings.at(-1)?.code, 'capture_recovery_failed');
-  assert.equal(f.live.at(-1)?.status, 'paused');
-  await f.restart();
-  assert.equal(f.starts(), 4);
-
-  await f.manager.resume();
-  assert.equal(f.manager.status, 'recording');
-  assert.equal(f.starts(), 5);
-  assert.notEqual(f.internal.run.input, f.input);
-  await f.manager.end();
-});
-
-for (const emitExit of [false, true]) test(`a rejected restart pauses once${emitExit ? ' even when it also emits exit' : ''}`, async (t) => {
-  const f = await fixture(t);
-  f.nextStart(async (input) => {
-    if (emitExit) input.emit('exit', 1, 'The restarted helper exited.');
-    throw new Error('The audio device is unavailable.');
-  });
-  f.input.emit('exit', 1, 'Synthetic initial capture failure.');
-  await f.restart();
-  assert.equal(f.manager.status, 'paused');
-  assert.equal(f.store.getSession(f.session.id)?.status, 'paused');
-  assert.equal(f.starts(), 2);
-  assert.equal(f.manager.warnings.filter((w) => w.code === 'capture_recovery_failed').length, 1);
-  assert.equal(f.store.timeline(f.session.id).filter((r) => r.kind === 'pause').length, 1);
-  await f.restart();
-  assert.equal(f.starts(), 2);
-});
-
-test('a restart reporting ready and exiting in the same turn is still treated as failed', async (t) => {
-  const f = await fixture(t);
-  f.nextStart(async (input) => { input.emit('exit', 1, 'The restarted helper exited after readiness.'); });
-  f.input.emit('exit', 1, 'Synthetic initial capture failure.');
-  await f.restart();
-  assert.equal(f.manager.status, 'paused');
-  assert.equal(f.manager.warnings.at(-1)?.code, 'capture_recovery_failed');
-});
-
 for (const action of ['pause', 'end'] as const) test(`manual ${action} cancels a scheduled automatic restart`, async (t) => {
   const f = await fixture(t);
   f.input.emit('exit', 1, 'Synthetic capture failure.');

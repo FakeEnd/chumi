@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { CODEX_WORKDIR, which } from '../paths.ts';
+import { CODEX_WORKDIR, aiWorkdir, which } from '../paths.ts';
 import { runCommand, spawnCommand, stopProcess } from '../platform.ts';
 import { log } from '../util.ts';
 import {
@@ -121,7 +121,7 @@ export class CodexProvider implements AIProvider {
     const known = new Set(listed.code === 0 ? listed.out.split('\n').map((l) => l.trim().split(/\s+/)[0]).filter(Boolean) : []);
     const disable = known.size ? DISABLED_FEATURES.filter((f) => known.has(f)) : DISABLED_FEATURES;
     const args = ['app-server', ...disable.flatMap((f) => ['--disable', f]), '-c', 'web_search="disabled"'];
-    const proc = spawnCommand(bin, args, { cwd: CODEX_WORKDIR, stdio: ['pipe', 'pipe', 'pipe'], env, windowsHide: true });
+    const proc = spawnCommand(bin, args, { cwd: aiWorkdir(), stdio: ['pipe', 'pipe', 'pipe'], env, windowsHide: true });
     this.proc = proc;
     let buf = '';
     proc.stdout!.on('data', (d: Buffer) => {

@@ -6,7 +6,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { Store, speakerFields } from './db.ts';
 import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool, which } from './paths.ts';
-import { deepMerge, log, uid } from './util.ts';
+import { crossSiteSource, deepMerge, log, uid } from './util.ts';
 import { WhisperServer } from './asr/whisper.ts';
 import { SpeechService } from './asr/speech.ts';
 import { ENGINE_NAMES, isKeyedEngine, isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId } from './asr/engines.ts';
@@ -39,6 +39,8 @@ import { SpeakerService } from './speakers/service.ts';
 import { speakerRuntime } from './speakers/runtime.ts';
 import { discardSpeakerAudio, hasRecordedAudio, speakerAudioAvailable } from './speakers/audio.ts';
 import type { SpeakerCorrection } from '../shared/speakers.ts';
+import { loadMobileConfiguration } from './mobile-config.ts';
+import { startMobileServer } from './mobile/server.ts';
 import { DESKTOP } from './desktop.ts';
 import { acquireDataDirectoryLock } from './instance-lock.ts';
 import { speechEngineChanged, speechRestartRequired } from './asr/settings-guard.ts';
@@ -49,6 +51,10 @@ import { launchCodexDesktop } from './projects/desktop-handoff.ts';
 const PORT = Number(process.env.PORT || 4777);
 const HOST = '127.0.0.1';
 const DEV = !!process.env.CHUMI_DEV;
+// The existing desktop listener stays loopback-only. Mobile access is a separate opt-in TLS gateway.
+const mobileConfig = process.env.CHUMI_MOBILE === '1'
+  ? loadMobileConfiguration(join(DATA_DIR, 'mobile', 'companion.json')) : null;
+let mobileServer: Awaited<ReturnType<typeof startMobileServer>> | null = null;
 
 // Reserve both the data folder and the port before any crash recovery can change stored meetings.
 const dataLock = acquireDataDirectoryLock(DATA_DIR);
@@ -191,17 +197,20 @@ async function readJson(req: IncomingMessage): Promise<Record<string, any>> {
 }
 
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2' };
+// The interface shows AI answers and transcript text as HTML (escaped in web/src/util.ts). Should markup ever get through,
+// the page still runs only its own scripts, loads nothing from other hosts and can't be framed by another site.
+const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 function serveStatic(res: ServerResponse, pathname: string): void {
   if (!existsSync(WEB_DIST)) {
-    send(res, 200, '<!doctype html><meta charset="utf-8"><title>Chumi</title><body style="font-family:system-ui;padding:40px"><h2>Chumi server is running</h2><p>The web interface has not been built yet. Run <code>npm run build:web</code>, then reload.</p></body>', { 'content-type': 'text/html; charset=utf-8' });
+    send(res, 200, '<!doctype html><meta charset="utf-8"><title>Chumi</title><body style="font-family:system-ui;padding:40px"><h2>Chumi server is running</h2><p>The web interface has not been built yet. Run <code>npm run build:web</code>, then reload.</p></body>', { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': CSP });
     return;
   }
   const rel = normalize(decodeURIComponent(pathname)).replace(/^([/\\])+/, '');
   let file = resolve(WEB_DIST, rel);
   if (!file.startsWith(WEB_DIST) || !existsSync(file) || statSync(file).isDirectory()) file = join(WEB_DIST, 'index.html');
   const ext = extname(file);
-  res.writeHead(200, { 'content-type': MIME[ext] ?? 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-store' : 'public, max-age=31536000, immutable' });
+  res.writeHead(200, { 'content-type': MIME[ext] ?? 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-store' : 'public, max-age=31536000, immutable', ...(ext === '.html' ? { 'content-security-policy': CSP } : {}) });
   res.end(readFileSync(file));
 }
 
@@ -389,6 +398,7 @@ route('GET', '/api/frames/:id', (_req, res, p) => {
   return undefined;
 });
 route('POST', '/api/sessions/:id/resume', async (req, _res, p) => {
+  if (store.getSession(p.id)?.audio_source === 'mobile') throw new HttpError(409, 'Continue this recording on its iPhone.');
   const b = await readJson(req);
   if (b.source === 'file') {
     devOnly();
@@ -419,6 +429,7 @@ route('DELETE', '/api/sessions/:id', async (_req, _res, p) => {
   manager.invalidateDeferredSummary(p.id);
   await speakers.cancel(p.id);
   if (manager.session?.id === p.id) throw new HttpError(409, 'End the session before deleting it.');
+  assistant.cancelSession(p.id);
   store.deleteSession(p.id);
   for (const dir of [join(FRAMES_DIR, p.id), join(AUDIO_DIR, p.id)]) rmSync(dir, { recursive: true, force: true });
   mybot.remove(p.id);
@@ -845,11 +856,14 @@ route('GET', '/api/dev/mock-calls', () => { devOnly(); return registry.mock.call
 const allowedHosts = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 server.on('request', async (req, res) => {
   try {
-    // Defend against DNS-rebinding and cross-site requests: local host names only, and a custom header on writes.
+    // Defend against DNS-rebinding and cross-site requests: local host names only, no API calls from other sites' pages
+    // (some GETs start agent CLIs or the screen tool), and a custom header on writes.
     if (!allowedHosts.has(req.headers.host ?? '')) return send(res, 403, { error: 'Forbidden host' });
     if (shuttingDown) return send(res, 503, { error: 'Chumi is shutting down.' });
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     if (!url.pathname.startsWith('/api/')) return serveStatic(res, url.pathname);
+    const crossSite = crossSiteSource(req.headers);
+    if (crossSite) return send(res, 403, { error: `Cross-site request refused (${crossSite})` });
     if (req.method !== 'GET' && req.headers['x-chumi'] !== '1') return send(res, 403, { error: 'Missing X-Chumi header' });
     for (const r of routes) {
       if (r.method !== req.method) continue;
@@ -873,6 +887,20 @@ log('server', `Chumi listening on http://${HOST}:${PORT}  (data: ${DATA_DIR})`);
 try { writeFileSync(SERVER_INFO, JSON.stringify({ url: `http://${HOST}:${PORT}`, pid: process.pid, startedAt: Date.now() })); } catch { /* links are optional */ }
 void speech.ensure().catch((e) => log('asr', `not ready: ${(e as Error).message}`));
 void registry.status(true).catch(() => {});
+
+if (mobileConfig) {
+  void startMobileServer({
+    store, assistant, host: mobileConfig.host, port: mobileConfig.port, token: mobileConfig.token, tls: mobileConfig.tls,
+    onSessionChanged: (id) => { syncMybot(id); broadcast('mobile-sync', { sessionId: id }); },
+  }).then((started) => {
+    mobileServer = started;
+    if (shuttingDown) { void started.close(); return; }
+    log('mobile', `iPhone companion enabled at ${mobileConfig.url} (pairing required)`);
+  }).catch((error) => {
+    log('mobile', `Could not enable iPhone companion: ${(error as Error).message}`);
+    broadcast('notice', { level: 'error', code: 'mobile_start_failed', message: 'The iPhone companion could not start. See the server log.' });
+  });
+}
 setInterval(() => { void registry.status(true).catch(() => {}); }, 90_000).unref();
 
 let shuttingDown = false;
@@ -890,6 +918,7 @@ async function shutdown(sig: string): Promise<void> {
     // Includes the audio helper's 3-second stop plus the final transcript's 4-second drain.
     { name: 'save meeting', timeoutMs: 8000, run: () => manager.suspendForShutdown() },
     { name: 'stop speaker analysis', timeoutMs: 3000, run: () => speakers.shutdown() },
+    { name: 'stop iPhone companion', timeoutMs: 2000, run: () => mobileServer?.close() },
     { name: 'stop services', timeoutMs: 3000, run: () => Promise.all([whisper.stop(), registry.shutdown(), localModelDownloader.shutdown()]).then(() => {}) },
   ], budget, (name, error) => log('server', `${name}: ${error.message}`));
   store.close();
