@@ -4,8 +4,10 @@
   Rendered to MP4 by scripts/make-video.ts (headless Chrome + ffmpeg).  ?lang=zh for the Chinese version.
   Screenshots and their element boxes (regions.js) come from scripts/demo-shoot.ts: docs/assets/screens/ (English)
   and docs/assets/screens/zh/ (中文). The catch-up, the explanation and the desktop pet are live footage from
-  scripts/record-footage.ts (dist/footage/<lang>/): the real window and pet, recorded while the answers streamed in. The coding-agent terminal is drawn here from a real Claude Code run on the
-  sample project (condensed from its English answer; translated for the Chinese cut).
+  scripts/record-footage.ts (dist/footage/<lang>/): the real window and pet, recorded while the answers streamed in, and
+  the handoff dialog continuing in Claude Code, Codex and Codex app (recorded with nothing actually opened). The two
+  terminals are drawn here from real Claude Code and Codex runs on the sample project, condensed; the Codex app itself
+  is not shown, only Chumi's side of it.
 -->
 <html><head><meta charset="utf-8">
 <script>
@@ -13,7 +15,7 @@
   const SHOTS = '../assets/screens/' + (LANG === 'zh' ? 'zh/' : '');
   document.write('<script src="' + SHOTS + 'regions.js"><\/script>');
   const FOOT = '../../dist/footage/' + LANG + '/';
-  for (const c of ['main-catchup', 'main-explain', 'pet-catchup']) document.write('<script src="' + FOOT + c + '/clip.js"><\/script>');
+  for (const c of ['main-catchup', 'main-explain', 'pet-catchup', 'main-handoff']) document.write('<script src="' + FOOT + c + '/clip.js"><\/script>');
 </script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -75,7 +77,16 @@
   .tl.cmd { color: #9aa0b8; } .tl.cmd b { color: #7ee2a8; font-weight: 500; }
   .tl.you { color: #c9c7ff; } .tl.tool b { color: #4fd1e8; font-weight: 600; } .tl.res { color: #8b91a8; }
   .tl.say { color: #f1f2f8; } .tl.say b { color: #fcd34d; font-weight: 600; } .tl.dim { color: #b4bad3; }
+  .term.codex { background: #0f1013; } .term.codex .term-bar { background: #1b1c21; }
+  .term.codex .tl.tool b { color: #a5b4fc; } .term.codex .tl.cmd b { color: #93c5fd; }
   .caret { display: inline-block; width: 10px; height: 1.1em; vertical-align: -3px; background: #e6e8f2; margin-left: 2px; }
+
+  /* the Continue in menu: the system draws it, so the video does (from the recorded choice) */
+  .menu { position: absolute; z-index: 7; opacity: 0; background: rgba(250, 250, 252, .97); border-radius: 9px; padding: 5px;
+    box-shadow: 0 12px 34px rgba(15, 18, 40, .28), 0 0 0 .5px rgba(0, 0, 0, .18); font-size: 13px; color: #1f2230; transform-origin: 50% 100%; }
+  .menu div { padding: 4px 22px 4px 24px; border-radius: 5px; white-space: nowrap; position: relative; }
+  .menu div.on { background: #4f6df5; color: #fff; }
+  .menu div.cur::before { content: '✓'; position: absolute; left: 8px; }
 
   /* the loop */
   .loopTitle { position: absolute; left: 0; right: 0; top: 120px; text-align: center; font-size: 60px; font-weight: 800; letter-spacing: -1.6px; }
@@ -168,7 +179,8 @@
             <div class="dtile on" style="top:48px">Maya</div><div class="dtile" style="top:146px">PI</div><div class="dtile" style="top:244px">Sam</div><div class="dtile" style="top:342px">Wei</div>
             <div class="dctl"><b></b><b></b><b></b><b class="end"></b></div></div>
           <img id="petFoot"></div></div>
-        <div class="term" id="term"><div class="term-bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>citation-rag — claude</span></div><div class="term-body" id="termBody"></div></div>
+        <div class="term" id="term"><div class="term-bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span id="termTitle">citation-rag — claude</span></div><div class="term-body" id="termBody"></div></div>
+        <div class="menu" id="menu"></div>
         <div class="hl" id="hl"></div>
         <div class="ripple" id="ripple"></div>
         <svg class="cursor" id="cursor" viewBox="0 0 24 24"><path d="M3 2l17 9.5-7.4 1.6L9 20.5z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>
@@ -259,7 +271,8 @@ const TXT = {
       ['On your desktop', 'Never leave\nyour call.', 'A small Chumi floats above Zoom. Catch up from its toolbar, and the answer streams into its card.'],
       ['After the meeting', 'Listen again,\nfrom any line.', 'The recording stays on your Mac. Click ▶ on a line to hear that moment, or export the meeting as one audio file.'],
       ['Hand it on', 'A handoff\nyou review.', 'Agreed, only suggested, or proposed by Chumi, each cited. Only what you confirm becomes work.'],
-      ['In your project', 'Your coding agent\npicks it up.', 'Claude Code, Codex, opencode, Qwen Code or Antigravity reads the handoff and the original lines over MCP, then proposes a plan.'],
+      ['In your project', 'Your coding agent\npicks it up.', 'Continue in Claude Code or Codex in Terminal, or in Codex app. The agent reads the handoff and the original lines, then proposes a plan.',
+        'Codex app opens a new chat with the handoff already in its composer. Nothing starts until you click Send.'],
       ['Next meeting', 'It knows what\nthe agents did.', 'Turn on Project context: answers cite your earlier agent sessions, found through mybot.'],
     ],
     term: [
@@ -277,6 +290,24 @@ const TXT = {
       ['dim', '  2. eval/length_match.py: cut SFT and DPO answers to matched length'],
       ['say', '  Checked against the transcript: #6 (a second judge) was only suggested.'],
       ['say', '  Before I start: what should the n-gram check compare against?'],
+    ],
+    menu: ['Codex app', 'Codex in Terminal', 'Claude Code in Terminal', 'Copy instructions'],
+    // A real Codex CLI run (codex exec, read-only) on the sample project with this cut's handoff, condensed.
+    termCodex: [
+      ['cmd', '<b>~/citation-rag ❯</b> codex -C ~/citation-rag "$(cat handoff.md)"'],
+      ['you', '› Continue work from a meeting I recorded in Chumi. Project: Citation model'],
+      ['dim', '• I’ll inspect the project, propose a plan, and wait for your go-ahead.'],
+      ['tool', '• <b>Called</b> chumi.chumi_list_projects({"cwd":"~/citation-rag"})'],
+      ['tool', '• <b>Explored</b> README.md, eval/judge.py, eval/metrics.py, train/dpo.py'],
+      ['tool', '• <b>Called</b> chumi.chumi_get_handoff({"handoff_id":"hf_2601dff5b6ca4a36"})'],
+      ['tool', '• <b>Called</b> chumi.chumi_get_passages({"from":"5:30","to":"6:24"})'],
+      ['say', '• The handoff is confirmed at revision 69. No files changed.'],
+      ['dim', '  The repo is a scaffold: judge calls and the paired bootstrap are missing.'],
+      ['say', '  <b>Proposed plan:</b>'],
+      ['dim', '  1. Record the protocol: paired bootstrap, 10,000 resamples, 95% CIs'],
+      ['dim', '  2. Analysis utilities and tests: kappa for three raters, majority vote'],
+      ['dim', '  3. Judge reruns on the 50 human-checked answers, length-matched'],
+      ['say', '  Shall I proceed, starting with the protocol and analysis utilities?'],
     ],
     dcall: 'Lab meeting · NLP group', dslide: 'Teaching a 7B model to cite', dslideBody: 'SFT on 40k examples → DPO on 60k pairs\nCitation precision 61% → 74%\nJudged by an LLM: is the gain real?',
     loopTitle: 'One loop, not a pile of notes.',
@@ -298,7 +329,8 @@ const TXT = {
       ['桌面上', '不用离开\n会议窗口。', '一只小 Chumi 浮在会议窗口上面。在它的工具栏上点一下跟上，回答当场写进它下面的卡片。'],
       ['会议结束后', '从任意一句\n再听一遍。', '录音只保存在你的 Mac 上。点某一行的 ▶ 就能回放那一刻，也能把整场会议导出成一个音频文件。'],
       ['交接', '一份由你审核的\n交接。', '区分“已商定”“仅建议”和“Chumi 提议”，每条都有出处。只有你确认的才会交出去。'],
-      ['在你的项目里', '编程智能体\n接着干。', 'Claude Code、Codex、opencode、Qwen Code 或 Antigravity 通过 MCP 读取交接和原始转写，先给出计划。'],
+      ['在你的项目里', '编程智能体\n接着干。', '选择在终端里的 Claude Code、Codex，或在 Codex app 中继续。智能体读取交接和原始转写，先给出计划。',
+        'Codex app 会新开一个对话，交接已经填进输入框。你检查后点“发送”，它才开始。'],
       ['下次开会', '它知道 agent\n做过什么。', '打开“项目上下文”，回答会引用你之前的 agent 会话（通过 mybot 检索）。'],
     ],
     term: [
@@ -316,6 +348,24 @@ const TXT = {
       ['dim', '  2. eval/length_match.py：把 SFT 和 DPO 的回答截到相同长度'],
       ['say', '  对照转录：#6（换一个 judge）在会上只是建议，没有商定。'],
       ['say', '  开始之前：n-gram 检查要和什么语料比？'],
+    ],
+    menu: ['Codex app', '终端中的 Codex', '终端中的 Claude Code', '复制指令'],
+    // A real Codex CLI run (codex exec, read-only) on the sample project with this cut's handoff, condensed.
+    termCodex: [
+      ['cmd', '<b>~/citation-rag ❯</b> codex -C ~/citation-rag "$(cat handoff.md)"'],
+      ['you', '› Continue work from a meeting I recorded in Chumi. Project: 引用模型'],
+      ['dim', '• 我会先查看项目结构和会议记录，提出计划，等你确认后再修改文件。'],
+      ['tool', '• <b>Called</b> chumi.chumi_get_handoff({"handoff_id":"hf_da03a31b812040c9"})'],
+      ['tool', '• <b>Explored</b> README.md, eval/judge.py, eval/metrics.py, train/dpo.py'],
+      ['tool', '• <b>Called</b> chumi.chumi_get_passages({"from":"5:38","to":"6:33"})'],
+      ['tool', '• <b>Called</b> chumi.chumi_get_passages({"from":"3:22","to":"4:18"})'],
+      ['say', '• 已核对 Chumi handoff：revision 70，未发生变更。尚未修改文件。'],
+      ['dim', '  eval/judge.py 尚未实现模型调用；metrics.py 缺少 paired bootstrap。'],
+      ['say', '  <b>建议按以下顺序推进：</b>'],
+      ['dim', '  1. 先固定分析方案：配对重采样 10,000 次，输出差值及 95% 区间'],
+      ['dim', '  2. 补齐评估流程：长度匹配与 judge 接口，主评估固定 8 passages'],
+      ['dim', '  3. 起草 annotation guidelines，重点说明 partly supported'],
+      ['say', '  是否同意按这个顺序开始第一阶段？'],
     ],
     dcall: '组会 · NLP 实验室', dslide: '用 DPO 教 7B 模型引用来源', dslideBody: 'SFT 4 万条 → DPO 6 万偏好对\n引用精确率 61% → 74%\n由 LLM 打分：提升是真的吗？',
     loopTitle: '一个闭环，而不是一堆纪要。',
@@ -359,6 +409,7 @@ const B = {
   pbPlayer: box(G.playback?.player, [20, 100, 640, 36]), pbRow: box(G.playback?.row, [20, 420, 867, 48]),
   hDialog: box(G.handoff?.dialog, [200, 60, 960, 740]), hItem: box(G.handoff?.item, [230, 230, 900, 120]), hOrigin: box(G.handoff?.origin, [240, 240, 140, 24]),
   hEvidence: box(G.handoff?.evidence, [240, 320, 200, 24]), hCont: box(G.handoff?.cont, [960, 760, 190, 36]),
+  hPlace: box(G.handoff?.place, [700, 770, 250, 30]),
   pcToggle: box(G.pc?.toggle, [1150, 300, 130, 26]), pcCard: box(G.pc?.card, [904, 400, 436, 440]), pcSources: box(G.pc?.sources, [912, 430, 200, 24]),
 };
 const R = {
@@ -434,7 +485,34 @@ const KEYS_PET = [[0, petClick - PET_LEAD], [PET_LEAD, petClick], [PET_LEAD + PE
 // ---------- timeline (seconds). The three live scenes come first; the later scenes keep their timing, shifted.
 const D = 5.4;
 const OLD = [[8.0, 14.2], [14.2, 19.6], [19.6, 19.6 + D], [19.6 + D, 26.2 + D], [26.2 + D, 33.0 + D], [33.0 + D, 39.8 + D]];
+
+// Continuing the handoff (main-handoff): for each destination the pointer goes to Continue in, picks it and clicks
+// Continue. Claude Code and Codex then get their terminal; Codex app ends on Chumi's own message beside the button.
+const MH = CL['main-handoff'];
+const PLACES = ['claude-code', 'codex', 'codex-app'];
+const AG_IN = 0.4, TERM_SECS = 3.6, AG_HOLD = 2.4;
+const AGENT = { keys: [], beats: [], end: 0 };
+{
+  let u = 0;
+  const key = (secs, ct) => { u += secs; AGENT.keys.push([u, ct]); };
+  for (const [i, place] of PLACES.entries()) {
+    const menu = mark(MH, `menu:${place}`, 4.6 + i * 11), chose = mark(MH, `chose:${place}`, menu + 0.9), cont = mark(MH, `continue:${place}`, chose + 4);
+    if (i === 0) { AGENT.keys.push([0, menu - 0.8]); key(AG_IN, menu - 0.8); }
+    else key(0.001, menu - 0.8);  // a cut: the terminal covered the wait
+    const start = u;
+    key(0.5, menu); const menuAt = u;
+    key(0.8, chose); const choseAt = u;
+    key(0.8, cont); const clickAt = u;
+    key(0.8, cont + 1.0);
+    const hold = place === 'codex-app' ? AG_HOLD : TERM_SECS;
+    const after = [u, u + hold];
+    key(hold, cont + 1.0 + (place === 'codex-app' ? AG_HOLD : 0));
+    AGENT.beats.push({ place, start, menuAt, choseAt, clickAt, after });
+  }
+  AGENT.end = u + 0.3;
+}
 const DUR = [KEYS_CU.at(-1)[0] + 0.4, KEYS_EX.at(-1)[0] + 0.3, KEYS_PET.at(-1)[0] + 0.4, ...OLD.slice(2).map(([a, b]) => b - a)];
+DUR[5] = AGENT.end;
 const APP = []; { let at = 8.0; for (const d of DUR) { APP.push([at, at + d]); at += d; } }
 const APP_END = APP.at(-1)[1], SHIFT = APP_END - OLD.at(-1)[1];
 /** A later scene's time on the old timeline its numbers were written for. */
@@ -444,7 +522,7 @@ const oldT = (i, t) => t - APP[i][0] + OLD[i - 1][0];
 const U0 = D + SHIFT - 0.4, atU = (u) => u + U0;
 const T = { introEnd: 3.2, probEnd: 8.0, appEnd: APP_END, end: atU(53.6) };
 window.DURATION = T.end;
-window.CLICKS = [APP[0][0] + CU_LEAD, APP[2][0] + PET_LEAD, APP[3][0] + 21.9 - 19.6, APP[4][0] + 25.2 + D - OLD[3][0]];
+window.CLICKS = [APP[0][0] + CU_LEAD, APP[2][0] + PET_LEAD, APP[3][0] + 21.9 - 19.6, ...AGENT.beats.map((b) => APP[5][0] + b.clickAt)];
 // The music (scripts/soundtrack.ts): bass and snaps with the problem, the full groove with the app, the whistled
 // hook over the loop and the closing cards, the last strum as the outro's logo lands.
 window.MUSIC = { build: 3.2, groove: T.probEnd, hook: [[atU(39.8), atU(50.2)]], end: atU(50.2) };
@@ -458,8 +536,7 @@ if (PC) $('petFoot').src = frameAt(PC, 0);
 
 const loopTips = [...document.querySelectorAll('#loop .tip')];
 const termBody = $('termBody');
-TXT.term.forEach(([kind, html]) => { const d = document.createElement('div'); d.className = `tl ${kind}`; d.dataset.html = html; termBody.appendChild(d); });
-const termLines = [...termBody.children];
+const TERMS = { 'claude-code': { title: 'citation-rag — claude', lines: TXT.term }, codex: { title: 'citation-rag — codex', lines: TXT.termCodex } };
 /** Shows the first n visible characters of a line's HTML (tags are kept whole). */
 function partial(html, n) {
   let out = '', shown = 0;
@@ -470,17 +547,26 @@ function partial(html, n) {
   return out.replace(/<b>([^<]*)$/, '<b>$1</b>');
 }
 const plainLen = (html) => html.replace(/<[^>]+>/g, '').length;
-function renderTerm(t) {
-  // The command types out; tool calls appear one by one; the answer streams in.
-  const start = 26.7 + D, slots = [0.0, 0.7, 1.2, 1.6, 1.95, 2.3, 2.65, 3.05, 3.45, 3.7, 3.9, 4.1, 4.3, 4.55];
-  termLines.forEach((el, i) => {
-    const s0 = start + slots[i], kind = TXT.term[i][0], html = el.dataset.html;
-    const typing = kind === 'cmd' ? .6 : kind === 'say' || kind === 'dim' ? .3 : 0;
-    const k = typing ? seg(t, s0, s0 + typing) : t >= s0 ? 1 : 0;
-    const n = Math.floor(plainLen(html) * k);
-    const caret = k > 0 && k < 1 ? '<span class="caret"></span>' : '';
-    el.innerHTML = n ? partial(html, n) + caret : '';
-    el.style.display = t >= s0 ? 'block' : 'none';
+/** One agent's terminal, k seconds after it appears: the command types out, tool calls come one by one, the answer streams in. */
+function renderTerm(which, k) {
+  const T = TERMS[which];
+  $('term').classList.toggle('codex', which === 'codex');
+  $('termTitle').textContent = T.title;
+  if (termBody.dataset.which !== which) {
+    termBody.dataset.which = which;
+    termBody.replaceChildren(...T.lines.map(([kind]) => Object.assign(document.createElement('div'), { className: `tl ${kind}` })));
+  }
+  // When each line starts and how long it types, fitted into the time the terminal is on screen.
+  const GAP = { cmd: .55, you: .3, tool: .28, res: .18, say: .2, dim: .17 }, TYPE = { cmd: .45, say: .22, dim: .2 };
+  const starts = []; let at = 0.1;
+  for (const [kind] of T.lines) { starts.push(at); at += GAP[kind] ?? .2; }
+  const fit = Math.min(1, (TERM_SECS - 0.7) / at);
+  [...termBody.children].forEach((el, i) => {
+    const [kind, html] = T.lines[i], s0 = starts[i] * fit, typing = (TYPE[kind] ?? 0) * fit;
+    const p = typing ? seg(k, s0, s0 + typing) : k >= s0 ? 1 : 0;
+    const n = Math.floor(plainLen(html) * p);
+    el.innerHTML = n ? partial(html, n) + (p > 0 && p < 1 ? '<span class="caret"></span>' : '') : '';
+    el.style.display = k >= s0 ? 'block' : 'none';
   });
 }
 
@@ -508,7 +594,7 @@ window.render = function (t) {
   const [a, b] = APP[idx];
   const capK = fade(t, a + .05, a + .5, b - .4, b - .05);
   const [k1, k2, k3] = TXT.s[idx];
-  $('kick').textContent = k1; $('ctitle').textContent = k2; $('csub').textContent = k3;
+  $('kick').textContent = k1; $('ctitle').textContent = k2; $('csub').textContent = k3; $('csub').style.opacity = '';
   document.querySelector('.cap').style.opacity = idx === 0 && t < a + .5 ? Math.min(capK, appOn) : capK;
   document.querySelector('.cap').style.transform = `translateY(${lerp(18, 0, ease(seg(t, a + .05, a + .6)))}px)`;
   document.querySelectorAll('.progress span').forEach((s, i) => s.classList.toggle('on', i <= idx));
@@ -571,7 +657,7 @@ window.render = function (t) {
     cur = [lerp(VW * .5, bx, p), lerp(VH * .85, by, p), fade(t, 20.4, 20.7, 22.4, 22.8)];
     rip = seg(t, 21.9, 22.6);
     if (t > 23.5) hl = hlBox(v, B.pbPlayer, fade(t, 23.6, 23.9, 24.5, 24.9));
-  } else if (idx === 4) {     // the reviewed handoff: an item with its origin and evidence, then Continue in Claude Code
+  } else if (idx === 4) {     // the reviewed handoff: an item with its origin and evidence, then where to continue
     const t = oldT(4, arguments[0]), u = t - D;
     setShots('playback', 'handoff', ease(seg(u, 19.6, 20.1)));
     const v1 = mix(FULL, R.hDialog, ease(seg(u, 19.6, 20.2)));
@@ -579,19 +665,52 @@ window.render = function (t) {
     v = mix(v2, R.hCont, ease(seg(u, 23.6, 24.4)));
     if (u > 21.6 && u < 22.7) hl = hlBox(v, B.hOrigin, fade(u, 21.7, 22.0, 22.4, 22.7));
     if (u > 22.7 && u < 23.7) hl = hlBox(v, B.hEvidence, fade(u, 22.75, 23.05, 23.4, 23.7));
-    const p = ease(seg(u, 24.2, 25.0));
-    const [bx, by] = toVp(v, B.hCont[0] + B.hCont[2] * .82, B.hCont[1] + B.hCont[3] * .7);
-    cur = [lerp(VW * .45, bx, p), lerp(VH * .55, by, p), fade(u, 24.1, 24.4, 25.6, 26.0)];
-    rip = seg(u, 25.2, 25.9);
-  } else if (idx === 5) {     // the agent picks it up in the project folder
-    const t = oldT(5, arguments[0]);
-    setShots('handoff', 'handoff', 0);
-    v = R.hCont;
-    term = seg(t - D, 26.2, 26.7);
+    if (u > 24.4) hl = hlBox(v, B.hPlace, fade(u, 24.5, 24.8, 25.7, 26.1));
+  } else if (idx === 5) {     // the agent picks it up: Continue in Claude Code, then Codex (in Terminal), then Codex app
+    const ct = remap(AGENT.keys, u0);
+    waits.push(show($('foot'), frameAt(MH, ct)));
+    setShots('handoff', 'foot', ease(seg(u0, 0, 0.3)));
+    // The dialog's footer across its whole width (a narrower crop would cut its text): Continue in, Continue, and what
+    // Chumi says beside them.
+    const sel = MH.box.select.map((x) => x / 2), dlg = MH.box.dialog.map((x) => x / 2);
+    const beat = [...AGENT.beats].reverse().find((b) => u0 >= b.start) ?? AGENT.beats[0];
+    v = mix(R.hCont, focus([dlg[0], sel[1] - 150, dlg[2], 220], 1), ease(seg(u0, 0, 0.35)));
+    const inTerm = beat.place !== 'codex-app' && u0 >= beat.after[0] - 0.05;
+    const ptr = pointerAt(MH, ct);
+    if (ptr && !inTerm) {
+      const [x, y] = toVp(v, ptr.x / 2, ptr.y / 2);
+      cur = [x, y, Math.min(seg(u0, 0.2, 0.5), 1 - seg(u0, beat.after[0] - 0.3, beat.after[0]) * (beat.place === 'codex-app' ? 0 : 1))];
+      rip = ptr.since >= 0 && ptr.since < 0.7 ? ptr.since / 0.7 : 0;
+    }
+    // The system's menu for Continue in, from the recorded choice.
+    const menuOn = fade(u0, beat.menuAt - 0.05, beat.menuAt + 0.12, beat.choseAt + 0.05, beat.choseAt + 0.2);
+    const M = $('menu');
+    M.style.opacity = menuOn;
+    if (menuOn > 0) {
+      const order = ['codex-app', 'codex', 'claude-code', 'copy'];
+      const before = PLACES[PLACES.indexOf(beat.place) - 1] ?? 'codex-app';
+      const lit = u0 < (beat.menuAt + beat.choseAt) / 2 ? before : beat.place;
+      M.innerHTML = order.map((o, i) => `<div class="${o === lit ? 'on' : ''} ${o === before ? 'cur' : ''}">${TXT.menu[i]}</div>`).join('');
+      const [mx, my] = toVp(v, sel[0], sel[1]);
+      M.style.fontSize = `${(13 * v.z).toFixed(1)}px`;
+      M.style.left = `${mx}px`; M.style.top = `${my - 6 - M.offsetHeight}px`;
+      M.style.transform = `scale(${lerp(0.96, 1, ease(seg(u0, beat.menuAt - 0.05, beat.menuAt + 0.15)))})`;
+    }
+    // Claude Code and Codex: their terminal, after the click.
+    for (const b of AGENT.beats) {
+      if (b.place === 'codex-app') continue;
+      const k = fade(u0, b.after[0], b.after[0] + 0.25, b.after[1] - 0.25, b.after[1]);
+      if (k > 0) { term = k; renderTerm(b.place, u0 - b.after[0]); }
+    }
+    // Codex app: the caption says what is waiting there.
+    if (beat.place === 'codex-app') {
+      const sw = seg(u0, beat.start, beat.start + 0.25);
+      $('csub').textContent = TXT.s[5][3];
+      $('csub').style.opacity = sw;
+    }
   } else {                    // next meeting: Project context on, an answer that cites the earlier agent sessions
     const t = oldT(6, arguments[0]), u = t - D;
-    setShots('handoff', 'pc', 1);
-    term = 1 - seg(u, 33.0, 33.5);
+    setShots('foot', 'pc', ease(seg(u, 33.0, 33.4)));
     // The answer column from the Project context switch down, then the answer and its sources.
     const pcAsk = column(B.pcCard, B.pcToggle[1] - 150), pcCard = column(B.pcCard, B.pcCard[1] - 14);
     v = mix(pcAsk, pcCard, ease(seg(u, 35.0, 36.4)));
@@ -601,7 +720,7 @@ window.render = function (t) {
   applyView(v);
   $('desk').style.opacity = desk;
   $('term').style.opacity = term;
-  if (term > 0) renderTerm(oldT(5, t));
+  if (idx !== 5) $('menu').style.opacity = 0;
   const H = $('hl');
   if (hl) { H.style.left = hl[0] - 6 + 'px'; H.style.top = hl[1] - 4 + 'px'; H.style.width = hl[2] + 12 + 'px'; H.style.height = hl[3] + 8 + 'px'; H.style.opacity = hl[4]; } else H.style.opacity = 0;
   const C = $('cursor');

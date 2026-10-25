@@ -6,6 +6,10 @@
  *   node scripts/record-footage.ts --lang zh          # 中文 → dist/footage/zh/
  *   node scripts/record-footage.ts --provider claude-cli
  *   node scripts/record-footage.ts --provider mock --speed 8    # a quick dry run of every step, without AI requests
+ *   node scripts/record-footage.ts --only agent --project-folder DIR [--lang zh]
+ *       # continuing a confirmed handoff: Chumi's window choosing Claude Code, Codex and Codex app, then the pet's
+ *       # Continue. Nothing is opened (the server runs with CHUMI_NO_LAUNCH). The data folder is kept, with the
+ *       # handoff's prompt, so a real agent can then continue it in DIR through Chumi's MCP server.
  *
  * Plays the same synthetic lab meeting as scripts/demo-shoot.ts through a throwaway server (empty data folder, real
  * local Whisper, the fictional demo profile) and drives two headless Chrome pages:
@@ -40,6 +44,9 @@ const W = 1360, H = 860;              // Chumi's window, CSS px (captured at 2×
 const PET_ZOOM = 3, PET_W = 380, PET_H = 760;  // the pet page, CSS px (captured at 3×)
 // Played a little faster than real time, so lines keep arriving while Whisper keeps up.
 const SPEED = args.includes('--speed') ? Number(args[args.indexOf('--speed') + 1]) : 2.5;
+const AGENT = args.includes('--only') && args[args.indexOf('--only') + 1] === 'agent';
+const PROJECT_FOLDER = args.includes('--project-folder') ? resolve(args[args.indexOf('--project-folder') + 1]) : null;
+if (AGENT && !PROJECT_FOLDER) throw new Error('--only agent needs --project-folder DIR (the sample project the agents work in)');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = (...a: unknown[]) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...a);
 
@@ -249,7 +256,7 @@ async function main(): Promise<void> {
   const lineOf = (re: RegExp) => { const l = lines.find((x) => re.test(x.text)); if (!l) throw new Error(`no sample line matches ${re}`); return l; };
   const topic = lines.findIndex((l) => l.tags.includes('topic_change'));
   const debateEnd = lines.slice(0, topic).filter((l) => l.tags.includes('disagreement')).at(-1)!;
-  const server: ChildProcess = spawn(process.execPath, [join(ROOT, 'server/main.ts')], { env: { ...process.env, CHUMI_DEV: '1', CHUMI_NO_HOTKEY: '1', CHUMI_DATA_DIR: DATA, PORT: String(PORT) }, stdio: 'ignore' });
+  const server: ChildProcess = spawn(process.execPath, [join(ROOT, 'server/main.ts')], { env: { ...process.env, CHUMI_DEV: '1', CHUMI_NO_HOTKEY: '1', CHUMI_NO_LAUNCH: '1', CHUMI_DATA_DIR: DATA, PORT: String(PORT) }, stdio: 'ignore' });
   const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${CDP_PORT}`, `--user-data-dir=${join(DATA, 'chrome')}`, '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--force-color-profile=srgb', `--window-size=${W},${H}`, 'about:blank'], { stdio: 'ignore' });
   const stopAll = () => { chrome.kill('SIGTERM'); server.kill('SIGTERM'); };
   for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => { stopAll(); setTimeout(() => { rmSync(DATA, { recursive: true, force: true }); process.exit(130); }, 1500); });
@@ -282,6 +289,7 @@ async function main(): Promise<void> {
     await sleep(400);
     const petBox = await pet.box('.chumi-pet');
     if (!petBox || petBox[2] < 100 * PET_ZOOM) throw new Error(`the pet page is not zoomed: ${JSON.stringify(petBox)}`);
+    if (AGENT) { await recordAgent(main, pet, lines.at(-1)!.endMs); return; }
     await pet.recordCast('pet-start');
     await sleep(2600);                                 // it waves hello
     await pet.moveTo(sc(40), sc(120), 10);             // the pointer comes in from the side; its eyes follow
@@ -392,8 +400,83 @@ async function main(): Promise<void> {
   } finally {
     stopAll();
     await sleep(1500);
-    if (!process.env.KEEP_DATA) rmSync(DATA, { recursive: true, force: true });
+    if (AGENT) log(`data folder (kept, for the agents' MCP reads): ${DATA}`);
+    else if (!process.env.KEEP_DATA) rmSync(DATA, { recursive: true, force: true });
   }
+}
+
+/** Continue a confirmed handoff: in Chumi's window with each destination, then once from the pet's toolbar. */
+async function recordAgent(main: Page, pet: Page, meetingEndMs: number): Promise<void> {
+  const sc = (v: number) => v * PET_ZOOM;
+  const { project } = await api('/api/projects', { name: L.project, workspace: PROJECT_FOLDER });
+  const { session } = await api('/api/session/start', { title: L.title, type: 'lab_meeting', source: 'file', filePath: SAMPLE, speed: SPEED, record_audio: false, project_id: project.id });
+  const sid = session.id;
+  const meeting = async () => api(`/api/sessions/${sid}`);
+  log('waiting for the whole meeting to be transcribed');
+  await until(async () => ((await meeting()).segments.at(-1)?.t_end ?? 0) > meetingEndMs - 4000, 900000, 'the whole meeting');
+  await sleep(3000);
+  await api('/api/session/end', {});
+  await until(async () => (await meeting()).outputs.find((o: any) => o.kind === 'final_summary' && !['pending', 'streaming'].includes(o.status)), 300000, 'the summary');
+  log('drafting the handoff');
+  await api(`/api/sessions/${sid}/handoff`, {});
+  const h = await until(async () => { const r = (await api(`/api/sessions/${sid}/handoff`)).handoff; return r && r.status !== 'generating' ? r : null; }, 300000, 'handoff draft');
+  if (h.status === 'error') throw new Error(`handoff draft failed: ${h.error}`);
+  for (const item of h.items) await api(`/api/handoff-items/${item.id}`, { review: 'confirmed' }, 'PATCH');
+  await api(`/api/handoffs/${h.id}/confirm`, {});
+  log(`handoff ${h.id} confirmed with ${h.items.length} items`);
+
+  // ---- Chumi's window: the confirmed handoff, continued in Claude Code, then Codex, then Codex app
+  await main.send('Page.navigate', { url: `${B}/?session=${sid}` });
+  await until(async () => main.eval(APP_SHELL), 10000, 'app shell');
+  await until(async () => main.eval(`!!document.querySelector('.handoff-btn')`), 15000, 'handoff button');
+  await main.eval(`(() => { for (const b of document.querySelectorAll('.handoff-btn')) if (b.getBoundingClientRect().width) { b.click(); return true; } })()`);
+  await until(async () => main.eval(`!!document.querySelector('.dialog .handoff-destination select')`), 10000, 'handoff dialog');
+  await sleep(800);
+  const select = await main.box('.dialog .handoff-destination select');
+  const delivered = (via: string) => until(async () => (await api(`/api/sessions/${sid}/handoff`)).handoff?.delivered_via === via, 20000, `delivery to ${via}`);
+  await main.recordShots('main-handoff');
+  await main.moveTo(W * 0.62, H * 0.92, 10);
+  await sleep(1200);
+  for (const place of ['claude-code', 'codex', 'codex-app']) {
+    // The menu itself is the system's (it isn't in a screenshot); the video draws it from these marks and boxes.
+    await main.moveTo((select![0] + select![2] / 2) / 2, (select![1] + select![3] / 2) / 2, 800);
+    main.mark(`menu:${place}`);
+    await sleep(900);
+    await main.eval(`(() => { const s = document.querySelector('.dialog .handoff-destination select'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(s, ${JSON.stringify(place)}); s.dispatchEvent(new Event('change', { bubbles: true })); return s.value; })()`);
+    main.mark(`chose:${place}`);
+    await sleep(700);
+    await main.clickEl('.dialog .btn.primary', 700);
+    main.mark(`continue:${place}`);
+    await delivered(place);
+    await sleep(2800);
+  }
+  const dialogBox = await main.box('.dialog');
+  await main.stop({ box: { select, dialog: dialogBox, cont: await main.box('.dialog .btn.primary'), hint: await main.box('.dialog .small.muted') } });
+
+  // ---- the pet: the meeting's handoff is confirmed, so its toolbar continues it (in Codex app, chosen last)
+  await pet.focus();
+  await until(async () => pet.eval(`!!document.querySelector('button[data-act=continue]')`), 15000, 'the pet’s Continue button');
+  await until(async () => pet.eval(`getComputedStyle(document.querySelector('.chumi-bubble')).visibility === 'hidden'`), 20000, 'the pet bubble to clear').catch(() => {});
+  await pet.recordCast('pet-handoff');
+  await pet.moveTo(sc(360), sc(40), 10);
+  await sleep(700);
+  const go = await pet.box('button[data-act=continue]');
+  await pet.moveTo(go![0] + go![2] / 2, go![1] + go![3] / 2, 1100);
+  await sleep(1300);                                   // its tooltip names the destination
+  await pet.clickEl('button[data-act=continue]', 200);
+  pet.mark('continue');
+  await delivered('codex-app').catch(() => {});
+  await until(async () => pet.eval(`getComputedStyle(document.querySelector('.chumi-bubble')).visibility !== 'hidden'`), 10000, 'the pet bubble').then(() => pet.mark('said'));
+  await sleep(4200);
+  await pet.moveTo(sc(370), sc(30), 900);
+  await sleep(600);
+  await pet.stop({ box: { pet: await pet.box('.chumi-pet'), bar: await pet.box('.bar'), go } });
+
+  // The prompt a coding agent starts from (Copy instructions), for the real runs in the project folder.
+  const { prompt } = await api(`/api/handoffs/${h.id}/continue`, { agent: 'copy' });
+  writeFileSync(join(DATA, 'handoff-prompt.md'), prompt);
+  writeFileSync(join(OUT, 'agent.json'), JSON.stringify({ data: DATA, handoff: h.id, project: PROJECT_FOLDER, prompt: join(DATA, 'handoff-prompt.md') }, null, 1));
+  log(`handoff prompt: ${join(DATA, 'handoff-prompt.md')}`);
 }
 
 main().catch((e) => { console.error('record-footage failed:', (e as Error).message); process.exit(1); });

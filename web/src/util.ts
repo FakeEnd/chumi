@@ -25,6 +25,17 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 marked.use({
   gfm: true,
   breaks: false,
+  // CommonMark doesn't close **…** when the closing ** follows punctuation and comes right before a letter, which is
+  // how Chinese is written ("**简短回答：**之前…"), so the stars showed. A plain bold span (no * inside) is read here;
+  // anything else goes to marked's own rules.
+  extensions: [{
+    name: 'plainStrong', level: 'inline',
+    start: (src: string) => { const i = src.indexOf('**'); return i < 0 ? undefined : i; },
+    tokenizer(src: string) {
+      const m = /^\*\*(?![\s*])([^*\n]*?[^\s*\\])\*\*/.exec(src);
+      return m ? { type: 'strong', raw: m[0], text: m[1], tokens: this.lexer.inlineTokens(m[1]) } : undefined;
+    },
+  }],
   renderer: {
     html(token) { return esc((token as { text: string }).text); },
     // After an inline <code>, <kbd>, <pre> or <script> tag, marked flags the text that follows as raw HTML ("escaped")

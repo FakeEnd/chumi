@@ -9,7 +9,7 @@
 <html><head><meta charset="utf-8">
 <script>
   window.FOOT = '/dist/footage/' + (new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'zh') + '/';
-  for (const c of ['pet-start', 'pet-catchup', 'pet-end']) document.write('<script src="' + window.FOOT + c + '/clip.js"><\/script>');
+  for (const c of ['pet-start', 'pet-catchup', 'pet-end', 'pet-handoff']) document.write('<script src="' + window.FOOT + c + '/clip.js"><\/script>');
 </script>
 <style>
   @font-face { font-family: "Chumi Rounded"; src: local("SF Pro Rounded"), url("/@fs/System/Library/Fonts/SFNSRounded.ttf"); font-weight: 100 1000; }

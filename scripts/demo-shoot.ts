@@ -143,7 +143,7 @@ async function main(): Promise<void> {
   const debateEnd = lines.slice(0, topic).filter((l) => l.tags.includes('disagreement')).at(-1)!;
   const regions: Record<string, Record<string, unknown>> = {};
   buildWeb(ROOT);
-  const server: ChildProcess = spawn(process.execPath, [join(ROOT, 'server/main.ts')], { env: { ...process.env, CHUMI_DEV: '1', CHUMI_NO_HOTKEY: '1', CHUMI_DATA_DIR: DATA, PORT: String(PORT) }, stdio: 'ignore' });
+  const server: ChildProcess = spawn(process.execPath, [join(ROOT, 'server/main.ts')], { env: { ...process.env, CHUMI_DEV: '1', CHUMI_NO_HOTKEY: '1', CHUMI_NO_LAUNCH: '1', CHUMI_DATA_DIR: DATA, PORT: String(PORT) }, stdio: 'ignore' });
   const stop = () => { chrome.kill('SIGTERM'); server.kill('SIGTERM'); setTimeout(() => { if (!process.env.KEEP_DATA) rmSync(DATA, { recursive: true, force: true }); process.exit(130); }, 1500); };
   const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${CDP_PORT}`, `--user-data-dir=${join(DATA, 'chrome')}`, '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', `--window-size=${W},${H}`, 'about:blank'], { stdio: 'ignore' });
   try {
@@ -286,12 +286,13 @@ async function main(): Promise<void> {
       if (h.status === 'error') throw new Error(`handoff draft failed: ${h.error}`);
       for (const item of h.items) await api(`/api/handoff-items/${item.id}`, { review: 'confirmed' }, 'PATCH');
       await api(`/api/handoffs/${h.id}/confirm`, {});
-      await page.goto(`${B}/?session=${sid}`); await page.waitFor('.handoff-box');
-      await page.eval(`[...document.querySelectorAll('.handoff-box .btn-row .btn')].at(-1).click(), true`);
+      // The handoff button in the top bar (one per toolbar layout; the hidden copy has no size).
+      await page.goto(`${B}/?session=${sid}`); await page.waitFor('.handoff-btn');
+      await page.eval(`(() => { for (const b of document.querySelectorAll('.handoff-btn')) if (b.getBoundingClientRect().width) { b.click(); return true; } })()`);
       await page.waitFor('.dialog .hitem');
       await page.shot('handoff');
       regions.handoff = { dialog: await page.measure('.dialog'), item: await page.measure('.dialog .hitem'), origin: await page.measure('.dialog .hitem .tag'),
-        evidence: await page.measure('.dialog .hitem .evidence'), cont: await page.measure('.dialog .btn.primary') };
+        evidence: await page.measure('.dialog .hitem .evidence'), cont: await page.measure('.dialog .btn.primary'), place: await page.measure('.dialog .handoff-destination') };
 
       // Scene 8 — the next question knows what the agents did: Project context on, answered from earlier agent sessions.
       log('scene 8: project context');
@@ -299,10 +300,13 @@ async function main(): Promise<void> {
       // The pinned final summary would push the answer out of view: fold it, and scroll the Ask box (with the
       // Project context toggle) to the top of the column. The sources list stays folded: session titles can contain local paths.
       await page.goto(`${B}/?session=${sid}`); await page.waitFor('.card-answer');
-      await page.eval(`(() => { document.querySelector('.card-final_summary .card-head')?.click(); return true; })()`);
-      await sleep(300);
+      // The newest card (the summary) opens by default and the answer is folded: fold one, open the other.
+      const flip = (sel: string, open: boolean) => page.eval(`(() => { const c = document.querySelector('${sel}'); if (c && c.classList.contains('open') !== ${open}) c.querySelector('.card-head').click(); return true; })()`);
+      await flip('.card-final_summary', false); await sleep(300);
+      await flip('.card-answer', true); await sleep(400);
       await page.eval(`(() => { document.querySelector('.askbox').scrollIntoView({ block: 'start' }); return true; })()`);
       await sleep(500);
+      if (!await page.measure('.card-answer .pc-sources')) throw new Error('the project-context answer is not in view');
       await page.shot('project-context');
       regions.pc = { toggle: await page.measure('.chip-toggle'), card: await page.measure('.card-answer'), sources: await page.measure('.card-answer .pc-sources') };
     }

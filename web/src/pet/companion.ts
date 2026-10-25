@@ -1,11 +1,15 @@
-// The desktop pet's toolbar and cards: start, pause or end a meeting, catch up, ask, and read the latest answers
-// and explanations without opening Chumi's window. Lives under the character in pet.html.
+// The desktop pet's toolbar and cards: start, pause or end a meeting, catch up, ask, read the latest answers and
+// explanations, and continue a confirmed handoff in a coding agent, without opening Chumi's window. Lives under the
+// character in pet.html.
 
 import { api } from '../api.ts';
 import { locale, msg, t } from '../i18n.ts';
 import { fmtT, renderMd } from '../util.ts';
-import type { Output } from '../types.ts';
+import type { Handoff, Output } from '../types.ts';
 import { splitCategory } from '../../../shared/question-category.ts';
+import { AGENT_NAMES, isAgent } from '../../../shared/agents.ts';
+import { loadHandoffDestination } from '../handoffDestination.ts';
+import { canContinue, placeLabel, placeName } from './handoff.ts';
 import { cardTitle, focusOf, preview, recent, tagCounts, when } from './recent.ts';
 import { TAGS, tagOf, type Tag } from './tags.ts';
 
@@ -38,6 +42,7 @@ const ICON = {
   pencil: svg('<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
   stop: svg('<rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor"/>'),
   chevron: svg('<path d="M6 9l6 6 6-6"/>'),
+  go: svg('<path d="M7 17L17 7"/><path d="M9 7h8v8"/>'),
   spin: svg('<circle cx="12" cy="12" r="9" stroke-opacity=".2"/><path d="M21 12a9 9 0 0 0-9-9"/>', ' class="spin"'),
 };
 
@@ -48,6 +53,9 @@ export class Companion {
   private status = 'idle';
   private clock = { nowT: 0, at: 0 };
   private cards = new Map<string, Card>();
+  /** The shown meeting's handoff: once confirmed, the toolbar continues it in a coding agent. */
+  private handoff: Handoff | null = null;
+  private continuing = false;
   private expanded = new Set<string>();
   private toolbar = true;
   private cardsMode: Cards = 'latest';
@@ -119,10 +127,12 @@ export class Companion {
   private async load(id: string): Promise<void> {
     this.sessionId = id;
     this.cards.clear();
+    this.handoff = null;
     try {
-      const d = await api<{ outputs: Output[] }>(`/api/sessions/${encodeURIComponent(id)}`);
+      const d = await api<{ outputs: Output[]; handoff?: Handoff | null }>(`/api/sessions/${encodeURIComponent(id)}`);
       if (this.sessionId !== id) return;
       for (const o of d.outputs) this.cards.set(o.id, o);
+      this.handoff = d.handoff ?? null;
     } catch { /* deleted meanwhile */ }
     this.render();
   }
@@ -141,7 +151,13 @@ export class Companion {
     this.draw();
   }
 
-  deleted(id: string): void { if (id === this.sessionId) { this.sessionId = null; this.cards.clear(); void this.loadLatest(); } }
+  deleted(id: string): void { if (id === this.sessionId) { this.sessionId = null; this.cards.clear(); this.handoff = null; void this.loadLatest(); } }
+
+  handoffChanged(e: { sessionId: string; handoff: Handoff | null }): void {
+    if (e.sessionId !== this.sessionId) return;
+    this.handoff = e.handoff;
+    this.render();
+  }
 
   /** What Settings → Desktop pet shows under the pet. */
   configure(o: { toolbar: boolean; cards: Cards; tags: Tag[] }): void {
@@ -178,6 +194,21 @@ export class Companion {
         this.confirmEnd = Date.now() + 3000; this.render(); setTimeout(() => this.render(), 3100); break;
       case 'catchup': if (this.sessionId) await api('/api/ai/catchup', { body: { sessionId: this.sessionId, scope: '2m' } }).catch(fail); break;
       case 'ask': if (this.asking) this.closeAsk(); else this.openAsk(); break;
+      case 'continue': {
+        const h = this.handoff;
+        if (!canContinue(h) || this.continuing) break;
+        const place = loadHandoffDestination();
+        // Copying needs a focused window for the clipboard: Chumi's handoff dialog does that.
+        if (place === 'copy') { this.host.open({ session: h.session_id }); break; }
+        this.continuing = true; this.render();
+        try {
+          const r = await api<{ launched: boolean }>(`/api/handoffs/${encodeURIComponent(h.id)}/continue`, { body: { agent: place } });
+          if (!r.launched) this.host.open({ session: h.session_id });
+          else this.host.say(place === 'codex-app' ? t('Requested Codex app to open the handoff. Review it there, then click Send to start.')
+            : t('Opened {agent} in Terminal in the project folder, starting from this handoff.', { agent: isAgent(place) ? AGENT_NAMES[place] : place }));
+        } catch (e) { fail(e); } finally { this.continuing = false; this.render(); }
+        break;
+      }
       case 'list':
         if (!this.live()) this.peek = !this.peek;
         else { this.cardsMode = this.list ? 'latest' : 'recent'; this.host.setCards(this.cardsMode); }
@@ -288,6 +319,11 @@ export class Companion {
     else parts.push(b('', ICON.spin, s === 'ending' ? t('Ending…') : t('Starting…'), '', true));
     if (this.live()) parts.push(b('catchup', ICON.spark, t('Catch me up')));
     parts.push(b('ask', ICON.pencil, t('Ask'), this.asking ? 'on' : '', !this.sessionId));
+    if (!this.live() && canContinue(this.handoff)) {
+      const place = loadHandoffDestination();
+      const tip = place === 'copy' ? t('Open the handoff in Chumi') : t('Continue the handoff in {place}', { place: t(placeName(place)) });
+      parts.push(b('continue', `${this.continuing ? ICON.spin : ICON.go}<span>${t(placeLabel(place))}</span>`, tip, 'go', this.continuing));
+    }
     if (this.live()) {
       const sure = Date.now() < this.confirmEnd;
       parts.push(b('end', sure ? `<span>${t('End meeting?')}</span>` : ICON.stop, sure ? t('Click again to end') : t('End meeting'), sure ? 'confirm' : ''));

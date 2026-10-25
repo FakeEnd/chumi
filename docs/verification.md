@@ -1,5 +1,22 @@
 # Verification log
 
+## Continuing in agents, and the pet's Continue — 2026-10-25
+
+On the development Mac, after merging main (PR #25, the Codex app destination). Codex (the ChatGPT plan) answered.
+
+| Check | Result |
+|---|---|
+| Continue in, recorded | `record-footage.ts --only agent` in both languages: a confirmed handoff for the sample project, then Continue in Claude Code in Terminal, Codex in Terminal and Codex app, each picked and clicked. The server ran with `CHUMI_NO_LAUNCH=1`, so nothing was opened (its log lists what would have been); each choice was recorded as that delivery, and the dialog showed Chumi's message beside the button. |
+| Real agent runs | Codex CLI 0.162 (`codex exec`, read-only sandbox, user config ignored, Chumi's MCP server pointed at the recording's data folder) continued each language's handoff in the sample project: it read the handoff and transcript passages through MCP, looked at the files, proposed a plan and waited for a go-ahead. Claude Code could not run: its sign-in had expired (both the CLI and the Claude app's copy). The promo's Claude Code terminal is still the real run from 2026-10-21. |
+| The pet's Continue | With the meeting over and its handoff confirmed, the toolbar showed ↗ Codex app with the tooltip *Continue the handoff in Codex app*; a click was recorded as a Codex app delivery and the pet said Chumi's message. `tests/pet-handoff.test.ts` covers when it shows and the destination names in both languages. |
+| Videos | Both promos re-rendered (81 s, with 54 s and 41 s cuts) and both pet videos (69 s). Frames were checked at one per second and the audio runs to the end. |
+| Handoff and project-context screenshots | Re-shot in the current interface with `demo-shoot.ts --only agent`; the project-context answer cited earlier agent sessions in the sample project found through mybot. |
+| `npm run check` | Both TypeScript projects pass; 319 / 319 tests. |
+
+Found and fixed: after Continue, Chumi's message appeared as a toast behind the handoff dialog; it now shows beside the button. Chinese answers showed literal stars in bold that ends in full-width punctuation ("**简短回答：**之前…"), because CommonMark doesn't close it there; plain bold spans are now read by a small marked extension (`tests/markdown-cjk.test.ts`), and the Chinese footage was re-recorded. `demo-shoot.ts` still opened the handoff from the old in-page box, and shot the project-context screen with the summary open and the answer folded out of view.
+
+Not verified: a real Codex app window receiving the prepared composer (by agreement, not shown in the videos), and a fresh Claude Code run.
+
 ## Screenshots and promo footage, live — 2026-10-25
 
 On the development Mac, with Codex (the ChatGPT plan) answering.

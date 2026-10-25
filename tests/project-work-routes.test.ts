@@ -36,6 +36,7 @@ function fixture(openDesktop: (...args: string[]) => Promise<unknown> = async ()
     readJson: async (body: unknown) => body,
     broadcast: (event: string) => events.push(event), syncMybot: () => events.push('mybot'),
     chumiLink: () => () => null, agents: { launch: (...args: string[]) => terminal.push(args) }, launchCodexDesktop: openDesktop,
+    NO_LAUNCH: false, log: () => {},
   };
   const code = [
     routeSource("route('GET', '/api/projects/:id/brief'", "route('POST', '/api/projects',"),

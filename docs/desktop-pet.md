@@ -31,9 +31,10 @@ the right-click menu's *Pet Only* and *Hide Desktop Pet* turn off the toolbar an
 | ✎ | **Ask** about the meeting: a box opens under the toolbar, Enter sends, Esc closes. Works for the latest meeting too |
 | ■ | **End meeting**. Click twice: the first click asks *End meeting?* |
 | ⌄ | During a meeting: the recent answers (up to 6) instead of only the latest. Without one: the last meeting's answers |
+| ↗ Codex app | After the meeting, once its handoff is confirmed in Chumi: **continue** it in a coding agent, where you last chose in the handoff dialog's *Continue in* (Codex app unless you picked another; the button names it). The pet then says what it did. With *Copy instructions* chosen it opens the handoff in Chumi instead, since copying needs Chumi's window. Reviewing and confirming always happen in Chumi |
 
-Hover a button for its name. Without a meeting, the toolbar shows only Quick start, Ask and the recent list. The
-toolbar can be turned off in Settings.
+Hover a button for its name. Without a meeting, the toolbar shows only Quick start, Ask, the recent list and, once the
+meeting's handoff is confirmed, Continue. The toolbar can be turned off in Settings.
 
 ## The cards
 

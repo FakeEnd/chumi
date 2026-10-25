@@ -1287,6 +1287,9 @@ export const ZH: Record<string, string> = {
   "Drag to resize · double-click to reset": "拖动调整宽度 · 双击恢复默认",
   // Desktop pet (web/src/pet/companion.ts)
   "Ask about this meeting…": "问问这场会议…",
+  "Continue the handoff in {place}": "继续这份交接：{place}",
+  "Open the handoff in Chumi": "在 Chumi 中打开交接",
+  "Handoff": "交接",
   "Ending…": "正在结束…",
   "End meeting": "结束会议",
   "End meeting?": "结束会议？",

@@ -137,6 +137,7 @@ subscribe({
   notice: (n) => say(brain.notice(n, clock())),
   'session-ended': (d) => say(brain.ended(clock(), !!d?.summaryId)),
   'session-deleted': (d) => { brain.deleted(String(d?.id)); companion.deleted(String(d?.id)); },
+  handoff: (e) => companion.handoffChanged(e),
   settings: (s) => { language(s); applyPet(s?.pet); },
 }, () => {});
 

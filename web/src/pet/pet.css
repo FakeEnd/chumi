@@ -25,6 +25,8 @@ body { font: 13px/1.45 -apple-system, "SF Pro Text", "PingFang SC", system-ui, s
 .bar button.paused { color: #b45309; }
 .bar button.confirm { background: #fde2e4; color: #b4162f; font-weight: 750; }
 .bar button.flip svg { transform: rotate(180deg); }
+.bar button.go { color: #4338ca; }
+.bar button.go svg { width: 19px; height: 19px; }
 .bar .dot { width: 9px; height: 9px; border-radius: 50%; background: #e11d48; display: block; animation: pulse 1.6s ease-in-out infinite; }
 .bar .sep { width: 1px; height: 22px; background: rgba(30, 27, 75, .12); flex: none; }
 @keyframes pulse { 50% { opacity: .35; } }
@@ -84,6 +86,7 @@ button.open { border: 0; background: none; padding: 0; color: #4f46e5; font: 700
   .bar button.rec { color: #ff6b88; }
   .bar button.paused { color: #fbbf24; }
   .bar button.confirm { background: rgba(244, 63, 94, .25); color: #ffd1d8; }
+  .bar button.go { color: #c7d2fe; }
   .card .prev { color: #b8bccd; } .card .tm, .card.empty { color: #9096ab; } .card .md { color: #dfe2ee; }
   .card .md code { background: rgba(255, 255, 255, .08); }
   .card .md button.ref, button.open { color: #a5b4fc; }

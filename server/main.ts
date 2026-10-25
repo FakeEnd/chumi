@@ -51,6 +51,8 @@ import { launchCodexDesktop } from './projects/desktop-handoff.ts';
 const PORT = Number(process.env.PORT || 4777);
 const HOST = '127.0.0.1';
 const DEV = !!process.env.CHUMI_DEV;
+/** Dev only, for recordings and trials: Continue does everything except the OS open (Terminal, Codex app) and logs it. */
+const NO_LAUNCH = DEV && process.env.CHUMI_NO_LAUNCH === '1';
 // The existing desktop listener stays loopback-only. Mobile access is a separate opt-in TLS gateway.
 const mobileConfig = process.env.CHUMI_MOBILE === '1'
   ? loadMobileConfiguration(join(DATA_DIR, 'mobile', 'companion.json')) : null;
@@ -611,7 +613,9 @@ route('POST', '/api/handoffs/:id/continue', async (req, _res, p) => {
   if (via !== 'copy') {
     const project = store.getProject(h.project_id!)!;
     try {
-      if (via === 'codex-app') await launchCodexDesktop(h.id, project.workspace, prompt);
+      const skipped = (what: string) => log('handoff', `CHUMI_NO_LAUNCH: not opened: ${what}`);
+      if (via === 'codex-app') await launchCodexDesktop(h.id, project.workspace, prompt, NO_LAUNCH ? { openUrl: async (url) => skipped(url) } : {});
+      else if (NO_LAUNCH) skipped(agents.launchScript(via as AgentId, h.id, project.workspace, prompt));
       else agents.launch(via as AgentId, h.id, project.workspace, prompt);
       launched = true;
     } catch (e) { throw new HttpError(400, (e as Error).message); }

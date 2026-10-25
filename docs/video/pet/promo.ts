@@ -13,7 +13,7 @@ const line = (k: keyof typeof PET_LINES) => PET_LINES[k][LANG];
 type Clip = { name: string; duration: number; frames: Array<[number, string]>; events: Array<{ t: number; type: string; x?: number; y?: number; name?: string }>; box: { pet: number[] } };
 const CLIPS = (window as any).CLIPS as Record<string, Clip>;
 const FOOT = (window as any).FOOT as string;
-const PS = CLIPS['pet-start'], PCU = CLIPS['pet-catchup'], PE = CLIPS['pet-end'];
+const PS = CLIPS['pet-start'], PCU = CLIPS['pet-catchup'], PE = CLIPS['pet-end'], PH = CLIPS['pet-handoff'];
 const mark = (c: Clip, name: string) => { const e = c.events.find((x) => x.type === 'mark' && x.name === name); if (!e) throw new Error(`${c.name}: no ${name} mark`); return e.t; };
 
 const TEXT: Record<string, Record<Lang, string>> = {
@@ -89,28 +89,33 @@ const K2 = steps(c2Click - 1.6, [
 // Scene 3, pet-end: end the meeting from the toolbar, the summary is written, a celebration.
 const c3End = mark(PE, 'end'), c3Summary = mark(PE, 'summary');
 const K3 = steps(0.6, [[c3End, c3End - 0.6], [c3End + 2.2, 2.2], [c3Summary, 2.4], [c3Summary + 3.6, 3.6]]);
+// Scene 4, pet-handoff: the handoff was confirmed in Chumi; the toolbar continues it in Codex app, and the pet says so.
+const c4Go = mark(PH, 'continue'), c4Said = mark(PH, 'said');
+const K4 = steps(0.5, [[c4Go - 0.2, c4Go - 0.7], [c4Said, c4Said - c4Go + 0.2], [c4Said + 4.0, 4.0]]);
 
 const INTRO_END = 4.6;
 const S1 = [INTRO_END, INTRO_END + K1.at(-1)![0]];
 const S2 = [S1[1], S1[1] + K2.at(-1)![0]];
 const S3 = [S2[1], S2[1] + K3.at(-1)![0]];
-const OUTRO = S3[1];
+const S4 = [S3[1], S3[1] + K4.at(-1)![0]];
+const OUTRO = S4[1];
 const DURATION = OUTRO + 5.6;
 /** Which clip is on the desk at video time t, and its time. */
 function clipAt(t: number): { c: Clip; ct: number } {
   if (t < S1[1]) return { c: PS, ct: remap(K1, t - S1[0]) };
   if (t < S2[1]) return { c: PCU, ct: remap(K2, t - S2[0]) };
-  return { c: PE, ct: remap(K3, t - S3[0]) };
+  if (t < S3[1]) return { c: PE, ct: remap(K3, t - S3[0]) };
+  return { c: PH, ct: remap(K4, t - S4[0]) };
 }
 /** The video time at which clip c reaches clip time ct (for captions and sounds). */
 function at(c: Clip, ct: number): number {
-  const [keys, start] = c === PS ? [K1, S1[0]] : c === PCU ? [K2, S2[0]] : [K3, S3[0]];
+  const [keys, start] = c === PS ? [K1, S1[0]] : c === PCU ? [K2, S2[0]] : c === PE ? [K3, S3[0]] : [K4, S4[0]];
   for (let i = 1; i < keys.length; i++) if (ct <= keys[i][1]) { const [a0, b0] = keys[i - 1], [a1, b1] = keys[i]; return start + a0 + (a1 - a0) * (ct - b0) / (b1 - b0 || 1); }
   return start + keys.at(-1)![0];
 }
 const T = {
   start: at(PS, s1Start), rub: at(PS, rub), click: at(PCU, c2Click), done: at(PCU, c2Done), open: at(PCU, c2Open), ask: at(PCU, c2Ask),
-  answered: at(PCU, c2Answered), end: at(PE, c3End), summary: at(PE, c3Summary),
+  answered: at(PCU, c2Answered), end: at(PE, c3End), summary: at(PE, c3Summary), go: at(PH, c4Go), said: at(PH, c4Said),
 };
 
 const CAPTIONS: Array<[number, number, Record<Lang, [string, string]>]> = [
@@ -122,7 +127,9 @@ const CAPTIONS: Array<[number, number, Record<Lang, [string, string]>]> = [
   [T.done + 0.6, T.ask - 0.3, { zh: ['点开就能看全文', '每一点都标着出处'], en: ['Open it to read everything', 'Every point cites the moment it was said'] }],
   [T.ask - 0.3, S2[1], { zh: ['想问什么，直接问它', ''], en: ['Ask it anything', ''] }],
   [S3[0] + 0.2, T.summary + 0.2, { zh: ['开完会，在工具栏上结束', '总结自动写好'], en: ['End the meeting from its toolbar', 'The summary writes itself'] }],
-  [T.summary + 0.2, OUTRO, { zh: ['大小、显示什么，都能在设置里调', '设置 → 桌宠'], en: ['Size and what it shows: your choice', 'Settings → Desktop pet'] }],
+  [T.summary + 0.2, S3[1], { zh: ['大小、显示什么，都能在设置里调', '设置 → 桌宠'], en: ['Size and what it shows: your choice', 'Settings → Desktop pet'] }],
+  [S4[0] + 0.2, T.said, { zh: ['确认交接后，一键交给编程智能体', '在 Chumi 里审核交接 · 默认在 Codex app 里接着做'], en: ['Confirm the handoff, then hand it on in one click', 'Review it in Chumi · it continues in Codex app by default'] }],
+  [T.said, OUTRO, { zh: ['交接已经填进 Codex app 的输入框', '你检查后点“发送”，它才开始'], en: ['The handoff waits in Codex app’s composer', 'Nothing starts until you click Send'] }],
 ];
 
 // The camera: [time, zoom, focus x, focus y], eased between keys; it never shows past the desktop's edges.
@@ -133,7 +140,8 @@ const CAMERA: Array<[number, number, number, number]> = [
   [0, 1, 960, 540], [S1[0] + 2.2, 1, 960, 540], [T.start + 0.3, ...on(1.9, 190)], [T.rub - 0.3, ...on(1.9, 190)], [T.rub + 0.4, ...on(2.6, 150)], [S1[1] - 0.3, ...on(2.6, 150)],
   [S2[0] + 0.6, ...on(2.3, 250)], [T.click + 0.8, ...on(2.3, 290)], [T.done - 0.3, ...on(1.95, 250)], [T.done + 0.9, ...on(1.95, 250)], [T.open + 0.4, ...on(1.75, 400)], [T.ask - 0.5, ...on(1.75, 400)],
   [T.ask + 0.4, ...on(2.1, 330)], [T.answered, ...on(1.75, 420)], [S2[1] - 0.3, ...on(1.75, 420)], [S3[0] + 0.6, ...on(2.3, 230)], [T.summary - 0.4, ...on(2.3, 230)],
-  [T.summary + 0.6, ...on(2.6, 160)], [OUTRO - 0.6, ...on(2.6, 160)], [OUTRO, 1, 960, 540],
+  [T.summary + 0.6, ...on(2.6, 160)], [S3[1] - 0.3, ...on(2.6, 160)],
+  [S4[0] + 0.5, ...on(2.2, 140)], [OUTRO - 0.6, ...on(2.2, 140)], [OUTRO, 1, 960, 540],
 ];
 function cameraAt(t: number): { z: number; tx: number; ty: number } {
   let [, z, fx, fy] = CAMERA[0];
@@ -270,6 +278,7 @@ const SFX = ([
   ...downs(PCU).map((x) => [x, 'click']), [T.click + 0.2, 'think'], [T.done - 0.2, 'boing'], [T.done - 0.1, 'sparkle'],
   [T.ask - 1.6, 'scribble'], [T.answered, 'bling'],
   ...downs(PE).map((x) => [x, 'click']), [T.end + 0.3, 'pop'], [T.summary, 'confetti'], [T.summary + 0.1, 'pop'],
+  [S4[0] + 0.2, 'tick'], ...downs(PH).map((x) => [x, 'click']), [T.said, 'bling'], [T.said + 0.05, 'pop'],
   [OUTRO, 'whoosh'], [OUTRO + 0.6, 'boing'], [OUTRO + 1.2, 'sparkle'], [OUTRO + 1.7, 'pop'],
 ] as Array<[number, string]>).sort((a, b) => a[0] - b[0]);
 Object.assign(window, {
@@ -277,6 +286,6 @@ Object.assign(window, {
   // The music: the groove starts as the desk opens, and the final chord lands with the outro's title.
   MUSIC: { groove: 4, end: OUTRO + 1.4 },
   POSTER_T: +(T.done + 0.3).toFixed(2),
-  PREVIEW_T: [1.8, 4.4, S1[0] + 1.5, T.start + 1, T.rub + 1.2, T.click - 0.4, (T.click + T.done) / 2, T.done + 0.4, T.open + 1.5, (T.ask + T.answered) / 2, T.answered + 1.2, T.end + 0.8, T.summary + 1, OUTRO + 3].map((x) => +x.toFixed(2)),
+  PREVIEW_T: [1.8, 4.4, S1[0] + 1.5, T.start + 1, T.rub + 1.2, T.click - 0.4, (T.click + T.done) / 2, T.done + 0.4, T.open + 1.5, (T.ask + T.answered) / 2, T.answered + 1.2, T.end + 0.8, T.summary + 1, T.go - 0.3, T.said + 1, OUTRO + 3].map((x) => +x.toFixed(2)),
 });
 void render(0);
