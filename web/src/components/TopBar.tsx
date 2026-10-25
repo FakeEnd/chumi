@@ -9,6 +9,7 @@ import type { Depth } from '../types.ts';
 import { IconBolt, IconClock, IconGear, IconSpark, IconUser, IconWave, IconWindow } from './icons.tsx';
 import { AudioPlayer } from './AudioPlayer.tsx';
 import { HandoffButton } from './Handoff.tsx';
+import { onEnter } from '../keys.ts';
 
 export const DEPTH_LABEL: Record<Depth, string> = { quick: msg('Quick'), standard: msg('Standard'), deep: msg('Deep') };
 
@@ -86,7 +87,7 @@ export function TopBar() {
         {data ? (
           <>
             <span className="crumb-sep">/</span>
-            <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== data.session.title && renameSession(data.session.id, { title })} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} aria-label={t('Session title')} />
+            <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== data.session.title && renameSession(data.session.id, { title })} onKeyDown={onEnter((e) => (e.target as HTMLInputElement).blur())} aria-label={t('Session title')} />
             <SessionTypeSelect className="type-select" value={data.session.type} manage onChange={(type) => void renameSession(data.session.id, { type })} />
             <ProjectSelect className="type-select project-select" value={data.session.project_id ?? null}
               onChange={(id) => { if (!data.handoff?.items.length || confirm(t('Move this meeting to another project? Its handoff will need to be reviewed again for the new project.'))) void assignProject(data.session.id, id); }} />
