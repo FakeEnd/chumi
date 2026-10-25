@@ -12,11 +12,16 @@ export async function loadState(): Promise<void> {
     loaded: true, settings: s.settings, profile: s.profile, provider: s.provider, live: s.live, liveReceivedAt: Date.now(), partials: s.live?.partials ?? {},
     devMode: s.devMode, helperBuilt: s.helperBuilt, platform: s.platform ?? '', screenToolBuilt: s.screenToolBuilt, hotkey: s.hotkey ?? null, appMode: s.appMode, dataDir: s.dataDir, samples: s.samples ?? [], systemLanguage: s.systemLanguage ?? '',
   });
-  // Deep links (?session=<id>&dialog=settings&tab=ai) open a view directly; used for scripted screenshots too.
-  const q = new URLSearchParams(location.search);
   void loadProjects();
+  // Reconnected (laptop sleep, server restart): the server doesn't replay missed events, so fetch the open session again.
+  const viewing = getState().viewId;
+  if (viewing) return openSession(viewing);
+  // Deep links (?session=<id>&dialog=settings&tab=ai) open a view directly; used for scripted screenshots too.
+  // Read once: a reconnect must not reopen them.
+  const q = new URLSearchParams(location.search);
+  if (location.search) history.replaceState(history.state, '', location.pathname + location.hash);
   const want = q.get('session');
-  if (want && !getState().viewId) {
+  if (want) {
     // Evidence links from agents: ?session=…&t=…&t2=… focuses a passage, &frame=… opens a capture.
     const t = Number(q.get('t')), t2 = Number(q.get('t2')), frame = Number(q.get('frame'));
     const focus = q.get('t') && Number.isFinite(t) ? { t, t2: q.get('t2') && Number.isFinite(t2) ? t2 : undefined } : undefined;
