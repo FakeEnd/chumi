@@ -215,8 +215,10 @@ final class ServerManager: @unchecked Sendable {
 
         p.terminationHandler = { [weak self] proc in
             guard let self else { return }
+            // restart() may have reset intentionalStop before the old process's handler runs, so a process this
+            // manager no longer tracks also counts as stopped on purpose.
             self.lock.lock()
-            let intentional = self.intentionalStop
+            let intentional = self.intentionalStop || proc !== self.process
             self.lock.unlock()
             let status = proc.terminationStatus
             self.appendLog("=== \(Date()) server exited with status \(status)\(intentional ? " (requested)" : "")\n")
