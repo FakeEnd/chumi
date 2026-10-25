@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderMd } from '../web/src/util.ts';
+import { crossSiteSource } from '../server/util.ts';
 
 // Everything renderMd may emit. Any other tag, or any other attribute, means model or transcript text became markup.
 const ALLOWED: Record<string, string[]> = {
@@ -48,4 +49,16 @@ test('markdown keeps its formatting and shows tags as text', () => {
   assert.match(html, /<strong>KV cache<\/strong> &amp; <code>x&lt;y<\/code>/);
   assert.match(html, /<button class="ref" data-t="65000"/);
   assert.match(html, /&lt;code&gt;a &lt; b &amp; c&lt;\/code&gt;/);
+});
+
+test('the API refuses requests from other sites\' pages and accepts Chumi\'s own page and non-browser clients', () => {
+  const host = '127.0.0.1:4777';
+  assert.equal(crossSiteSource({ host, 'sec-fetch-site': 'same-origin', origin: 'http://127.0.0.1:4777' }), null);
+  assert.equal(crossSiteSource({ host, 'sec-fetch-site': 'same-origin' }), null);
+  assert.equal(crossSiteSource({ host, 'sec-fetch-site': 'none' }), null, 'a typed address or bookmark');
+  assert.equal(crossSiteSource({ host }), null, 'curl, the MCP server, the native shells');
+  assert.match(crossSiteSource({ host, 'sec-fetch-site': 'cross-site' }) ?? '', /cross-site/, 'an <img> on any website');
+  assert.match(crossSiteSource({ host, 'sec-fetch-site': 'same-site', origin: 'http://localhost:3000' }) ?? '', /same-site/, 'another app on a localhost port');
+  assert.match(crossSiteSource({ host, origin: 'https://evil.example' }) ?? '', /evil\.example/, 'a browser without fetch metadata');
+  assert.match(crossSiteSource({ host, origin: 'null' }) ?? '', /null/, 'a sandboxed frame or file:// page');
 });

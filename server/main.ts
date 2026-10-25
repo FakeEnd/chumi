@@ -6,7 +6,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { Store, speakerFields } from './db.ts';
 import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool, which } from './paths.ts';
-import { deepMerge, log, uid } from './util.ts';
+import { crossSiteSource, deepMerge, log, uid } from './util.ts';
 import { WhisperServer } from './asr/whisper.ts';
 import { SpeechService } from './asr/speech.ts';
 import { ENGINE_NAMES, isKeyedEngine, isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId } from './asr/engines.ts';
@@ -810,10 +810,13 @@ route('GET', '/api/dev/mock-calls', () => { devOnly(); return registry.mock.call
 const allowedHosts = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 const server = createServer(async (req, res) => {
   try {
-    // Defend against DNS-rebinding and cross-site requests: local host names only, and a custom header on writes.
+    // Defend against DNS-rebinding and cross-site requests: local host names only, no API calls from other sites' pages
+    // (some GETs start agent CLIs or the screen tool), and a custom header on writes.
     if (!allowedHosts.has(req.headers.host ?? '')) return send(res, 403, { error: 'Forbidden host' });
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     if (!url.pathname.startsWith('/api/')) return serveStatic(res, url.pathname);
+    const crossSite = crossSiteSource(req.headers);
+    if (crossSite) return send(res, 403, { error: `Cross-site request refused (${crossSite})` });
     if (req.method !== 'GET' && req.headers['x-chumi'] !== '1') return send(res, 403, { error: 'Missing X-Chumi header' });
     for (const r of routes) {
       if (r.method !== req.method) continue;
