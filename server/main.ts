@@ -6,7 +6,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { Store, speakerFields } from './db.ts';
 import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool, which } from './paths.ts';
-import { deepMerge, log, uid } from './util.ts';
+import { crossSiteSource, deepMerge, log, uid } from './util.ts';
 import { WhisperServer } from './asr/whisper.ts';
 import { SpeechService } from './asr/speech.ts';
 import { ENGINE_NAMES, isKeyedEngine, isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId } from './asr/engines.ts';
@@ -171,17 +171,20 @@ async function readJson(req: IncomingMessage): Promise<Record<string, any>> {
 }
 
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2' };
+// The interface shows AI answers and transcript text as HTML (escaped in web/src/util.ts). Should markup ever get through,
+// the page still runs only its own scripts, loads nothing from other hosts and can't be framed by another site.
+const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 function serveStatic(res: ServerResponse, pathname: string): void {
   if (!existsSync(WEB_DIST)) {
-    send(res, 200, '<!doctype html><meta charset="utf-8"><title>Chumi</title><body style="font-family:system-ui;padding:40px"><h2>Chumi server is running</h2><p>The web interface has not been built yet. Run <code>npm run build:web</code>, then reload.</p></body>', { 'content-type': 'text/html; charset=utf-8' });
+    send(res, 200, '<!doctype html><meta charset="utf-8"><title>Chumi</title><body style="font-family:system-ui;padding:40px"><h2>Chumi server is running</h2><p>The web interface has not been built yet. Run <code>npm run build:web</code>, then reload.</p></body>', { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': CSP });
     return;
   }
   const rel = normalize(decodeURIComponent(pathname)).replace(/^([/\\])+/, '');
   let file = resolve(WEB_DIST, rel);
   if (!file.startsWith(WEB_DIST) || !existsSync(file) || statSync(file).isDirectory()) file = join(WEB_DIST, 'index.html');
   const ext = extname(file);
-  res.writeHead(200, { 'content-type': MIME[ext] ?? 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-store' : 'public, max-age=31536000, immutable' });
+  res.writeHead(200, { 'content-type': MIME[ext] ?? 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-store' : 'public, max-age=31536000, immutable', ...(ext === '.html' ? { 'content-security-policy': CSP } : {}) });
   res.end(readFileSync(file));
 }
 
@@ -807,10 +810,13 @@ route('GET', '/api/dev/mock-calls', () => { devOnly(); return registry.mock.call
 const allowedHosts = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 const server = createServer(async (req, res) => {
   try {
-    // Defend against DNS-rebinding and cross-site requests: local host names only, and a custom header on writes.
+    // Defend against DNS-rebinding and cross-site requests: local host names only, no API calls from other sites' pages
+    // (some GETs start agent CLIs or the screen tool), and a custom header on writes.
     if (!allowedHosts.has(req.headers.host ?? '')) return send(res, 403, { error: 'Forbidden host' });
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     if (!url.pathname.startsWith('/api/')) return serveStatic(res, url.pathname);
+    const crossSite = crossSiteSource(req.headers);
+    if (crossSite) return send(res, 403, { error: `Cross-site request refused (${crossSite})` });
     if (req.method !== 'GET' && req.headers['x-chumi'] !== '1') return send(res, 403, { error: 'Missing X-Chumi header' });
     for (const r of routes) {
       if (r.method !== req.method) continue;
