@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { CODEX_WORKDIR, which } from '../paths.ts';
+import { CODEX_WORKDIR, findClaude } from '../paths.ts';
 import { runCommand, spawnCommand, stopProcess } from '../platform.ts';
 import { ProviderError, type AIProvider, type CompletionRequest, type CompletionResult, type ProviderStatus } from './provider.ts';
 
@@ -45,7 +45,7 @@ export class ClaudeCliProvider implements AIProvider {
   async status(refresh = false): Promise<ProviderStatus> {
     if (!refresh && this.lastStatus && Date.now() - this.lastStatus.checkedAt < 60_000) return this.lastStatus;
     const base = { id: this.id, label: this.label, checkedAt: Date.now(), model: this.cfg().model };
-    const bin = which('claude');
+    const bin = findClaude();
     if (!bin) {
       return this.lastStatus = { ...base, billing: 'none', billingLabel: 'Not installed', state: 'not_installed', ready: false,
         quota: { known: false, summary: 'Quota information unavailable.' }, message: 'Claude Code CLI not found.', setupHint: 'Install Claude Code, then run: claude auth login' };
@@ -97,7 +97,7 @@ export class ClaudeCliProvider implements AIProvider {
   async complete(req: CompletionRequest): Promise<CompletionResult> {
     const st = await this.status();
     if (!st.ready) throw new ProviderError(st.state === 'signed_out' ? 'auth' : st.state === 'quota_blocked' ? 'quota_gate' : 'unavailable', `${st.message ?? 'Claude is not ready.'} ${st.setupHint ?? ''}`.trim());
-    const bin = which('claude')!;
+    const bin = findClaude()!;
     const model = this.cfg().model;
     let instructions = req.instructions;
     if (req.jsonSchema) instructions += `\n\nReturn ONLY a JSON object (no prose, no code fences) matching this JSON Schema:\n${JSON.stringify(req.jsonSchema)}`;

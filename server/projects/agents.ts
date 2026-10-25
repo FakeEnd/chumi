@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { Store } from '../db.ts';
-import { DATA_DIR, REPO_ROOT, which } from '../paths.ts';
+import { DATA_DIR, findClaude, REPO_ROOT, which } from '../paths.ts';
 import { uid } from '../util.ts';
 import { IS_WIN, openInTerminal, runCommand as run } from '../platform.ts';
 import { AGENT_BILLING, AGENT_NAMES, AGENTS, type AgentId } from '../../shared/agents.ts';
@@ -297,7 +297,7 @@ export class AgentIntegration {
   mcpServer(): McpServer {
     return { command: stableNode(), args: [MCP_SCRIPT], env: process.env.CHUMI_DATA_DIR ? { CHUMI_DATA_DIR: DATA_DIR } : {} };
   }
-  cli(agent: AgentId): string | null { return which(ADAPTERS[agent].bin); }
+  cli(agent: AgentId): string | null { return agent === 'claude-code' ? findClaude() : which(ADAPTERS[agent].bin); }
 
   /** Copyable commands (or configuration) for manual setup. */
   setupCommands(): Record<AgentId, string> {

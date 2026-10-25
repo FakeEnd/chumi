@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join, dirname, resolve, delimiter } from 'node:path';
-import { mkdirSync, existsSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const WIN = process.platform === 'win32';
@@ -64,4 +64,35 @@ export function which(cmd: string): string | null {
     }
   }
   return null;
+}
+
+/** The Claude desktop app keeps the Claude Code builds it installs here, as <version>/<hash>/claude.app/Contents/MacOS/claude. */
+export const DESKTOP_CLAUDE_CODE_DIR = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude-code');
+
+/** Numeric order of dotted versions, so 2.1.304 comes after 2.1.95. */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) { const d = (pa[i] ?? 0) - (pb[i] ?? 0); if (d) return d; }
+  return 0;
+}
+
+/**
+ * The newest runnable Claude Code the Claude desktop app installed. ~/.local/bin/claude usually links into one of these
+ * folders, and the link dangles once the app updates Claude Code and deletes the version it pointed to.
+ */
+export function desktopClaudeCode(root = DESKTOP_CLAUDE_CODE_DIR): string | null {
+  const list = (d: string) => { try { return readdirSync(d).sort(); } catch { return []; } };
+  const versions = list(root).filter((v) => /^\d+(\.\d+)*$/.test(v)).sort((a, b) => compareVersions(b, a));
+  for (const v of versions) {
+    for (const h of list(join(root, v))) {
+      const bin = join(root, v, h, 'claude.app', 'Contents', 'MacOS', 'claude');
+      try { if (statSync(bin).isFile()) { accessSync(bin, constants.X_OK); return bin; } } catch { /* broken link, missing or not executable */ }
+    }
+  }
+  return null;
+}
+
+/** The Claude Code CLI: PATH and the usual install folders first, so the user's own install wins, then the Claude app's copy. */
+export function findClaude(): string | null {
+  return which('claude') ?? (WIN ? null : desktopClaudeCode());
 }
