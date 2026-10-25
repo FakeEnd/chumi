@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { setState, useStore } from '../store.ts';
-import { ask, cancelOutput, explain, refreshOutput } from '../actions.ts';
+import { ask, cancelOutput, explain, refreshOutput, submitQuestion } from '../actions.ts';
 import { fmtClock, fmtT, parseT } from '../util.ts';
 import { msg, plural, t } from '../i18n.ts';
 import { DEPTH_LABEL } from './TopBar.tsx';
@@ -145,20 +145,25 @@ function AskBox() {
   const [depth, setDepth] = useState<Depth>(defaultDepth);
   const [effort, setEffort] = useState<Effort>(defaultEffort);
   const [showAll, setShowAll] = useState(false);
+  const [sending, setSending] = useState(false);
+  const pending = useRef(false);
   useEffect(() => setDepth(defaultDepth), [defaultDepth]);
   useEffect(() => setEffort(defaultEffort), [defaultEffort]);
-  const send = (q: string, mode: 'ask' | 'explain' = 'ask') => {
+  const send = async (q: string, mode: 'ask' | 'explain' = 'ask', requestedDepth = depth) => {
     const text = q.trim();
-    if (!text && !attached) return;
+    if (pending.current || (!text && !attached)) return;
     const requestedEffort = supportsEffort ? effort : undefined;
-    if (mode === 'explain') explain(text || attached!.text.slice(0, 80), attached, depth, undefined, requestedEffort);
-    else ask(text || t('What does this passage mean?'), attached, depth, [], requestedEffort);
-    setState({ askDraft: '', attached: null });
-    setDepth(defaultDepth); // one-off choices; they do not change settings or the profile
-    setEffort(defaultEffort);
+    pending.current = true; setSending(true);
+    try {
+      const result = await submitQuestion(q, mode, requestedDepth, requestedEffort);
+      if (result.cleared) {
+        setDepth((now) => now === depth ? defaultDepth : now);
+        setEffort((now) => now === effort ? defaultEffort : now);
+      }
+    } finally { pending.current = false; setSending(false); }
   };
   return (
-    <div className="askbox">
+    <div className="askbox" aria-busy={sending}>
       {attached && (
         <div className="attached">
           <span className="muted">{t('About [{t}]:', { t: fmtT(attached.fromT) })}</span> <span className="attached-text">“{attached.text.slice(0, 140)}{attached.text.length > 140 ? '…' : ''}”</span>
@@ -179,14 +184,14 @@ function AskBox() {
           <ProjectContextToggle />
         </div>
         <div className="ask-actions">
-          <button className="btn small" onClick={() => send(draft, 'explain')} title={t('Explain the typed term (or the attached passage)')}>{t('Explain')}</button>
-          <button className="btn small primary" onClick={() => send(draft)}>{t('Ask')}</button>
+          <button className="btn small" disabled={sending} onClick={() => void send(draft, 'explain')} title={t('Explain the typed term (or the attached passage)')}>{t('Explain')}</button>
+          <button className="btn small primary" disabled={sending} onClick={() => void send(draft)}>{t('Ask')}</button>
         </div>
       </div>
       <ProjectContextNote />
       <div className="chips">
-        {(showAll ? QUICK : QUICK.slice(0, 3)).map((q) => <button key={q} className="chip" onClick={() => send(t(q))}>{t(q)}</button>)}
-        {showAll && <button className="chip" onClick={() => ask(t('Give me the short version first: what is the key point right now?'), attached, 'quick')}>{t('Give me the short version first')}</button>}
+        {(showAll ? QUICK : QUICK.slice(0, 3)).map((q) => <button key={q} className="chip" disabled={sending} onClick={() => void send(t(q))}>{t(q)}</button>)}
+        {showAll && <button className="chip" disabled={sending} onClick={() => void send(t('Give me the short version first: what is the key point right now?'), 'ask', 'quick')}>{t('Give me the short version first')}</button>}
         <button className="chip chip-more" onClick={() => setShowAll(!showAll)} aria-expanded={showAll}>{showAll ? t('Fewer') : t('More suggestions ({n})', { n: QUICK.length - 2 })}</button>
       </div>
     </div>

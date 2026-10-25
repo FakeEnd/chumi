@@ -1,9 +1,11 @@
 import { api, subscribe } from './api.ts';
 import { getState, notify, setState, upsertOutput, type AppState } from './store.ts';
 import { projectContextOn } from './projectContext.ts';
+import { saveCompact } from './compactMode.ts';
 import { t } from './i18n.ts';
 import type { SpeakerAnnotation, SpeakerCorrection, SpeakerView } from '../../shared/speakers.ts';
 import type { AgentId } from '../../shared/agents.ts';
+import type { ActionProgress } from '../../shared/project-work.ts';
 import type { Depth, Effort, Frame, Handoff, Output, Profile, Project, Segment, SessionData, Settings, SpeakerUpdate, WindowInfo } from './types.ts';
 
 export async function loadState(): Promise<void> {
@@ -36,10 +38,12 @@ export async function loadState(): Promise<void> {
 }
 
 // Live events for the session being fetched. The response can predate them, so they are merged into it.
-type Caught = { id: string; segments: Segment[]; frames: Frame[]; outputs: Output[] };
+// `changed`: its title, project, speakers or handoff changed meanwhile. Those have no event cursor, so it is read again.
+type Caught = { id: string; segments: Segment[]; frames: Frame[]; outputs: Output[]; changed: boolean };
 let fetching: Caught | null = null;
 let openSeq = 0;
 const caught = (sessionId: string) => (fetching?.id === sessionId ? fetching : null);
+const changedDuringFetch = (sessionId: string) => { const c = caught(sessionId); if (c) c.changed = true; };
 const finished = (o: Output) => o.status !== 'pending' && o.status !== 'streaming';
 /** A live line or capture that a fetched session may already contain. */
 const append = <T extends { id: number }>(list: T[], x: T) => (list.some((y) => y.id === x.id) ? list : [...list, x]);
@@ -64,12 +68,21 @@ function withCaught(d: SessionData, c: Caught): SessionData {
  */
 export async function openSession(id: string, focus?: { t: number; t2?: number }): Promise<void> {
   const seq = ++openSeq, from = getState().viewId;
-  const c: Caught = { id, segments: [], frames: [], outputs: [] };
-  fetching = c;
-  const d = await guard(api<SessionData>(`/api/sessions/${id}`));
-  if (fetching === c) fetching = null;
-  // A later open wins, and leaving the view meanwhile (Home, deleted) cancels this one.
-  if (!d || seq !== openSeq || getState().viewId !== from) return;
+  let c: Caught, d: SessionData | undefined;
+  for (let read = 1; ; read++) {
+    c = { id, segments: [], frames: [], outputs: [], changed: false };
+    fetching = c;
+    d = await api<SessionData>(`/api/sessions/${id}`).catch((e) => {
+      // Deleted while we were disconnected: leave it rather than keep showing it.
+      if ((e as { status?: number }).status === 404 && seq === openSeq && getState().viewId === id) goHome();
+      else notify('error', (e as Error).message, 'action');
+      return undefined;
+    });
+    if (fetching === c) fetching = null;
+    // A later open wins, and leaving the view meanwhile (Home, deleted) cancels this one.
+    if (!d || seq !== openSeq || getState().viewId !== from) return;
+    if (!c.changed || read === 2) break;
+  }
   const data = withCaught(d, c);
   const done = new Set(data.outputs.filter(finished).map((o) => o.id));
   setState((s) => {
@@ -78,6 +91,17 @@ export async function openSession(id: string, focus?: { t: number; t2?: number }
     const deltas = Object.fromEntries(Object.entries(s.deltas).filter(([oid]) => !done.has(oid)));
     return { viewId: id, data, deltas, focus: focus ? { ...focus, nonce: Date.now() } : same ? s.focus : null, attached: same ? s.attached : null };
   });
+}
+
+/** Refresh the session being viewed in place (its attached passage stays); nothing if another one is shown. */
+export async function refreshSession(id: string): Promise<void> {
+  if (getState().viewId === id) await openSession(id);
+}
+
+/** Back to Home. An open still loading is cancelled, so it can't bring the session back. */
+export function goHome(): void {
+  ++openSeq; fetching = null;
+  setState({ viewId: null, data: null, deltas: {}, focus: null, attached: null });
 }
 
 export function connectEvents(): () => void {
@@ -92,16 +116,26 @@ export function connectEvents(): () => void {
     },
     tick: (t) => setState((s) => ({ live: s.live ? { ...s.live, nowT: t.nowT, asr: { ...s.live.asr, ...t.asr } } : s.live, liveReceivedAt: Date.now() })),
     level: (l) => setState((s) => ({ levels: { ...s.levels, [l.source]: { rms: l.rms, peak: l.peak, at: Date.now() } } })),
-    partial: (p) => setState((s) => ({ partials: { ...s.partials, [p.source]: { uttId: p.uttId, t: p.t, text: p.text } } })),
+    partial: (p) => setState((s) => s.live?.session?.id === p.sessionId ? { partials: { ...s.partials, [p.source]: { uttId: p.uttId, t: p.t, text: p.text } } } : {}),
     'partial-clear': (p) => setState((s) => {
+      if (s.live?.session?.id !== p.sessionId) return {};
       const cur = s.partials[p.source];
       if (!cur || cur.uttId > p.uttId) return {};
       const next = { ...s.partials }; delete next[p.source]; return { partials: next };
     }),
     segment: (seg: Segment) => { caught(seg.session_id)?.segments.push(seg); setState((s) => (s.data && s.data.session.id === seg.session_id ? { data: { ...s.data, segments: append(s.data.segments, seg) } } : {})); },
-    ai: (o: Output) => { caught(o.session_id)?.outputs.push(o); upsertOutput(o); },
+    ai: (o: Output) => {
+      caught(o.session_id)?.outputs.push(o);
+      // A late progress event can arrive after a read that already has the finished answer (a refresh is a new answer).
+      const have = getState().data?.outputs.find((x) => x.id === o.id);
+      if (!have || !finished(have) || finished(o)) upsertOutput(o);
+    },
     frame: (f: Frame) => { caught(f.session_id)?.frames.push(f); setState((s) => (s.data && s.data.session.id === f.session_id ? { data: { ...s.data, frames: append(s.data.frames, f) } } : {})); },
-    'ai-delta': (d: { id: string; delta: string }) => setState((s) => ({ deltas: { ...s.deltas, [d.id]: (s.deltas[d.id] ?? '') + d.delta } })),
+    'ai-delta': (d: { id: string; delta: string }) => setState((s) => {
+      const output = s.data?.outputs.find((o) => o.id === d.id);
+      if (output && finished(output)) return {};
+      return { deltas: { ...s.deltas, [d.id]: (s.deltas[d.id] ?? '') + d.delta } };
+    }),
     provider: (p) => setState({ provider: p }),
     hotkey: (h) => setState({ hotkey: h }),
     'asr-download': (d) => setState({ asrDownload: d }),
@@ -110,13 +144,20 @@ export function connectEvents(): () => void {
     notice: (n) => notify(n.level, n.message, n.code),
     asr: (a) => setState((s) => ({ live: s.live ? { ...s.live, asr: { ...s.live.asr, state: a.state, message: a.message } } : s.live })),
     'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); bumpSessions(); notify('info', t('Session saved. Preparing the final summary…'), 'ended'); },
-    'session-updated': (sess) => setState((s) => ({ sessionsRev: s.sessionsRev + 1, ...(s.data && s.data.session.id === sess.id ? { data: { ...s.data, session: sess } } : {}) })),
+    'session-updated': (sess) => {
+      changedDuringFetch(sess.id);
+      setState((s) => ({ sessionsRev: s.sessionsRev + 1, projectWorkRev: s.projectWorkRev + 1, ...(s.data && s.data.session.id === sess.id ? { data: { ...s.data, session: sess } } : {}) }));
+    },
     'mobile-sync': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); bumpSessions(); },
     'session-deleted': (e: { id: string }) => setState((s) => ({ sessionsRev: s.sessionsRev + 1, ...(s.viewId === e.id ? { viewId: null, data: null } : {}) })),
     handoff: (e: { sessionId: string; handoff: Handoff | null }) => setHandoff(e.sessionId, e.handoff),
     speakers: (e: SpeakerUpdate) => mergeSpeakerUpdate(e),
     projects: () => void loadProjects(),
-  }, (ok) => { setState({ connected: ok }); if (ok) void loadState().catch(() => {}); });
+    'project-work': () => setState((s) => ({ projectWorkRev: s.projectWorkRev + 1 })),
+  }, (ok) => {
+    setState((s) => ({ connected: ok, ...(ok ? { projectWorkRev: s.projectWorkRev + 1 } : {}) }));
+    if (ok) void loadState().catch(() => {});
+  });
 }
 
 const guard = async <T>(p: Promise<T>): Promise<T | undefined> => {
@@ -132,7 +173,7 @@ export async function startSession(o: { title: string; type: string; source: str
     }
   }
   const r = await guard(api('/api/session/start', { body: o }));
-  if (r) { setState({ dialog: null }); await openSession(r.session.id); }
+  if (r) { setState({ dialog: null, startProjectId: null }); await openSession(r.session.id); }
   return !!r;
 }
 export async function quickStart(): Promise<void> {
@@ -143,16 +184,33 @@ export const pauseSession = () => guard(api('/api/session/pause', { body: {} }))
 export const resumeLive = () => guard(api('/api/session/resume', { body: {} }));
 export async function endSession(): Promise<void> {
   const r = await guard(api('/api/session/end', { body: {} }));
-  if (r?.sessionId) await openSession(r.sessionId);
+  // Refreshed only if it is still the one shown: the user may have opened another meanwhile.
+  if (r?.sessionId) await refreshSession(r.sessionId);
 }
 export const resumeSaved = (id: string, source: string) => guard(api(`/api/sessions/${id}/resume`, { body: { source } }));
 
 function current(): string | null { return getState().data?.session.id ?? null; }
 export const catchup = (scope: '2m' | '5m' | 'all') => { const id = current(); if (id) void guard(api('/api/ai/catchup', { body: { sessionId: id, scope } })); };
-export const ask = (question: string, selection: { fromT: number; toT: number; text: string } | null, depth: Depth, frameIds: number[] = [], effort?: Effort) => { const id = current(); if (id) void guard(api('/api/ai/ask', { body: { sessionId: id, question, selection, depth, frameIds, effort, projectContext: projectContextOn(id) && !!getState().data?.session.project_id } })); };
+export const ask = async (question: string, selection: { fromT: number; toT: number; text: string } | null, depth: Depth, frameIds: number[] = [], effort?: Effort): Promise<boolean> => { const id = current(); return !!id && !!await guard(api('/api/ai/ask', { body: { sessionId: id, question, selection, depth, frameIds, effort, projectContext: projectContextOn(id) && !!getState().data?.session.project_id } })); };
 export const setWindow = (w: WindowInfo | null) => guard(api('/api/session/window', { body: { window: w ? { id: w.id, title: w.title, app: w.app } : null } }));
 export const frameUrl = (id: number) => `/api/frames/${id}`;
-export const explain = (term: string, selection: { fromT: number; toT: number; text: string } | null, depth: Depth, parentId?: string, effort?: Effort) => { const id = current(); if (id) void guard(api('/api/ai/explain', { body: { sessionId: id, term, selection, depth, parentId, effort } })); };
+export const explain = async (term: string, selection: { fromT: number; toT: number; text: string } | null, depth: Depth, parentId?: string, effort?: Effort): Promise<boolean> => { const id = current(); return !!id && !!await guard(api('/api/ai/explain', { body: { sessionId: id, term, selection, depth, parentId, effort } })); };
+
+/** A failed submission stays editable; a late success cannot erase work typed or selected after sending. */
+export async function submitQuestion(question: string, mode: 'ask' | 'explain', depth: Depth, effort?: Effort): Promise<{ accepted: boolean; cleared: boolean }> {
+  const before = getState(), seq = openSeq, text = question.trim();
+  if (!before.data || (!text && !before.attached)) return { accepted: false, cleared: false };
+  const accepted = mode === 'explain'
+    ? await explain(text || before.attached!.text.slice(0, 80), before.attached, depth, undefined, effort)
+    : await ask(text || t('What does this passage mean?'), before.attached, depth, [], effort);
+  let cleared = false;
+  if (accepted) setState((s) => {
+    if (seq !== openSeq || s.viewId !== before.viewId || s.askDraft !== before.askDraft || s.attached !== before.attached) return {};
+    cleared = true;
+    return { askDraft: question === before.askDraft ? '' : s.askDraft, attached: null };
+  });
+  return { accepted, cleared };
+}
 export const recap = () => { const id = current(); if (id) void guard(api('/api/ai/recap', { body: { sessionId: id } })); };
 export const summarize = () => { const id = current(); if (id) void guard(api('/api/ai/summary', { body: { sessionId: id } })); };
 export const refreshOutput = (oid: string) => void guard(api(`/api/ai/outputs/${oid}/refresh`, { body: {} }));
@@ -176,7 +234,9 @@ export async function deleteSession(id: string): Promise<boolean> {
   return !!r;
 }
 /** Every session list (Home, History) reloads when this changes. */
-export const bumpSessions = () => setState((s) => ({ sessionsRev: s.sessionsRev + 1 }));
+export const bumpSessions = () => setState((s) => ({ sessionsRev: s.sessionsRev + 1, projectWorkRev: s.projectWorkRev + 1 }));
+/** Compact view on or off (the session view only: the home page always shows the header). */
+export function setCompact(on: boolean): void { saveCompact(on); setState({ compact: on }); }
 export function exportUrl(id: string, format: 'md' | 'txt'): string { return `/api/sessions/${id}/export?format=${format}`; }
 /** Encoding a long recording takes a few seconds: prepare it first (with errors shown), then download it. */
 export async function exportAudio(id: string): Promise<void> {
@@ -189,6 +249,7 @@ export async function refreshProvider(): Promise<void> { const p = await guard(a
 
 // Speaker updates replace annotations without resetting the viewed passage or attached question.
 export function mergeSpeakerUpdate(update: SpeakerUpdate): void {
+  changedDuringFetch(update.sessionId);
   setState((s) => {
     if (!s.data || s.data.session.id !== update.sessionId || update.session.revision < s.data.session.revision) return {};
     // Keep unchanged objects, so memoized transcript rows and cards only re-render where something changed.
@@ -220,7 +281,7 @@ export const correctSpeaker = (sessionId: string, segmentId: number, correction:
 // ---------------------------------------------------------------- projects
 export async function loadProjects(): Promise<void> {
   const r = await api<{ projects: Project[] }>('/api/projects?archived=1').catch(() => null);
-  if (r) setState({ projects: r.projects });
+  if (r) setState((s) => ({ projects: r.projects, projectWorkRev: s.projectWorkRev + 1 }));
 }
 export async function createProject(name: string, workspace: string): Promise<Project | undefined> {
   const r = await guard(api<{ project: Project }>('/api/projects', { body: { name, workspace } }));
@@ -244,7 +305,18 @@ export async function assignProject(sessionId: string, projectId: string | null)
 
 // ---------------------------------------------------------------- reviewed handoff
 function setHandoff(sessionId: string, handoff: Handoff | null): void {
-  setState((s) => (s.data && s.data.session.id === sessionId ? { data: { ...s.data, handoff } } : {}));
+  changedDuringFetch(sessionId);
+  setState((s) => {
+    if (!s.data || s.data.session.id !== sessionId) return { projectWorkRev: s.projectWorkRev + 1 };
+    const current = s.data.handoff;
+    // Delivery responses may arrive after a newer progress event. Never roll a saved action back.
+    const merged = handoff && current?.id === handoff.id ? { ...handoff, items: handoff.items.map((item) => {
+      const previous = current.items.find((old) => old.id === item.id);
+      return item.progress && previous?.progress && previous.project_id === item.project_id && previous.text === item.text
+        && previous.progress.version > item.progress.version ? { ...item, progress: previous.progress } : item;
+    }) } : handoff;
+    return { data: { ...s.data, handoff: merged }, projectWorkRev: s.projectWorkRev + 1 };
+  });
 }
 async function withHandoff<T extends { handoff: Handoff | null }>(p: Promise<T>): Promise<T | undefined> {
   const r = await guard(p);
@@ -257,7 +329,18 @@ export const addHandoffItem = (handoffId: string, kind: string, text: string) =>
 export const confirmHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/confirm`, { body: {} }));
 export const reopenHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/reopen`, { body: {} }));
 export const retargetHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/retarget`, { body: {} }));
-export async function continueHandoff(handoffId: string, agent: AgentId | 'copy'): Promise<{ prompt: string; launched: boolean } | undefined> {
+export async function continueHandoff(handoffId: string, agent: AgentId | 'copy' | 'codex-app'): Promise<{ prompt: string; launched: boolean } | undefined> {
   const r = await withHandoff(api<{ prompt: string; launched: boolean; handoff: Handoff }>(`/api/handoffs/${handoffId}/continue`, { body: { agent } }));
   return r ? { prompt: r.prompt, launched: r.launched } : undefined;
+}
+
+export async function updateActionProgress(itemId: string, patch: Pick<ActionProgress, 'status' | 'note' | 'results'> & { expectedVersion: number }): Promise<ActionProgress | null> {
+  try {
+    const r = await api<{ progress: ActionProgress; sessionId: string; handoff: Handoff }>(`/api/handoff-items/${encodeURIComponent(itemId)}/progress`, { method: 'PATCH', body: patch });
+    setHandoff(r.sessionId, r.handoff);
+    return r.progress;
+  } catch (error) {
+    notify('error', t((error as Error).message), 'action-progress');
+    return null;
+  }
 }

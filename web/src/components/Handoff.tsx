@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { notify, setState, useStore } from '../store.ts';
-import { addHandoffItem, assignProject, confirmHandoff, continueHandoff, prepareHandoff, reopenHandoff, retargetHandoff, updateHandoffItem } from '../actions.ts';
+import { addHandoffItem, assignProject, confirmHandoff, continueHandoff, prepareHandoff, refreshSession, reopenHandoff, retargetHandoff, updateHandoffItem } from '../actions.ts';
 import { api } from '../api.ts';
 import { fmtClock, fmtT } from '../util.ts';
 import { msg, plural, t } from '../i18n.ts';
@@ -10,6 +10,8 @@ import { ProjectSelect } from './Projects.tsx';
 import { onEnter } from '../keys.ts';
 import type { EvidenceRef, Handoff, HandoffItem } from '../types.ts';
 import { AGENT_NAMES, type AgentId } from '../../../shared/agents.ts';
+import { ActionProgress } from './ActionProgress.tsx';
+import { loadHandoffDestination, saveHandoffDestination, type HandoffDestination } from '../handoffDestination.ts';
 
 const ORIGIN: Record<HandoffItem['origin'], string> = { agreed: msg('Agreed in the meeting'), suggested: msg('Suggested, not agreed'), chumi: msg('Proposed by Chumi'), user: msg('Added by you') };
 const KINDS: Array<[HandoffItem['kind'], string, string]> = [
@@ -17,7 +19,7 @@ const KINDS: Array<[HandoffItem['kind'], string, string]> = [
   ['decision', msg('Decisions'), msg('What the group decided. Passed on as context.')],
   ['question', msg('Open questions'), msg('Unresolved points. Passed on as context, never as tasks.')],
 ];
-const VIA: Record<string, string> = AGENT_NAMES;
+const VIA: Record<string, string> = { ...AGENT_NAMES, 'codex-app': 'Codex app' };
 
 /** Plain-language list of what changed in the meeting since the handoff was reviewed. */
 function changes(h: Handoff): string[] {
@@ -46,7 +48,7 @@ function Evidence({ ev }: { ev: EvidenceRef[] }) {
 
 const lines = (s: string) => s.split('\n').map((x) => x.trim()).filter(Boolean);
 
-function ItemRow({ item, locked }: { item: HandoffItem; locked: boolean }) {
+function ItemRow({ item, locked, trackProgress, refresh }: { item: HandoffItem; locked: boolean; trackProgress: boolean; refresh: () => Promise<unknown> }) {
   const [edit, setEdit] = useState(false);
   const [f, setF] = useState({ text: item.text, rationale: item.rationale ?? '', conditions: item.conditions.join('\n'), acceptance: item.acceptance.join('\n'), owner: item.owner ?? '', due: item.due ?? '' });
   const save = async () => {
@@ -91,6 +93,7 @@ function ItemRow({ item, locked }: { item: HandoffItem; locked: boolean }) {
           <div className="tiny"><Evidence ev={item.evidence} /></div>
         </>
       )}
+      {trackProgress && item.kind === 'action' && item.review === 'confirmed' && item.progress != null && <ActionProgress itemId={item.id} progress={item.progress} onRefresh={refresh} />}
     </li>
   );
 }
@@ -113,9 +116,9 @@ function Delivery({ h }: { h: Handoff }) {
   const made = h.status === 'confirmed' && h.delivered_at && h.confirmed_at && h.delivered_at >= h.confirmed_at;
   return (
     <div className="small muted">
-      {made ? (h.delivered_via === 'copy' ? t('Instructions copied at {time}.', { time: fmtClock(h.delivered_at!) }) : t('Made available to {via} at {time}.', { via: VIA[h.delivered_via ?? ''] ?? h.delivered_via ?? '', time: fmtClock(h.delivered_at!) })) : null}
+      {made ? (h.delivered_via === 'copy' ? t('Instructions prepared at {time}.', { time: fmtClock(h.delivered_at!) }) : h.delivered_via === 'codex-app' ? t('Codex app open requested at {time}.', { time: fmtClock(h.delivered_at!) }) : t('Made available to {via} at {time}.', { via: VIA[h.delivered_via ?? ''] ?? h.delivered_via ?? '', time: fmtClock(h.delivered_at!) })) : null}
       {h.last_agent_read ? ` ${t('Read by {client} at {time}.', { client: h.last_agent_read.client ?? t('an agent'), time: fmtClock(h.last_agent_read.at) })}` : ''}
-      {made ? ` ${t('Chumi does not know whether the work is done; check in the agent.')}` : ''}
+      {made ? ` ${t('Opening or copying a handoff does not mark its actions complete. Update progress after checking the results.')}` : ''}
     </div>
   );
 }
@@ -157,9 +160,10 @@ export function HandoffDialog() {
   const data = useStore((s) => s.data);
   const live = useStore((s) => s.live);
   const [busy, setBusy] = useState(false);
-  /** Instructions to copy by hand, when the clipboard refused them. */
-  const [manual, setManual] = useState<string | null>(null);
-  // Claude Code and Codex have their own buttons; other installed agents are offered in a menu.
+  const pendingDelivery = useRef(false);
+  const [destination, setDestination] = useState(loadHandoffDestination);
+  const [manualPrompt, setManualPrompt] = useState('');
+  const [deliveryError, setDeliveryError] = useState('');
   const [others, setOthers] = useState<Array<{ agent: AgentId; name: string }>>([]);
   useEffect(() => {
     void api<{ agents: Array<{ agent: AgentId; name: string; installed: boolean }> }>('/api/agents/available')
@@ -171,37 +175,48 @@ export function HandoffDialog() {
   const generating = h.status === 'generating';
   const pending = h.items.filter((i) => i.review === 'pending').length;
   const recording = live?.session?.id === data.session.id && live.status === 'recording';
-  const go = async (agent: AgentId | 'copy') => {
-    setBusy(true);
-    const r = await continueHandoff(h.id, agent);
-    setBusy(false);
-    if (!r) return;
-    if (agent === 'copy') {
-      // WebKit may refuse a clipboard write that comes after a request instead of straight from the click.
-      const copied = await navigator.clipboard?.writeText(r.prompt).then(() => true, () => false);
-      setManual(copied ? null : r.prompt);
-      if (copied) notify('info', t('Instructions copied. Paste them into your coding agent in the project folder.'));
-    }
-    else notify('info', t('Opened {agent} in Terminal in the project folder, starting from this handoff.', { agent: AGENT_NAMES[agent] }));
+  const selected = ['codex-app', 'codex', 'claude-code', 'copy'].includes(destination) || others.some((a) => a.agent === destination) ? destination : 'codex-app';
+  const go = async (agent: HandoffDestination) => {
+    if (pendingDelivery.current) return;
+    pendingDelivery.current = true; setBusy(true); setManualPrompt(''); setDeliveryError('');
+    try {
+      const r = await continueHandoff(h.id, agent);
+      if (!r) return;
+      if (agent === 'copy') {
+        try {
+          if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+          await navigator.clipboard.writeText(r.prompt);
+          notify('info', t('Instructions copied. Paste them into your coding agent in the project folder.'));
+        } catch {
+          setManualPrompt(r.prompt);
+          setDeliveryError(t('Clipboard access failed. Select and copy the instructions below.'));
+        }
+      } else if (!r.launched) {
+        setManualPrompt(r.prompt); setDeliveryError(t('The destination could not be opened. You can copy the instructions below.'));
+      } else if (agent === 'codex-app') notify('info', t('Requested Codex app to open the handoff. Review it there, then click Send to start.'));
+      else notify('info', t('Opened {agent} in Terminal in the project folder, starting from this handoff.', { agent: AGENT_NAMES[agent] }));
+    } catch (e) { setDeliveryError(e instanceof Error ? e.message : t('Could not open the handoff destination.')); }
+    finally { pendingDelivery.current = false; setBusy(false); }
   };
   const footer = (
     <>
       {!confirmed && <button className="btn small" disabled={generating || recording} onClick={() => void prepareHandoff(data.session.id)} title={t('Replaces items you have not reviewed; keeps what you confirmed, rejected or edited')}>{generating ? t('Drafting…') : t('Redraft')}</button>}
-      {confirmed && <button className="btn small" onClick={() => void reopenHandoff(h.id)}>{t('Edit')}</button>}
+      {confirmed && <button className="btn small" disabled={busy} onClick={() => void reopenHandoff(h.id)}>{t('Edit')}</button>}
       <span className="spacer" />
       {!confirmed && <button className="btn primary" disabled={generating || pending > 0 || h.project_mismatch || !h.items.some((i) => i.review === 'confirmed')} onClick={() => void confirmHandoff(h.id)}
         title={pending ? t('Confirm or reject every item first') : ''}>{pending ? plural(pending, 'Review {n} more item', 'Review {n} more items') : t('Confirm handoff')}</button>}
       {confirmed && (
         <>
-          <button className="btn small" disabled={busy} onClick={() => void go('copy')}>{t('Copy instructions')}</button>
-          {others.length > 0 && (
-            <select className="btn small" value="" disabled={busy || !h.project} aria-label={t('Continue in another agent…')} onChange={(e) => { if (e.target.value) void go(e.target.value as AgentId); }}>
-              <option value="">{t('Continue in another agent…')}</option>
+          <label className="handoff-destination small"><span>{t('Continue in')}</span>
+            <select value={selected} disabled={busy} onChange={(e) => { const next = e.target.value as HandoffDestination; setDestination(next); saveHandoffDestination(next); }}>
+              <option value="codex-app">{t('Codex app')}</option>
+              <option value="codex">{t('Codex in Terminal')}</option>
+              <option value="claude-code">{t('Claude Code in Terminal')}</option>
               {others.map((a) => <option key={a.agent} value={a.agent}>{a.name}</option>)}
+              <option value="copy">{t('Copy instructions')}</option>
             </select>
-          )}
-          <button className="btn small" disabled={busy || !h.project} onClick={() => void go('codex')}>{t('Continue in Codex')}</button>
-          <button className="btn primary" disabled={busy || !h.project} onClick={() => void go('claude-code')}>{t('Continue in Claude Code')}</button>
+          </label>
+          <button className="btn primary" disabled={busy || h.project_mismatch || !h.project} onClick={() => void go(selected)}>{busy ? t('Preparing…') : selected === 'copy' ? t('Copy instructions') : t('Continue')}</button>
         </>
       )}
     </>
@@ -217,10 +232,13 @@ export function HandoffDialog() {
       {!data.session.project_id && <p className="small warn-text">{t('Choose a project to continue this work in a coding agent. You can still review the handoff without one.')}</p>}
       {h.project_mismatch && (
         <div className="warn-box small">{t('This handoff was prepared for another project. Review it for the meeting\'s current project before handing it on.')}
-          <button className="btn small" onClick={() => void retargetHandoff(h.id)}>{t('Review for this project')}</button></div>
+          <button className="btn small" disabled={generating} onClick={() => void retargetHandoff(h.id)}>{t('Review for this project')}</button></div>
       )}
       {h.freshness.stale && changes(h).length > 0 && <div className="warn-box small">{confirmed ? t('The meeting changed since you confirmed:') : t('The meeting changed since this draft:')} {changes(h).join(' · ')}</div>}
       {h.error && <p className="error-text small">{h.error}</p>}
+      {confirmed && selected === 'codex-app' && <p className="small muted">{t('In Codex app, review the prepared handoff and click Send to begin.')}</p>}
+      {deliveryError && <p className="error-text small" role="alert">{t(deliveryError)}</p>}
+      {manualPrompt && <label className="field"><span>{t('Handoff instructions')}</span><textarea readOnly rows={8} value={manualPrompt} onFocus={(e) => e.currentTarget.select()} /></label>}
       {generating && <div className="pending"><span className="spinner" /> {t('Drafting from the transcript…')}</div>}
       <p className="muted small">{t('Review each item. Edit anything that is wrong, reject what should not be handed on. Owners and deadlines appear only if someone stated them.')}</p>
       {KINDS.map(([kind, label, hint]) => {
@@ -230,18 +248,12 @@ export function HandoffDialog() {
             <h3>{t(label)} <span className="muted small">{items.length || ''}</span></h3>
             <p className="tiny muted">{t(hint)}</p>
             {!items.length && !generating && <p className="small muted">{t('None found.')}</p>}
-            <ul className="hitems">{items.map((i) => <ItemRow key={i.id} item={i} locked={generating} />)}</ul>
+            <ul className="hitems">{items.map((i) => <ItemRow key={i.id} item={i} locked={generating} trackProgress={confirmed && !!h.project && !h.project_mismatch} refresh={() => refreshSession(data.session.id)} />)}</ul>
             <AddItem handoff={h} kind={kind} />
           </section>
         );
       })}
       <Delivery h={h} />
-      {manual && (
-        <label className="field">
-          <span className="warn-text">{t('Chumi could not copy to the clipboard. Select the text below, copy it and paste it into your coding agent in the project folder.')}</span>
-          <textarea readOnly rows={8} value={manual} autoFocus onFocus={(e) => e.currentTarget.select()} />
-        </label>
-      )}
     </Dialog>
   );
 }

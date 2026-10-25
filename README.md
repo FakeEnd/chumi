@@ -177,6 +177,7 @@ If the meeting changes after you confirm (a regenerated summary, a resumed recor
 - Microphone for in-person meetings, computer audio for Zoom, Teams or recorded lectures (headphones are fine), or both for hybrid meetings, with echo cancellation and duplicate filtering.
 - English, Mandarin and code-switching. Vocabulary hints improve the spelling of jargon and names.
 - Pause, resume, a global quick-start shortcut, level meters and clear permission guidance.
+- Compact view (`⌘⇧.`, or `Ctrl+Shift+.` on Windows) hides the header and toolbar, leaving the summary, transcript and assistant.
 - Optional speaker labels after the meeting (`npm run setup:speakers`): voices are grouped locally as A/B/C, and you name and correct them. See [docs/speaker-diarization.md](docs/speaker-diarization.md).
 
 **Understanding**

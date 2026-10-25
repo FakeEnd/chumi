@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { loadCompact } from './compactMode.ts';
 import type { LiveState, Notice, Output, Profile, Project, ProviderStatus, SessionData, Settings } from './types.ts';
 
 export interface AppState {
@@ -23,7 +24,10 @@ export interface AppState {
   data: SessionData | null;
   deltas: Record<string, string>;
   notices: Notice[];
-  dialog: null | 'profile' | 'settings' | 'history' | 'start' | 'window' | 'frame' | 'handoff';
+  dialog: null | 'profile' | 'settings' | 'history' | 'start' | 'window' | 'frame' | 'handoff' | 'project-brief';
+  briefProjectId: string | null;
+  startProjectId: string | null;
+  projectWorkRev: number;
   /** All projects, including archived ones (pickers hide archived). */
   projects: Project[];
   /** Bumped when any saved session is added, renamed, reassigned or deleted, so every session list reloads. */
@@ -46,12 +50,14 @@ export interface AppState {
   hiddenCards: string[];
   /** Catch me up scope, shared by the header and the toolbar copy of the button. */
   catchupScope: '2m' | '5m' | 'all';
+  /** Compact view: the session view shows only its columns (compactMode.ts). */
+  compact: boolean;
 }
 
 let state: AppState = {
   connected: false, loaded: false, settings: null, profile: null, provider: null, live: null, liveReceivedAt: 0, levels: {}, partials: {},
   devMode: false, helperBuilt: false, platform: '', appMode: false, dataDir: '', samples: [], viewId: null, data: null, deltas: {}, notices: [],
-  dialog: null, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [], sessionsRev: 0, playingSeg: null, hiddenCards: [], catchupScope: '2m',
+  dialog: null, briefProjectId: null, startProjectId: null, projectWorkRev: 0, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [], sessionsRev: 0, playingSeg: null, hiddenCards: [], catchupScope: '2m', compact: loadCompact(),
 };
 const listeners = new Set<() => void>();
 

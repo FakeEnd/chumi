@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
 const { once } = require('node:events');
+const { isDesktopRequestUrl, isExternalNavigationUrl } = require('./external-links.cjs');
 
 const root = path.resolve(__dirname, '../../..');
 const dataDir = process.env.CHUMI_DATA_DIR || path.join(process.env.LOCALAPPDATA || path.join(app.getPath('home'), 'AppData', 'Local'), 'Chumi');
@@ -17,6 +18,8 @@ let window, server, baseUrl, log, quitting = false, recording = false, sleepBloc
 let windowReady = false;
 const geometryFile = path.join(dataDir, 'window.json');
 const iconMode = process.argv.includes('--make-icon');
+// The backend owns the save deadline; process exit confirms it has finished cleanup.
+const shutdownGraceMs = 15000;
 
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
@@ -57,6 +60,7 @@ async function startServer() {
     cwd: backend, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
     env: { ...process.env, CHUMI_APP: '1', CHUMI_DESKTOP: 'electron', CHUMI_AUDIO_HELPER: helper,
       CHUMI_DATA_DIR: dataDir, CHUMI_SYSTEM_LANGUAGE: app.getLocale(), PORT: String(port),
+      CHUMI_SHUTDOWN_GRACE_MS: String(shutdownGraceMs),
       PATH: path.dirname(node) + path.delimiter + (process.env.PATH || '') },
   });
   server.stdout.pipe(log, { end: false });
@@ -102,7 +106,7 @@ async function onServerMessage(message) {
       case 'notify':
         new Notification({ title: 'Chumi', body: message.payload.text }).show(); value = true; break;
       case 'open-url':
-        if (!/^https?:\/\//i.test(message.payload.url)) throw new Error('Unsupported link.');
+        if (!isDesktopRequestUrl(message.payload.url)) throw new Error('Unsupported link.');
         await shell.openExternal(message.payload.url); break;
       case 'credential-read': case 'credential-write': case 'credential-delete': {
         const account = createHash('sha256').update(message.payload.service + '\0' + message.payload.account).digest('hex');
@@ -148,7 +152,7 @@ async function stopServer() {
   if (!server?.pid || server.exitCode !== null) return;
   const exited = once(server, 'exit');
   server.stdin.end();
-  const killTimer = setTimeout(() => execFile('taskkill.exe', ['/PID', String(server.pid), '/T', '/F'], { windowsHide: true }, () => {}), 12000);
+  const killTimer = setTimeout(() => execFile('taskkill.exe', ['/PID', String(server.pid), '/T', '/F'], { windowsHide: true }, () => {}), shutdownGraceMs + 2000);
   await exited;
   clearTimeout(killTimer);
   log?.end();
@@ -162,9 +166,9 @@ function isAppUrl(value) {
   try { return new URL(value).origin === baseUrl; } catch { return false; }
 }
 function openLink(value) {
-  if (!/^https?:|^mailto:/i.test(value)) return;
+  if (!isExternalNavigationUrl(value)) return;
   if (isAppUrl(value)) void window.loadURL(value);
-  else void shell.openExternal(value);
+  else void shell.openExternal(value).catch((error) => dialog.showErrorBox('Could not open link', error.message));
 }
 
 function makeWindow() {

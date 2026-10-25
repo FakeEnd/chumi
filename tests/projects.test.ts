@@ -8,6 +8,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import type { Assistant } from '../server/ai/assistant.ts';
 
 const DATA = mkdtempSync(join(tmpdir(), 'chumi-projects-'));
 process.env.CHUMI_DATA_DIR = DATA;
@@ -29,8 +30,12 @@ function meeting(store: InstanceType<typeof Store>, id: string, lines: Array<[nu
 }
 
 /** Stands in for the AI: returns a fixed draft synchronously. */
-function fakeAssistant(draft: unknown) {
-  return { handoffDraft: (_sid: string, o: { onResult: (row: never, parsed: unknown, caps: Array<{ id: number; t: number }>) => void }) => { o.onResult({} as never, draft, []); return 'o_fake'; } };
+function fakeAssistant(store: InstanceType<typeof Store>, draft: unknown) {
+  return { handoffDraft: (sid: string, o: Parameters<Assistant['handoffDraft']>[1]) => {
+    const session = store.getSession(sid)!;
+    o.onResult({} as never, draft, [], { revision: session.revision, segmentMax: store.maxSegmentId(sid), projectId: session.project_id, capturedAt: Date.now() });
+    return 'o_fake';
+  } };
 }
 
 test('an existing database upgrades without losing meetings; old meetings stay unassigned', () => {
@@ -104,7 +109,7 @@ test('handoff: drafts are reviewed, only confirmed actions reach the agent, and 
     open_questions: [{ text: 'Who has the GATA1 data?', evidence: ['0:20'] }],
   };
   const changes: string[] = [];
-  const svc = new HandoffService(store, fakeAssistant(draft) as never, (sid) => changes.push(sid));
+  const svc = new HandoffService(store, fakeAssistant(store, draft) as never, (sid) => changes.push(sid));
   const h0 = svc.generate('s_h');
   let items = store.handoffItems(h0.id);
   assert.equal(store.getHandoff(h0.id)!.status, 'draft');
@@ -164,11 +169,13 @@ test('handoff: drafts are reviewed, only confirmed actions reach the agent, and 
   assert.equal(agentView.actions.length, 0);
   assert.throws(() => new Evidence(store, link).handoff({ handoff_id: h0.id, project_id: 'p_a' }), /not for project/);
   assert.throws(() => svc.confirm(h0.id), /another project/);
+  assert.throws(() => svc.continuationPrompt(h0.id, link, false), /another project/);
   svc.retarget(h0.id);
   assert.equal(store.getHandoff(h0.id)!.project_id, 'p_b');
   assert.equal(store.getHandoff(h0.id)!.status, 'draft');
   // Delivery is recorded separately and never marks work complete.
   svc.confirm(h0.id);
+  assert.match(svc.continuationPrompt(h0.id, link, false), /Project: B/);
   svc.markDelivered(h0.id, 'claude-code');
   assert.equal(store.getHandoff(h0.id)!.status, 'confirmed');
   assert.ok(changes.length > 5);
@@ -181,7 +188,7 @@ test('handoff: drafts are reviewed, only confirmed actions reach the agent, and 
 test('exports carry the project, stable ids, frames and only a confirmed handoff', () => {
   const store = new Store();
   meeting(store, 's_x', [[0, 'We will add a noise ceiling.']], 'p_a');
-  const svc = new HandoffService(store, fakeAssistant({ decisions: [], actions: [{ text: 'Add a noise ceiling', origin: 'agreed', rationale: '', conditions: [], acceptance_criteria: [], owner: null, due: null, evidence: ['0:00'], captures: [] }], open_questions: [] }) as never, () => {});
+  const svc = new HandoffService(store, fakeAssistant(store, { decisions: [], actions: [{ text: 'Add a noise ceiling', origin: 'agreed', rationale: '', conditions: [], acceptance_criteria: [], owner: null, due: null, evidence: ['0:00'], captures: [] }], open_questions: [] }) as never, () => {});
   const h = svc.generate('s_x');
   const lines = () => sessionToJsonl(store, 's_x', false)!.trim().split('\n').map((l) => JSON.parse(l));
   assert.equal(lines()[0].project.id, 'p_a');
@@ -202,7 +209,7 @@ test('MCP server: an agent reads a confirmed handoff, passages and frames, and t
   writeFileSync(jpg, Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=', 'base64'));
   const f = store.addFrame({ session_id: 's_m', t: 4000, path: jpg, width: 1, height: 1, kind: 'slide', window_title: 'Slides', app: 'Keynote' });
   const gone = store.addFrame({ session_id: 's_m', t: 6000, path: join(FRAMES_DIR, 's_m', 'deleted.jpg'), width: 1, height: 1, kind: 'slide', window_title: null, app: null });
-  const svc = new HandoffService(store, fakeAssistant({ decisions: [], actions: [{ text: 'Add a noise ceiling', origin: 'agreed', rationale: 'stated', conditions: [], acceptance_criteria: [], owner: null, due: null, evidence: ['0:00'], captures: [] }], open_questions: [] }) as never, () => {});
+  const svc = new HandoffService(store, fakeAssistant(store, { decisions: [], actions: [{ text: 'Add a noise ceiling', origin: 'agreed', rationale: 'stated', conditions: [], acceptance_criteria: [], owner: null, due: null, evidence: ['0:00'], captures: [] }], open_questions: [] }) as never, () => {});
   const h = svc.generate('s_m');
   for (const i of store.handoffItems(h.id)) svc.updateItem(i.id, { review: 'confirmed' });
   svc.confirm(h.id);
@@ -258,7 +265,7 @@ test('a handoff drafting when the app stopped is not stuck after a restart', () 
   assert.equal(store.handoffItems('hf_redo').length, 1);
 
   // Both can be drafted again and edited instead of waiting forever.
-  const svc = new HandoffService(store, fakeAssistant({ decisions: [], actions: [{ text: 'Plot the ceiling', origin: 'agreed', evidence: ['0:00'] }], open_questions: [] }) as never, () => {});
+  const svc = new HandoffService(store, fakeAssistant(store, { decisions: [], actions: [{ text: 'Plot the ceiling', origin: 'agreed', evidence: ['0:00'] }], open_questions: [] }) as never, () => {});
   assert.equal(svc.generate('s_new').status, 'draft');
   svc.updateItem('hi_kept', { text: 'Add a noise ceiling line' });
   store.close();

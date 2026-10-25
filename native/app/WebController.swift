@@ -79,8 +79,40 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
 
     // MARK: - Navigation policy
 
+    /// Match only the composer and saved-chat links Chumi creates, never settings, plugins or other actions.
+    nonisolated static func isAllowedCodexURL(_ url: URL) -> Bool {
+        let raw = url.absoluteString
+        if raw.range(of: #"^codex://threads/[A-Za-z0-9_-]+$"#, options: .regularExpression) != nil { return true }
+        guard raw.hasPrefix("codex://new?"),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme == "codex", components.host == "new", components.path.isEmpty,
+              components.user == nil, components.password == nil, components.port == nil,
+              components.fragment == nil, let query = components.percentEncodedQuery else { return false }
+        // Decode URLSearchParams form encoding (including '+') before checking names and empty values.
+        let pairs = query.split(separator: "&", omittingEmptySubsequences: false)
+        guard pairs.count == 2 else { return false }
+        var keys = Set<String>()
+        for pair in pairs {
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2,
+                  let key = String(parts[0]).replacingOccurrences(of: "+", with: " ").removingPercentEncoding,
+                  let value = String(parts[1]).replacingOccurrences(of: "+", with: " ").removingPercentEncoding,
+                  key == "path" || key == "prompt", keys.insert(key).inserted,
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        }
+        return true
+    }
+
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+        if let url = navigationAction.request.url, url.scheme?.lowercased() == "codex" {
+            if Self.isAllowedCodexURL(url) && (navigationAction.targetFrame?.isMainFrame ?? true) {
+                NSWorkspace.shared.open(url)
+            }
+            // Unsupported Codex actions are also cancelled, so WKWebView never attempts to load them.
+            decisionHandler(.cancel)
+            return
+        }
         if navigationAction.shouldPerformDownload {
             decisionHandler(.download)
             return
@@ -144,6 +176,8 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
             webView.startDownload(using: navigationAction.request) { [weak self] download in
                 download.delegate = self
             }
+        case "codex":
+            if Self.isAllowedCodexURL(url) { NSWorkspace.shared.open(url) }
         default:
             openExternally(url)
         }
