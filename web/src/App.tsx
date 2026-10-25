@@ -13,22 +13,8 @@ import { HistoryDialog } from './components/HistoryDialog.tsx';
 import { Notices } from './components/Notices.tsx';
 import { FrameViewer, SlideStrip, WindowDialog } from './components/Slides.tsx';
 import { HandoffDialog } from './components/Handoff.tsx';
-import { fmtDate, fmtT } from './util.ts';
+import { SessionColumns } from './components/SessionColumns.tsx';
 import { resolveLang, setLang, t } from './i18n.ts';
-import { openSession } from './actions.ts';
-
-function SavedBanner() {
-  const data = useStore((s) => s.data);
-  const live = useStore((s) => s.live);
-  if (!data || live?.session?.id === data.session.id) return null;
-  const s = data.session;
-  return (
-    <div className="saved-banner">
-      {t('Viewing saved session')} · {fmtDate(s.started_at ?? s.created_at)} · {fmtT(s.duration_ms)}{s.status === 'interrupted' ? ` · ${t('recording was interrupted (see gap markers)')}` : ''}
-      {live?.session && <button className="btn small" onClick={() => void openSession(live.session!.id)}>{t('Back to live session')}</button>}
-    </div>
-  );
-}
 
 export function App() {
   const loaded = useStore((s) => s.loaded);
@@ -47,15 +33,16 @@ export function App() {
       {data ? (
         <>
           <SessionToolbar />
-          <SavedBanner />
-          <main className="main">
-            <section className="left">
-              <Overview />
-              <SlideStrip />
-              <Transcript />
-            </section>
-            <AssistantPanel />
-          </main>
+          <SessionColumns
+            left={
+              <section className="left">
+                <Overview />
+                <SlideStrip />
+                <Transcript />
+              </section>
+            }
+            right={<AssistantPanel />}
+          />
         </>
       ) : <main className="home-wrap"><Home /></main>}
       {dialog === 'start' && <StartDialog />}
