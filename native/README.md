@@ -2,12 +2,17 @@
 
 Windows uses the C++ helper in `windows/audio/` and the Electron shell in `windows/desktop/`. Build with `python scripts/build-windows.py`; installation and platform behaviour are documented in [docs/windows.md](../docs/windows.md). The audio frame and event protocol below is shared by both platforms.
 
-Two Swift programs, built with the Command Line Tools compiler (no Xcode project):
+Four Swift programs, built with the Command Line Tools compiler (no Xcode project):
 
 | Output | What it is |
 | --- | --- |
 | `build/chumi-audio` | Audio capture helper (dev copy). Streams 16 kHz mono PCM on stdout. |
 | `build/Chumi.app` | App shell: runs `node server/main.ts`, shows the web UI in a WKWebView. Contains the helper at `Contents/MacOS/chumi-audio`. |
+| `build/chumi-screen` | Window capture (ScreenCaptureKit) for slides and shared screens. |
+| `build/chumi-hotkey` | Global quick-start shortcut (Carbon `RegisterEventHotKey`, no Accessibility permission). |
+
+The two tools live outside the app bundle, so rebuilding them never changes Chumi.app's signature (which would make
+macOS ask for Microphone and System Audio permission again).
 
 ```
 native/
@@ -15,13 +20,17 @@ native/
   entitlements.plist    com.apple.security.device.audio-input (needed only with the hardened runtime)
   audio/                chumi-audio sources + embedded Info.plist
   app/                  Chumi.app sources + Info.plist template (ChumiRepoPath is filled in by build.sh)
+  screen/               chumi-screen sources
+  hotkey/               chumi-hotkey sources
   tools/make_icon.swift draws the app icon (optional build step)
 ```
 
 ## Build
 
 ```sh
-bash native/build.sh
+bash native/build.sh          # everything
+bash native/build.sh tools    # only chumi-screen and chumi-hotkey
+bash native/build.sh app      # only Chumi.app and the audio helper
 ```
 
 * Target `<this Mac's CPU>-apple-macos14.4`, so `arm64` on Apple Silicon and `x86_64` on Intel (override with

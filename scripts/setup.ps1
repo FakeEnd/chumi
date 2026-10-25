@@ -6,7 +6,8 @@
 #
 # Installs whisper.cpp into build\whisper (the CUDA build when an NVIDIA GPU is present), downloads the speech model
 # that suits this computer, installs npm dependencies and builds the web interface. Safe to run again.
-# Live microphone and computer-audio capture are not available on Windows yet; see docs\windows.md.
+# Live microphone and computer-audio capture also need the audio helper: python scripts\build-windows.py --native-only
+# (needs MinGW-w64 g++). The Windows desktop app includes it; see docs\windows.md.
 param(
   [string]$Proxy = '',
   [string]$ModelBaseUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main',
@@ -98,4 +99,4 @@ if ($LASTEXITCODE -ne 0) { throw 'Building the web interface failed.' }
 Step 'Done'
 Write-Host 'Start Chumi:         npm start   then open http://127.0.0.1:4777'
 Write-Host 'AI (ChatGPT plan):   codex login   (choose "Sign in with ChatGPT")'
-Write-Host 'Live microphone and computer-audio capture are not available on Windows yet (docs\windows.md).'
+Write-Host 'Live audio:          python scripts\build-windows.py --native-only   (builds the audio helper; needs MinGW-w64 g++, see docs\windows.md)'

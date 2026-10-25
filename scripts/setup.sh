@@ -49,7 +49,7 @@ echo "It takes about 5–15 minutes, mostly downloads. Nothing is sent anywhere 
 
 # ----------------------------------------------------------------------------------------------------------------
 step "Checking this Mac"
-[[ "$(uname -s)" == "Darwin" ]] || fail "Chumi runs on macOS." "Windows and Linux are not supported yet."
+[[ "$(uname -s)" == "Darwin" ]] || fail "This setup is for macOS." "On Windows, use the desktop app or scripts/setup.ps1 (see docs/windows.md). Linux is not supported yet."
 OS=$(sw_vers -productVersion)
 version_ge "$OS" "14.4" || fail "Chumi needs macOS 14.4 or later (this Mac has $OS)." "Update in System Settings → General → Software Update, then run this again."
 ok "macOS $OS"
