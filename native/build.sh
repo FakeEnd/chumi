@@ -9,6 +9,7 @@
 #
 # Env:
 #   CHUMI_SIGN_IDENTITY  codesign identity (e.g. "Apple Development: …"). Default: ad-hoc ("-").
+#   CHUMI_DEV=1          dev build: Chumi.app's web view can be inspected (right-click → Inspect Element)
 #   CHUMI_TARGET         swiftc target triple (default: this Mac's CPU, arm64- or x86_64-apple-macos14.4)
 set -euo pipefail
 
@@ -27,6 +28,7 @@ if [[ -z "$SDK" || ! -d "$SDK" ]]; then
 fi
 
 SWIFT_FLAGS=(-O -target "$TARGET" -sdk "$SDK" -swift-version 5)
+if [[ "${CHUMI_DEV:-}" == "1" ]]; then SWIFT_FLAGS+=(-D CHUMI_DEV); fi
 
 mkdir -p "$OBJ_DIR"
 

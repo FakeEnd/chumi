@@ -157,10 +157,13 @@ macOS attributes privacy permissions to the *responsible* process:
   it offers Restart Server / Quit.
 * On quit: during a recording it asks first (Keep Recording / Save and Quit) and then shows "Saving the meeting…".
   Off the main thread, it sends SIGTERM to the server, waits up to 12 s while the server saves, then sends SIGKILL.
-* WKWebView: Web Inspector enabled (right-click → Inspect Element); JS alert/confirm/prompt as NSAlert
-  sheets; `target=_blank` / `window.open` and external links open in the default browser; `<input
-  type=file>` via NSOpenPanel; downloads (attachment / non-displayable responses / `download` links /
-  blob URLs) go to `~/Downloads` with unique names ("name (1).ext") and are revealed in Finder.
+* WKWebView: the window only shows Chumi's own pages (127.0.0.1 or localhost on the server's port); other
+  main-frame navigations are cancelled. `http`, `https` and `mailto` links elsewhere, `target=_blank` and
+  `window.open` open in the default browser or mail app; other URL schemes are ignored, as in the Windows
+  shell. Web Inspector (right-click → Inspect Element) only in dev builds (`CHUMI_DEV=1 bash native/build.sh`).
+  JS alert/confirm/prompt as NSAlert sheets; `<input type=file>` via NSOpenPanel; downloads (attachment /
+  non-displayable responses / `download` links / blob URLs) go to `~/Downloads` with unique names
+  ("name (1).ext") and are revealed in Finder.
 * Menus: App (About, Hide, Quit ⌘Q), Edit (Undo/Redo/Cut/Copy/Paste/Select All), View (Reload ⌘R,
   Open in Browser ⇧⌘O, zoom, Show Server Log, Full Screen), Window (Close ⌘W, Minimize, Zoom, Bring
   All to Front). Closing the window keeps the app (and recording) running; click the Dock icon to
