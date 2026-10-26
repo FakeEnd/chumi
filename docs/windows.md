@@ -46,6 +46,8 @@ Chumi bundles the official Codex CLI so new users can sign in and use it without
 
 **Continue in Codex app** prepares an immutable handoff file and asks Windows to open the installed app's `codex://` handler with a prefilled composer. The user still clicks Send in Codex. **Copy instructions** remains available. Action progress, result links and the next-meeting project brief use the same workflow as macOS. Saved audio plays from transcript lines and exports as WAV on Windows.
 
+DeepSeek Harness is found through `dsh` on `PATH` or the install folder recorded in its uninstall entry (`resources\runtime\cli\bin\dsh.cmd` there). Its settings live in `%USERPROFILE%\.dsh` unless `DSH_HOME` is set. To continue a handoff there, Chumi's server copies the instruction with PowerShell's `Set-Clipboard` and opens `dsh://open` with `explorer.exe` itself, so the desktop shell's link filter is not involved. This path was written on a Mac and has not been run on Windows yet.
+
 ## Build from source (developers)
 
 Requirements: Python 3, Node 24 with npm, and MinGW-w64 `g++` on `PATH`. The build uses static C++ linking; the compiler is needed only on the build machine.

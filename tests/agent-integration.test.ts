@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const DATA = mkdtempSync(join(tmpdir(), 'chumi-agent-check-'));
 process.env.CHUMI_DATA_DIR = DATA;
 process.env.XDG_CONFIG_HOME = join(DATA, 'config');
+process.env.DSH_HOME = join(DATA, 'dsh-home');
 const { Store } = await import('../server/db.ts');
 const { AgentIntegration, MCP_SCRIPT, parseJsonc } = await import('../server/projects/agents.ts');
 test.after(() => rmSync(DATA, { recursive: true, force: true }));
@@ -39,12 +40,17 @@ process.stdin.on('end', async () => {
   const prompt = args.find(arg => arg.startsWith('Call the MCP tool '));
   const token = prompt?.match(/with token "([^"]+)"/)?.[1];
   if (!token) throw new Error('Missing verification prompt');
-  const client = args[0] === 'exec' ? 'codex-mcp-client' : args[0] === 'run' ? 'opencode'
+  const client = args[0] === 'exec' ? 'codex-mcp-client' : args[0] === 'run' ? 'opencode' : args[0] === '--profile' ? 'dsh-mcp-client'
     : args.includes('--allowed-mcp-server-names') ? 'qwen-cli-mcp-client-chumi' : args.includes('--allowedTools') ? 'claude-code' : 'antigravity-client';
   const plan = client === 'codex-mcp-client' || client === 'claude-code';
   if (plan && process.env.OPENAI_API_KEY) { console.log('an API key reached a plan agent'); return; }
   if (!plan && !process.env.OPENAI_API_KEY) { console.log('the API key of an API-key agent was removed'); return; }
   if (client === 'opencode' && JSON.parse(process.env.OPENCODE_CONFIG_CONTENT ?? '{}').tools?.['*'] !== false) { console.log('tools not restricted'); return; }
+  if (client === 'dsh-mcp-client') {
+    if (args[1] !== 'headless' || process.env.DSH_PERMISSION_MODE !== 'read-only') { console.log('not a read-only headless run'); return; }
+    const patch = args[args.indexOf('--patch') + 1];
+    if (!(await import('node:fs')).readFileSync(patch, 'utf8').includes('- id: credentials')) { console.log('saved sign-ins are not readable'); return; }
+  }
   if (${recordRead}) {
     const { Store } = await import(${JSON.stringify(new URL('../server/db.ts', import.meta.url).href)});
     const store = new Store();
@@ -62,7 +68,7 @@ test('agent read checks close stdin, keep plan agents away from API keys, and ma
   try {
     const integration = new AgentIntegration(store);
     integration.cli = () => fixtureCli('reads-after-eof', true);
-    for (const agent of ['codex', 'claude-code', 'opencode', 'qwen-code', 'antigravity'] as const) {
+    for (const agent of ['codex', 'claude-code', 'opencode', 'qwen-code', 'antigravity', 'deepseek-harness'] as const) {
       const result = await integration.verify(agent);
       assert.equal(result.ok, true, `${agent}: ${result.detail}`);
       assert.match(result.detail, /read Chumi's data through MCP/);
@@ -173,6 +179,126 @@ fs.writeFileSync(file, JSON.stringify(cfg));
   }
 });
 
+/** Like `dsh --profile headless --dump-config`: prints the home patch layer (as dsh would compose it), or fails like a bad layer. */
+function dshCli(fail = false): string {
+  return cliFile(fail ? 'dsh-bad' : 'dsh', `const fs = require('node:fs'), path = require('node:path');
+const args = process.argv.slice(2);
+if (args.join(' ') !== '--profile headless --dump-config') { console.error('unexpected ' + args.join(' ')); process.exit(2); }
+// A rejected layer: dsh's own message, then a Node stack trace (as the real CLI prints it).
+if (${fail}) { console.error('file:///dsh/cli.js:120\\n  throw e;\\nError: dsh: failed to parse patches: invalid entry\\n    at boot (file:///dsh/cli.js:115:2)\\n\\nNode.js v24.0.0'); process.exit(1); }
+console.log(fs.readFileSync(path.join(process.env.DSH_HOME, 'cordis.patch.yml'), 'utf8'));
+`);
+}
+
+test('DeepSeek Harness: Connect adds one block to the home patch layer, keeps everything else, and Disconnect takes only it out', async () => {
+  const store = new Store();
+  const file = join(DATA, 'dsh-home', 'cordis.patch.yml');
+  mkdirSync(join(DATA, 'dsh-home'), { recursive: true });
+  const mine = '# my layer\n- id: agent-default-model\n  config:\n    provider: deepseek-account # signed in\n    model: deepseek-flash\n';
+  writeFileSync(file, mine, { mode: 0o600 });
+  try {
+    const integration = new AgentIntegration(store);
+    integration.cli = () => dshCli();
+    assert.equal((await integration.status('deepseek-harness')).registered, false);
+    await integration.connect('deepseek-harness');
+    await integration.connect('deepseek-harness');
+    const text = readFileSync(file, 'utf8');
+    assert.ok(text.startsWith(mine), 'the user\'s entries and comments stay as they were');
+    assert.equal(text.match(/# >>> chumi/g)?.length, 1, 'reconnecting replaces the block');
+    assert.ok(text.includes(`args: ${JSON.stringify([MCP_SCRIPT])}`), 'the server is this copy of Chumi');
+    assert.match(text, /env: \{"CHUMI_DATA_DIR":/);
+    if (!WIN) assert.equal(statSync(file).mode & 0o777, 0o600, 'dsh keeps this file private');
+    const st = await integration.status('deepseek-harness');
+    assert.equal(st.registered, true);
+    assert.equal(st.outdated, false);
+    assert.equal(st.clientHealth, 'unknown');
+    await integration.disconnect('deepseek-harness');
+    assert.equal(readFileSync(file, 'utf8'), mine);
+    assert.equal((await integration.status('deepseek-harness')).registered, false);
+
+    writeFileSync(file, '# empty\n[]\n');
+    await integration.connect('deepseek-harness');
+    assert.match(readFileSync(file, 'utf8'), /^# empty\n# >>> chumi[^\n]*\n- insert:/, 'an empty list is filled, not appended to');
+    await integration.disconnect('deepseek-harness');
+    assert.equal(readFileSync(file, 'utf8'), '# empty\n[]\n');
+  } finally {
+    store.close();
+  }
+});
+
+test('DeepSeek Harness: YAML Chumi cannot safely extend, a chumi server added by hand, or a layer dsh rejects leave the file as it was', async () => {
+  const store = new Store();
+  const file = join(DATA, 'dsh-home', 'cordis.patch.yml');
+  mkdirSync(join(DATA, 'dsh-home'), { recursive: true });
+  try {
+    const integration = new AgentIntegration(store);
+    integration.cli = () => dshCli();
+    for (const text of ['[{ id: x, disabled: true }]\n', 'key: value\n']) {
+      writeFileSync(file, text);
+      await assert.rejects(integration.connect('deepseek-harness'), /did not change/);
+      assert.equal(readFileSync(file, 'utf8'), text);
+    }
+    const byHand = '- insert:\n    - id: mine\n      name: "@deepseek-ai/dsh-mcp-client"\n      config:\n        serverName: chumi\n        command: node\n';
+    writeFileSync(file, byHand);
+    const st = await integration.status('deepseek-harness');
+    assert.equal(st.registered, true);
+    assert.match(st.detail ?? '', /outside Chumi; Chumi leaves it to you/);
+    await assert.rejects(integration.connect('deepseek-harness'), /already has a server named chumi/);
+    await integration.disconnect('deepseek-harness');
+    assert.equal(readFileSync(file, 'utf8'), byHand, 'Disconnect leaves an entry Chumi did not write');
+
+    writeFileSync(file, '- id: x\n  disabled: true\n');
+    integration.cli = () => dshCli(true);
+    await assert.rejects(integration.connect('deepseek-harness'), /did not accept the new entry, so .* was restored\. Error: dsh: failed to parse patches: invalid entry$/);
+    assert.equal(readFileSync(file, 'utf8'), '- id: x\n  disabled: true\n', 'restored after dsh failed to compose it');
+    assert.equal(readFileSync(`${file}.bak`, 'utf8'), '- id: x\n  disabled: true\n', 'and the backup is still the user\'s version');
+    rmSync(file);
+    await assert.rejects(integration.connect('deepseek-harness'));
+    assert.equal(existsSync(file), false, 'a file Chumi created is removed again');
+
+    const flow = '- insert: [{ id: mine, name: "@deepseek-ai/dsh-mcp-client", config: {serverName: chumi, command: node} }]\n';
+    writeFileSync(file, flow);
+    integration.cli = () => dshCli();
+    await assert.rejects(integration.connect('deepseek-harness'), /already has a server named chumi/, 'also in {…} form');
+    assert.equal(readFileSync(file, 'utf8'), flow);
+    rmSync(file);
+    mkdirSync(file);
+    await assert.rejects(integration.connect('deepseek-harness'), /EISDIR|directory/i, 'a file that cannot be read is not treated as missing');
+    assert.ok(statSync(file).isDirectory());
+    assert.equal((await integration.status('deepseek-harness')).registered, null);
+    rmSync(file, { recursive: true });
+  } finally {
+    store.close();
+  }
+});
+
+test('DeepSeek Harness: the block keeps Windows line endings and paths with quotes, and reads back exactly', async () => {
+  const { withDshBlock, withoutDshBlock, splitDshPatch, readDshBlock } = await import('../server/projects/dsh.ts');
+  const m = { command: 'C:\\Program Files\\nodejs\\node.exe', args: ['E:\\研究 "A"\\server\\mcp\\main.ts'], env: { CHUMI_DATA_DIR: 'D:\\Chumi data' } };
+  const mine = '- id: agent-default-model\r\n  config:\r\n    model: deepseek-flash\r\n';
+  const text = withDshBlock(mine, m, 'cordis.patch.yml');
+  assert.ok(!/[^\r]\n/.test(text), 'CRLF throughout');
+  assert.deepEqual(readDshBlock(splitDshPatch(text).block!), m);
+  assert.equal(withoutDshBlock(text), mine);
+  assert.equal(withoutDshBlock(mine), null);
+});
+
+test('DeepSeek Harness: a byte-order mark, a document start, blank lines at the end and a comment on [] all survive', async () => {
+  const { withDshBlock, withoutDshBlock, splitDshPatch, handWrittenDsh } = await import('../server/projects/dsh.ts');
+  const m = { command: 'node', args: ['main.ts'], env: {} };
+  for (const mine of ['\uFEFF- id: x\n  disabled: true\n', '---\n- id: x\n  disabled: true\n', '- id: x\n  disabled: true\n\n\n', '\uFEFF', '']) {
+    const text = withDshBlock(mine, m, 'f');
+    assert.ok(text.startsWith(mine), JSON.stringify(mine));
+    assert.equal(withoutDshBlock(text), mine.replace(/^\uFEFF?$/, (b) => `${b}[]\n`), JSON.stringify(mine));
+  }
+  const bomBlock = `\uFEFF${withDshBlock('', m, 'f')}`;
+  assert.ok(splitDshPatch(bomBlock).block, 'Chumi\'s own block after a byte-order mark is still Chumi\'s');
+  assert.equal(handWrittenDsh(splitDshPatch(bomBlock).rest), false);
+  const commented = withDshBlock('[] # nothing yet\n', m, 'f');
+  assert.match(commented, /^# nothing yet\n# >>> chumi/);
+  assert.equal(withoutDshBlock(commented), '# nothing yet\n[]\n');
+});
+
 test('JSONC: comments and trailing commas are ignored, comment markers inside strings are kept', () => {
   assert.deepEqual(parseJsonc('// a\n{ "u": "http://x/*y*/", /* b */ "n": [1, 2,], }'), { u: 'http://x/*y*/', n: [1, 2] });
   assert.deepEqual(parseJsonc('{"s": "quote \\" // not a comment"}'), { s: 'quote " // not a comment' });
@@ -224,6 +350,7 @@ test('continuing starts each agent in the project folder with the whole handoff 
       'claude-code': (_ws, m) => [m], codex: (ws, m) => ['-C', ws, m], opencode: (ws, m) => [ws, '--prompt', m], 'qwen-code': (_ws, m) => ['-i', m],
       antigravity: (_ws, m) => ['-i', m],
     };
+    assert.throws(() => integration.launchScript('deepseek-harness', 'hnd_test', workspace, prompt), /no terminal session/);
     for (const [agent, args] of Object.entries(expected)) {
       const script = integration.launchScript(agent as 'codex', 'hnd_test', workspace, prompt);
       if (WIN) execFileSync('cmd.exe', ['/d', '/c', script]); else execFileSync('/bin/zsh', [script]);

@@ -329,9 +329,10 @@ export const addHandoffItem = (handoffId: string, kind: string, text: string) =>
 export const confirmHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/confirm`, { body: {} }));
 export const reopenHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/reopen`, { body: {} }));
 export const retargetHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/retarget`, { body: {} }));
-export async function continueHandoff(handoffId: string, agent: AgentId | 'copy' | 'codex-app'): Promise<{ prompt: string; launched: boolean } | undefined> {
-  const r = await withHandoff(api<{ prompt: string; launched: boolean; handoff: Handoff }>(`/api/handoffs/${handoffId}/continue`, { body: { agent } }));
-  return r ? { prompt: r.prompt, launched: r.launched } : undefined;
+/** paste: for an app that cannot be handed the handoff (DeepSeek Harness), the instruction to paste there and whether Chumi copied it. */
+export async function continueHandoff(handoffId: string, agent: AgentId | 'copy' | 'codex-app'): Promise<{ prompt: string; launched: boolean; paste?: { text: string; copied: boolean } } | undefined> {
+  const r = await withHandoff(api<{ prompt: string; launched: boolean; paste?: { text: string; copied: boolean }; handoff: Handoff }>(`/api/handoffs/${handoffId}/continue`, { body: { agent } }));
+  return r ? { prompt: r.prompt, launched: r.launched, paste: r.paste } : undefined;
 }
 
 export async function updateActionProgress(itemId: string, patch: Pick<ActionProgress, 'status' | 'note' | 'results'> & { expectedVersion: number }): Promise<ActionProgress | null> {

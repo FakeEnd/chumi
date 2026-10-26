@@ -3,12 +3,16 @@
  *
  *   node scripts/agent-trial.ts opencode
  *   node scripts/agent-trial.ts qwen-code
+ *   node scripts/agent-trial.ts deepseek-harness
+ *   DEEPSEEK_API_KEY=… node scripts/agent-trial.ts deepseek-harness --real
  *
  * Runs Chumi's own Connect, status and "Test a real agent read" code against the installed CLI. The agent talks to
  * a local OpenAI-compatible stand-in that answers the read check with a call to chumi_connection_check (directly,
  * or through tool_search/tool_call when the agent defers MCP tools), so no model account is used and nothing is billed.
  * Everything happens in a throwaway home and data folder: the user's agent settings and meetings are not touched.
  * opencode fetches its OpenAI-compatible provider package on first use, so it needs network access (or a proxy).
+ * DeepSeek Harness gets the stand-in through a --patch overlay naming it as a custom OpenAI-compatible provider. With
+ * --real it uses DeepSeek's own API with DEEPSEEK_API_KEY instead (one small, billed request), as dsh does by default.
  */
 import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -16,13 +20,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const agent = process.argv[2];
-if (agent !== 'opencode' && agent !== 'qwen-code') { console.error('usage: node scripts/agent-trial.ts opencode|qwen-code'); process.exit(2); }
+const real = process.argv[3] === '--real';
+if ((agent !== 'opencode' && agent !== 'qwen-code' && agent !== 'deepseek-harness') || (real && agent !== 'deepseek-harness')) {
+  console.error('usage: node scripts/agent-trial.ts opencode|qwen-code|deepseek-harness, or deepseek-harness --real');
+  process.exit(2);
+}
+if (real && !process.env.DEEPSEEK_API_KEY) { console.error('--real needs DEEPSEEK_API_KEY in the environment.'); process.exit(2); }
 const DIR = mkdtempSync(join(tmpdir(), 'chumi-agent-trial-'));
 const HOME = join(DIR, 'home');
 mkdirSync(HOME, { recursive: true });
 mkdirSync(join(DIR, 'data'), { recursive: true });
 // Before Chumi's modules load: they read these when imported.
-Object.assign(process.env, { HOME, USERPROFILE: HOME, XDG_CONFIG_HOME: join(HOME, '.config'), CHUMI_DATA_DIR: join(DIR, 'data') });
+Object.assign(process.env, { HOME, USERPROFILE: HOME, XDG_CONFIG_HOME: join(HOME, '.config'), DSH_HOME: join(HOME, '.dsh'), CHUMI_DATA_DIR: join(DIR, 'data') });
 const { Store } = await import('../server/db.ts');
 const { AgentIntegration } = await import('../server/projects/agents.ts');
 
@@ -87,17 +96,26 @@ try {
     mkdirSync(join(HOME, '.config', 'opencode'), { recursive: true });
     writeFileSync(join(HOME, '.config', 'opencode', 'opencode.jsonc'), `// stand-in model for the trial\n${JSON.stringify({ provider: { trial: { npm: '@ai-sdk/openai-compatible', name: 'Stand-in', options: { baseURL: BASE, apiKey: 'stand-in' }, models: { 'stand-in': { name: 'stand-in', tool_call: true } } } } }, null, 2)}\n`);
     extra = ['-m', 'trial/stand-in'];
+  } else if (agent === 'deepseek-harness') {
+    const overlay = join(DIR, 'stand-in.cordis.yml');
+    writeFileSync(overlay, `- id: llm-pi-ai\n  config:\n    providers:\n      trial:\n        apiKeyEnv: TRIAL_API_KEY\n        api: openai-completions\n        baseURL: ${JSON.stringify(BASE)}\n        models:\n          - id: stand-in\n- id: agent-default-model\n  config:\n    provider: trial\n    model: stand-in\n`);
+    process.env.TRIAL_API_KEY = 'stand-in';
+    extra = real ? [] : ['--patch', overlay];
+    // The read check takes the model from the desktop app's own layer. This one is shaped like the app's (with entries
+    // only the desktop has); under --real it names DeepSeek's API, so its model and effort are what the check uses.
+    mkdirSync(join(HOME, '.dsh', 'profiles', 'desktop'), { recursive: true });
+    writeFileSync(join(HOME, '.dsh', 'profiles', 'desktop', 'cordis.patch.yml'), '- id: agent-default-model\n  name: "@deepseek-ai/dsh-agent-default-model"\n  config:\n    provider: deepseek-official\n    model: deepseek-flash\n    reasoningEffort: high\n- id: ui-chat\n  name: "@deepseek-ai/dsh-client-ui-chat"\n  config:\n    transcriptView: detailed\n');
   } else {
     extra = ['--auth-type', 'openai', '--openai-base-url', BASE, '--openai-api-key', 'stand-in', '-m', 'stand-in'];
   }
   await integration.connect(agent);
   const st = await integration.status(agent);
   step(st.registered === true && !st.outdated, 'Connect', `registered=${st.registered}, outdated=${st.outdated}`);
-  step(st.clientHealth === 'connected', 'Client health', `${st.name} reports "${st.clientHealth}"`);
+  if (agent !== 'deepseek-harness') step(st.clientHealth === 'connected', 'Client health', `${st.name} reports "${st.clientHealth}"`);
   const r = await integration.verify(agent, extra);
   step(r.ok, 'Agent read', r.detail);
   const offered = requests.find((q) => q.call)?.tools ?? requests[0]?.tools ?? [];
-  console.log(`      stand-in saw ${requests.length} request(s) with tools; the one that called Chumi offered: ${offered.join(', ') || 'none'}`);
+  if (!real) console.log(`      stand-in saw ${requests.length} request(s) with tools; the one that called Chumi offered: ${offered.join(', ') || 'none'}`);
   if (agent === 'opencode') step(offered.length > 0 && offered.every((n) => n.startsWith('chumi_')), 'Read check is limited to Chumi', `${offered.length} tool(s) offered`);
   await integration.disconnect(agent);
   step((await integration.status(agent)).registered === false, 'Disconnect', 'the chumi entry is gone');

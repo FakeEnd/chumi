@@ -16,6 +16,22 @@ Started from main `6578a45` on Windows 11, with Node 24.21.0 and Electron 44.7.0
 
 Codex app preparation uses `CHUMI_NO_LAUNCH=1`; the installed Windows `codex://` registration is present, but a real composer and model send were not exercised. Other Windows hardware, full-screen call applications and third-party screen-sharing tools remain separate checks.
 
+## DeepSeek Harness as a coding agent — 2026-10-26
+
+DeepSeek Harness (dsh) 0.2.1-rc.3, the desktop app on the development Mac, using the `dsh` inside it. Details are in [agents.md](agents.md).
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 327 / 327 tests. The read check, Continue (route and dialog destinations) and the pet's destination names now include DeepSeek Harness. New tests cover the patch layer: Connect appends one block and keeps the user's lines and comments byte for byte (and the file's 0600 mode), reconnecting replaces it, an empty `[]` list is filled and restored, Windows line endings and paths with quotes read back exactly, and Disconnect removes only Chumi's block. Chumi leaves the file unchanged when it is a `[...]` list or not a list, when a `chumi` server was added by hand, and when dsh rejects the result (the backup is still the user's version). Continuing copies before it opens the app, keeps a 0600 snapshot, and reports a clipboard failure without failing. |
+| Real dsh, stand-in model | `node scripts/agent-trial.ts deepseek-harness`, in a throwaway home: Connect wrote `~/.dsh/cordis.patch.yml` and dsh's own `--dump-config` listed the server; the read check (headless, read-only, desktop-shaped layer plus Chumi's check layer) offered dsh's built-in tools and all seven `mcp__chumi__*` tools, called `chumi_connection_check`, and Chumi recorded the read from `dsh-mcp-client`; Disconnect removed the block. |
+| Real dsh, real model | `node scripts/agent-trial.ts deepseek-harness --real` with a DeepSeek API key in `DEEPSEEK_API_KEY`: DeepSeek-V4.1-Flash (`deepseek-flash`, high effort, taken from the desktop-shaped layer) called the check tool and the read was recorded. This also shows that turning on the sign-in plugins for the check does not get in the way of an API key from the environment. |
+| Other profiles | The home patch layer with Chumi's block is part of `dsh web --dump-config` too. The desktop app is documented to apply the same layer. |
+| Clipboard and app | `copyText` from a process with no locale variables put a path with Chinese and accented letters on the clipboard intact (`pbpaste`), and `dsh://open` brought up the DeepSeek Harness app. |
+
+Found and fixed after a review of the change: when dsh rejected a layer, Chumi showed the last lines of its stack trace; it now shows dsh's own message (checked against the real CLI with a layer that ends in `...`, which dsh refuses: the file was restored and the reason reads "expected a single document in the stream"). A byte-order mark at the start of the file, or a `---` line, made Chumi refuse a file dsh accepts, or take its own block for one added by hand. A `chumi` server written in `{…}` form was not noticed. A file that could not be read was treated as missing, so a change could have replaced it. A comment on `[]` and blank lines at the end were dropped on the way back. On Windows, "not installed" was remembered until Chumi restarted. Continue did not check that the desktop app is installed, and the pet said nothing when copying failed. Each has a test now.
+
+Not verified: a read check with the account the desktop app signed in with (a headless run with the sign-in plugins on and no sign-in answers `ACCOUNT_SIGN_IN_REQUIRED`, as expected); the desktop app showing Chumi's tools and reading a pasted handoff; Windows (written on a Mac, not run there).
+
 ## Screenshots and footage after the answer-width fix — 2026-10-25
 
 680992c removed the 35em cap on answer paragraphs, so answers now fill their card.
