@@ -1,5 +1,15 @@
 # Verification log
 
+## Screenshots and footage after the answer-width fix — 2026-10-25
+
+680992c removed the 35em cap on answer paragraphs, so answers now fill their card.
+
+| Check | Result |
+|---|---|
+| Screenshots | All nine re-shot in Chinese with `demo-shoot.ts --provider codex --project-folder DIR --lang zh`. In English, the seven screens with answer cards were re-shot; Home and Settings → Transcription have none and were kept. Every answer now spans the card. In English, the first project-context question returned no context: mybot took longer than Chumi's 25 s search limit while the shoot kept the Mac busy (it answers in about 6 s when idle). `--only agent` then succeeded; the answer cites two earlier agent sessions in the sample project. |
+| Footage | The window and pet footage were re-recorded in both languages. The handoff and Codex app footage show no answer cards and were kept. |
+| Promo | Every answer view now fits the whole card. The old views were fitted to the 35em text, and would have cut lines at the right edge. Both promos and their faster cuts were re-rendered, along with the README's video cards. The pet videos are unchanged, because the pet's cards are narrower than the old cap. |
+
 ## Promo: the real Codex app, and the camera on streaming answers — 2026-10-25
 
 On the development Mac, after PR #26. Codex (the ChatGPT plan) answered.

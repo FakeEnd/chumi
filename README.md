@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner-light.png">
-    <img src="docs/assets/banner-light.png" alt="Chumi: never lose the thread, understand every talk. A listening companion for lab meetings, advisor 1:1s, lectures and seminars." width="900">
+    <img src="docs/assets/banner-light.png" alt="Chumi: from meeting to working code. Understand it live, hand it to your agent. A listening companion for lab meetings, advisor 1:1s and lectures." width="900">
   </picture>
 </p>
 
@@ -17,21 +17,24 @@
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
-<!-- Keep this attachment URL on its own line so GitHub generates its native player. -->
-
-https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d
-
-<p align="center"><sub>▶ The 89-second tour, with music · <a href="README.zh-CN.md">中文版</a> · player blank or stuck? <a href="docs/assets/chumi-promo.mp4?raw=1">Download the MP4</a> · faster cuts to download: <a href="docs/assets/chumi-promo-1.5x.mp4?raw=1">59 s</a>, <a href="docs/assets/chumi-promo-2x.mp4?raw=1">45 s</a></sub></p>
-
----
+<table align="center">
+  <tr>
+    <td width="420"><a href="docs/assets/chumi-promo.mp4"><img src="docs/assets/card-tour.jpg" width="420" alt="Play the 89-second tour: from one meeting to working code, in the real app"></a></td>
+    <td width="420"><a href="docs/assets/chumi-pet.mp4"><img src="docs/assets/card-pet.jpg" width="420" alt="Play the 69-second desktop-pet video: it listens with you beside your call"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>With music · faster cuts: <a href="docs/assets/chumi-promo-1.5x.mp4?raw=1">59 s</a>, <a href="docs/assets/chumi-promo-2x.mp4?raw=1">45 s</a> · <a href="docs/assets/chumi-promo-zh.mp4">中文</a></sub></td>
+    <td align="center"><sub>Chumi.app's desktop pet · <a href="docs/desktop-pet.md">how it works</a> · <a href="docs/assets/chumi-pet-zh.mp4">中文</a></sub></td>
+  </tr>
+</table>
 
 **Chumi listens to academic meetings with you, explains what you missed, and hands what was decided to your coding agent.**
 
 It transcribes lab meetings, advisor 1:1s, lectures and seminars on your Mac, in English, Mandarin, or both at once.
 
-- **During the meeting:** catch up in one click, get terms explained at your level, and ask about the slide on screen. Every answer cites the moment it came from.
+- **During the meeting:** catch up in one click, get terms explained at your level, and ask about the slide on screen. Every answer cites the moment it came from. A desktop pet can sit beside your call and do the same from its toolbar.
 - **After the meeting:** read a structured summary, play the recording back from any line, and review a handoff of decisions and actions.
-- **In your project:** Claude Code, Codex, opencode, Qwen Code or Antigravity continues the work, reading the original evidence through Chumi's MCP server.
+- **In your project:** Codex app, Claude Code, Codex, opencode, Qwen Code or Antigravity continues the work, reading the original evidence through Chumi's MCP server.
 - **At the next meeting:** answers can draw on what those agents already did.
 
 It runs on the ChatGPT or Claude plan you already have, or on a local model. By default, audio never leaves your Mac.
@@ -40,76 +43,61 @@ It runs on the ChatGPT or Claude plan you already have, or on a local model. By 
 
 ## See it in action
 
-The screenshots come from a real run on a synthetic NLP lab meeting: Maya presents a 7B model trained with DPO to cite its sources, and the lab argues about whether its gain is real or a quirk of the LLM judge. See [About the screenshots](#about-the-screenshots).
+Real screens from a synthetic NLP lab meeting: Maya presents a 7B model trained with DPO to cite its sources, and the lab argues about whether its gain is real or a quirk of the LLM judge. **Scroll sideways for all nine →**
 
-### Lost the thread? Catch me up.
+<!-- One row that scrolls sideways. The figure spaces (&#8199;) at the end of each cell keep it 520 px wide: GitHub
+     shrinks images in table cells to fit, so without them the nine screenshots squeeze into one screen width. -->
+<table>
+  <tr>
+    <td width="520" valign="top">
+      <a href="docs/assets/screens/live.png"><img src="docs/assets/screens/live.png" width="520" alt="Chumi during a lab meeting: live transcript, a running overview with clickable timestamps, and a catch-up card covering the last two minutes of the judge-bias debate"></a><br>
+      <b>Lost the thread? Catch me up.</b><br>
+      <sub>What you missed and what is being argued now, over the last 2 or 5 minutes or the whole meeting. Every point links to its lines.</sub><br><sub>&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;</sub>
+    </td>
+    <td width="520" valign="top">
+      <a href="docs/assets/screens/explain.png"><img src="docs/assets/screens/explain.png" width="520" alt="An explanation card for 'KV cache', pitched to a profile with no hardware background, with transcript citations"></a><br>
+      <b>Explained at your level</b><br>
+      <sub>Select a term like <i>KV cache</i>: the intuition, how it was used here and why it matters, pitched to your background. In English or 中文.</sub><br><sub>&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;</sub>
+    </td>
+    <td width="520" valign="top">
+      <a href="docs/assets/screens/window-capture.png"><img src="docs/assets/screens/window-capture.png" width="520" alt="A captured evaluation-plan slide in the Screen strip; the answer explains it and cites the transcript times where it was discussed"></a><br>
+      <b>Ask about the slide on screen</b><br>
+      <sub>Capture the Zoom share or a lecture video. Chumi keeps one picture per slide and weighs it against what was actually said.</sub><br><sub>&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;</sub>
+    </td>
+    <td width="520" valign="top">
+      <a href="docs/assets/screens/summary.png"><img src="docs/assets/screens/summary.png" width="520" alt="Dark mode: the final summary card, with the DPO result marked preliminary and each claim linked to transcript times"></a><br>
+      <b>A summary you can trust</b><br>
+      <sub>Shaped for the meeting type. Preliminary results stay preliminary, disagreements are kept, and owners appear only if someone named them.</sub><br><sub>&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;</sub>
+    </td>
+    <td width="520" valign="top">
+      <a href="docs/assets/screens/playback.png"><img src="docs/assets/screens/playback.png" width="520" alt="A saved session with the audio player in the toolbar and the transcript line being played highlighted"></a><br>
+      <b>Listen again</b><br>
+      <sub>The ▶ beside a line plays from there, and the line being heard stays highlighted. <b>Export audio</b> saves the meeting as one file.</sub><br><sub>&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;</sub>
+    </td>
+    <td width="520" valign="top">
+      <a href="docs/assets/screens/handoff.png"><img src="docs/assets/screens/handoff.png" width="520" alt="The handoff dialog: confirmed actions with their origin, owner, open points and transcript citations, and Continue in Codex app"></a><br>
+      <b>A handoff you review</b><br>
+      <sub>Decisions and actions, each cited and labelled by origin. Confirm, edit or reject each one, then <b>Continue in</b> Codex app or Claude Code.</sub><br><sub>&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;</sub>
+    </td>
+    <td width="520" valign="top">
+      <a href="docs/assets/screens/project-context.png"><img src="docs/assets/screens/project-context.png" width="520" alt="Project context turned on in the Ask box; the answer draws on the agent sessions that continued the handoff, cited as P1 and P2, next to what was said in the meeting"></a><br>
+      <b>The next meeting remembers</b><br>
+      <sub>Turn on <b>Project context</b> and answers also cite your agents' earlier sessions, found through <a href="https://github.com/jzhoulab/mybot">mybot</a>, as [P1], [P2].</sub><br><sub>&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;</sub>
+    </td>
+    <td width="520" valign="top">
+      <a href="docs/assets/screens/home.png"><img src="docs/assets/screens/home.png" width="520" alt="The home screen: greeting, status, four start options, recent sessions with an audio marker, profile summary and tips"></a><br>
+      <b>Get Chumi ready</b><br>
+      <sub>Home walks you through AI sign-in, your background and the microphone. Then <b>⚡ Quick start</b>, or <b>⌃⌥⌘L</b> from any app.</sub><br><sub>&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;</sub>
+    </td>
+    <td width="520" valign="top">
+      <a href="docs/assets/screens/models.png"><img src="docs/assets/screens/models.png" width="520" alt="Settings, Transcription tab: local Whisper in use and marked private, with ElevenLabs Scribe and Qwen3-ASR as opt-in services that send audio off the Mac"></a><br>
+      <b>Speech stays on your Mac</b><br>
+      <sub>Local whisper.cpp, with a model picked for your Mac. Cloud speech recognition only if you choose it.</sub><br><sub>&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;</sub>
+    </td>
+  </tr>
+</table>
 
-One click tells you what is being discussed now, what you missed and which question is on the table. The card states exactly which stretch of the transcript it covers, and every point links to the lines it came from.
-
-<p align="center">
-  <img src="docs/assets/screens/live.png" width="900" alt="Chumi during a lab meeting: live transcript, a running overview with clickable timestamps, and a catch-up card covering the last two minutes of the judge-bias debate">
-</p>
-
-### Explanations pitched to you
-
-Select a term such as *KV cache* and get the intuition, how it was used in this discussion and why it matters. Chumi keeps a per-domain profile, so a linguist new to GPUs gets a different explanation than a systems engineer would. Answers come in English or 中文.
-
-<p align="center">
-  <img src="docs/assets/screens/explain.png" width="900" alt="An explanation card for 'KV cache', pitched to a profile with no hardware background, with transcript citations">
-</p>
-
-### Ask about the slide on screen
-
-Capture the Zoom share, a lecture video or the slide deck. Chumi keeps one picture per slide and sends it with your question, and the answer weighs it against what was actually said.
-
-<p align="center">
-  <img src="docs/assets/screens/window-capture.png" width="900" alt="A captured evaluation-plan slide in the Screen strip; the answer explains it and cites the transcript times where it was discussed">
-</p>
-
-### A summary you can trust
-
-When the meeting ends, the summary is shaped for its type (lab meeting, advisor 1:1, lecture, WIP talk). Preliminary results stay preliminary, disagreements are kept, and owners or deadlines appear only if someone actually said them.
-
-<p align="center">
-  <img src="docs/assets/screens/summary.png" width="900" alt="Dark mode: the final summary card, with the DPO result marked preliminary and each claim linked to transcript times">
-</p>
-
-### Listen again
-
-Each session records its audio on your Mac unless you untick **Record audio** when you start. In the saved session, the ▶ beside a line plays from there, the line being heard stays highlighted, and **Export audio** saves the whole meeting as one file.
-
-<p align="center">
-  <img src="docs/assets/screens/playback.png" width="900" alt="A saved session with the audio player in the toolbar and the transcript line being played highlighted">
-</p>
-
-### Hand it to your coding agent
-
-Chumi drafts the decisions, actions and open questions, each cited and labelled *agreed in the meeting*, *suggested, not agreed* or *proposed by Chumi*. You confirm, edit or reject every item. **Continue in Claude Code** (or another agent) opens it in the project folder with only the confirmed work.
-
-<p align="center">
-  <img src="docs/assets/screens/handoff.png" width="900" alt="The handoff dialog: confirmed actions with their origin, owner, open points and transcript citations, and the Continue in Claude Code button">
-</p>
-
-### The next meeting remembers
-
-Turn on **Project context** in the Ask box, and questions also search the project's earlier Claude Code and Codex sessions through [mybot](https://github.com/jzhoulab/mybot). Answers cite them as `[P1]`, `[P2]`, next to what was said in the room.
-
-<p align="center">
-  <img src="docs/assets/screens/project-context.png" width="900" alt="Project context turned on in the Ask box; the answer draws on the agent session that continued the handoff, cited as P1, next to what was said in the meeting">
-</p>
-
-### A desktop pet that listens with you
-
-Chumi.app can also keep a small Chumi in the corner of your screen. Its toolbar starts, pauses or ends a meeting, catches you up and takes a question, and the card below it shows the latest answer or explanation, so you can follow along without leaving your call. Once you've confirmed the meeting's handoff, one click on the pet hands it on to your coding agent. It perks up its ears while it listens and tells you when an answer is ready. Clicks elsewhere pass straight through, and it stays out of screen shares. See [docs/desktop-pet.md](docs/desktop-pet.md).
-
-<p align="center">
-  <a href="docs/assets/chumi-pet.mp4"><img src="docs/assets/chumi-pet-poster.jpg" width="900" alt="Chumi's desktop pet beside a lab-meeting call, saying the catch-up is ready, with a Click to see link"></a>
-</p>
-<p align="center"><sub>▶ <a href="docs/assets/chumi-pet.mp4">69-second video</a> · <a href="docs/assets/chumi-pet-zh.mp4">中文版</a></sub></p>
-
-#### About the screenshots
-
-They come from a real run: real local transcription, real Claude answers, and a real Claude Code session that continued the handoff. The meeting is a written script with fictional people, voiced by macOS text-to-speech ([`samples/llm-meeting-en`](samples/llm-meeting-en/README.md); the Chinese screenshots use the bilingual [`samples/llm-meeting`](samples/llm-meeting/README.md)). The profile is fictional too. Nothing comes from real meetings. [Development](#development) shows how to regenerate them.
+<sub>About the screenshots: real local transcription, real AI answers, and real agent sessions that continued the handoff. The meeting is a written script with fictional people, voiced by macOS text-to-speech (<a href="samples/llm-meeting-en/README.md"><code>samples/llm-meeting-en</code></a>; the Chinese set uses the bilingual <a href="samples/llm-meeting/README.md"><code>samples/llm-meeting</code></a>), and the profile is fictional too. Nothing comes from real meetings.</sub>
 
 ## Install
 
@@ -124,10 +112,6 @@ curl -fsSL https://raw.githubusercontent.com/FakeEnd/chumi/main/scripts/install.
 This downloads Chumi into `~/Chumi`. The guided setup takes 5 to 15 minutes. It installs what is missing (asking first), sets up local speech recognition with a model that suits your Mac, builds Chumi.app, and helps you sign in to an AI. Your sign-in stays with the official tool; Chumi never sees it.
 
 On first launch, the **Get Chumi ready** checklist on Home covers the rest: AI sign-in, your background and microphone access. Then click **⚡ Quick start**, or press **⌃⌥⌘L** from any app. Press it again to pause.
-
-<p align="center">
-  <img src="docs/assets/screens/home.png" width="760" alt="The home screen: greeting, status, four start options, recent sessions with an audio marker, profile summary and tips">
-</p>
 
 - **By hand:** `git clone https://github.com/FakeEnd/chumi.git && cd chumi && bash scripts/setup.sh`. [The install guide](docs/install.md) covers the options (including `--mirror` for mainland China), permissions, troubleshooting and uninstalling.
 - **Check an install:** `npm run doctor` prints the fix for anything missing.
@@ -151,10 +135,6 @@ Local models and compatible APIs are set up in [docs/other-models.md](docs/other
 
 **Speech recognition** is separate from the AI. It runs locally with whisper.cpp by default, and Settings → Transcription recommends one of seven models for your Mac. ElevenLabs Scribe and Qwen3-ASR (Alibaba Cloud or self-hosted) are opt-in alternatives that send meeting audio off the Mac; if one fails, the local model takes over. See [docs/transcription.md](docs/transcription.md).
 
-<p align="center">
-  <img src="docs/assets/screens/models.png" width="760" alt="Settings, Transcription tab: local Whisper in use and marked private, with ElevenLabs Scribe and Qwen3-ASR as opt-in services that send audio off the Mac">
-</p>
-
 ## Privacy
 
 - **Audio stays on your Mac** with the default local speech recognition. Recordings are stored only on this computer, and deleting a session deletes them.
@@ -167,7 +147,7 @@ Local models and compatible APIs are set up in [docs/other-models.md](docs/other
 ```mermaid
 flowchart LR
   M["Meeting<br/>live transcript · catch-up<br/>explanations at your level"] --> H["Reviewed handoff<br/>decisions · actions · open questions<br/>each cited to the transcript"]
-  H --> A["Your coding agent<br/>Claude Code · Codex · opencode · Qwen Code · Antigravity<br/>reads the evidence over MCP"]
+  H --> A["Your coding agent<br/>Codex app · Claude Code · Codex · opencode · Qwen Code · Antigravity<br/>reads the evidence over MCP"]
   A --> P["Project memory<br/>the agents' sessions,<br/>indexed by mybot"]
   P -- "Project context" --> M
 ```
@@ -175,12 +155,15 @@ flowchart LR
 To set it up:
 
 1. **Assign the meeting to a project,** the folder you work in. Pick it when you start, or later in the top bar. Nothing is assigned automatically.
-2. **Connect your coding agents** once in **Settings → Coding agents**. Chumi registers its read-only MCP server, and **Test a real agent read** confirms the agent can reach it.
+2. **Choose where to continue.** Codex app is the default and needs no setup: Continue opens a new chat with the handoff in its composer, and nothing runs until you click Send. To let terminal agents fetch the original passages too, connect them once in **Settings → Coding agents**; **Test a real agent read** confirms the agent can reach Chumi's read-only MCP server.
 3. **Optional: run [mybot](https://github.com/jzhoulab/mybot)** locally for Project context. Its address is in **Settings → Integrations** (default `http://127.0.0.1:8788`). Nothing is searched until you turn Project context on for a meeting.
 
 If the meeting changes after you confirm (a regenerated summary, a resumed recording), Chumi and the agent both see that the handoff may need another look. Details: [docs/agents.md](docs/agents.md) and [docs/mybot.md](docs/mybot.md).
 
 ## All features
+
+<details>
+<summary><b>Show the full list</b></summary>
 
 **Listening**
 - Microphone for in-person meetings, computer audio for Zoom, Teams or recorded lectures (headphones are fine), or both for hybrid meetings, with echo cancellation and duplicate filtering.
@@ -188,6 +171,7 @@ If the meeting changes after you confirm (a regenerated summary, a resumed recor
 - Pause, resume, a global quick-start shortcut, level meters and clear permission guidance.
 - Compact view (`⌘⇧.`, or `Ctrl+Shift+.` on Windows) hides the header and toolbar, leaving the summary, transcript and assistant.
 - Optional speaker labels after the meeting (`npm run setup:speakers`): voices are grouped locally as A/B/C, and you name and correct them. See [docs/speaker-diarization.md](docs/speaker-diarization.md).
+- A desktop pet in Chumi.app: its toolbar starts, pauses and ends a meeting, catches you up and takes a question, and continues a confirmed handoff. Clicks elsewhere pass through, and it stays out of screen shares. See [docs/desktop-pet.md](docs/desktop-pet.md).
 
 **Understanding**
 - Catch me up over the last 2 minutes, the last 5 minutes or the whole session.
@@ -207,6 +191,8 @@ If the meeting changes after you confirm (a regenerated summary, a resumed recor
 **Cost control**
 - Billing is shown, with quota when the provider reports it. Subscription adapters pause when included usage runs out.
 - Background work (overview, auto-explain) uses low effort where supported, and long sessions use rolling notes instead of resending the whole transcript.
+
+</details>
 
 <details>
 <summary><b>How it works</b></summary>
@@ -244,7 +230,7 @@ npm run build:tools                            # rebuild the window-capture and 
 2. Agent loop, once: `node scripts/demo-shoot.ts --prepare-agent --project-folder DIR` drafts and confirms a handoff for a project folder and keeps its data folder. Run Claude Code (or Codex) in `DIR` with that prompt and Chumi's MCP server pointed at the kept data folder, and let mybot index the session.
 3. Screenshots: `node scripts/demo-shoot.ts --project-folder DIR` (add `--lang zh` for the Chinese set in `docs/assets/screens/zh/`). It uses about 15 requests on your Claude plan, or on your ChatGPT plan with `--provider codex`.
 4. Live footage: `node scripts/record-footage.ts` (and `--lang zh`) records the real window and desktop pet while the answers stream in, into `dist/footage/`. It rebuilds the web UI first, then uses about 6 requests (Codex by default; `--provider claude-cli` for your Claude plan). `--only agent --project-folder DIR` records continuing a confirmed handoff (nothing is actually opened) and keeps its data folder for a real agent run in `DIR`.
-5. Video: `node scripts/make-video.ts` renders `docs/video/promo.html`; add `--lang zh`, or `--speed 1.5` / `--speed 2` for the faster cuts. `node scripts/make-pet-video.ts` renders the desktop-pet video (`--lang en` for English). Both need the footage from step 4. `bash scripts/make-banner.sh` re-renders the banner.
+5. Video: `node scripts/make-video.ts` renders `docs/video/promo.html`; add `--lang zh`, or `--speed 1.5` / `--speed 2` for the faster cuts. `node scripts/make-pet-video.ts` renders the desktop-pet video (`--lang en` for English). Both need the footage from step 4. Then `bash scripts/make-banner.sh` re-renders the banner and the two video cards.
 
 </details>
 

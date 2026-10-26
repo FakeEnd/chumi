@@ -310,8 +310,8 @@ async function main(): Promise<void> {
       await page.shot('project-context');
       regions.pc = {
         toggle: await page.measure('.chip-toggle'), card: await page.measure('.card-answer'),
-        // The chip (its row is the card's full width) and the row under the question, where the video's answer view starts.
-        sources: await page.measure('.card-answer .pc-sources .range'), meta: await page.measure('.card-answer .card-meta'),
+        // The chip itself: its row is the card's full width.
+        sources: await page.measure('.card-answer .pc-sources .range'),
       };
     }
 
