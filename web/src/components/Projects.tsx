@@ -131,7 +131,7 @@ export function AgentsTab() {
               </div>
             );
           })}
-          <p className="muted small">{tn('Connecting adds a server named {name} to the agent\'s user settings. You can also do it yourself: run the command in Terminal, or for opencode add the entry to the file shown. For Antigravity, Chumi also pre-approves only its check tool in the settings file shown, because Antigravity cannot ask for approval during the read check. For DeepSeek Harness, Chumi adds the block shown to the file shown, which every DeepSeek Harness profile reads, the desktop app included.', { name: <code>chumi</code> })}</p>
+          <p className="muted small">{tn('Connecting adds a server named {name} to the agent\'s user settings. You can also do it yourself: run the command in Terminal, or for opencode add the entry to the file shown. For Antigravity, Chumi also pre-approves only its check tool in the settings file shown, because Antigravity cannot ask for approval during the read check. For DeepSeek Harness, Chumi adds the block below to its settings file, which every DeepSeek Harness profile reads, the desktop app included.', { name: <code>chumi</code> })}</p>
           {Object.entries(info.commands).map(([k, cmd]) => <pre key={k} className="cmd small"><span className="muted">{AGENT_NAMES[k as AgentId]}</span>{'\n'}{cmd}</pre>)}
           <h3>{t('Other routes')}</h3>
           <p className="small">{info.exports.mybot ? t('mybot export: {n} file(s) in {dir}. Whether mybot has indexed them cannot be checked from Chumi.', { n: info.exports.mybot.files, dir: info.exports.mybot.dir }) : t('mybot export is off (Integrations).')}</p>

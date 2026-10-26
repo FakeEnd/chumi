@@ -298,8 +298,9 @@ const ADAPTERS: Record<AgentId, Adapter> = {
       const text = readText(dshPatchFile());
       const { rest, block, broken } = splitDshPatch(text ?? '');
       if (!block) {
-        if (broken) return { registered: null, detail: `Chumi's block in ${dshPatchFile()} has lost its end line. Remove what is left of it, then connect again.` };
-        return handWrittenDsh(rest) ? { registered: true, detail: `A server named chumi in ${dshPatchFile()} was added outside Chumi; Chumi leaves it to you.` } : { registered: false };
+        // No path in these: the page translates whole sentences, and the file is named in the setup block below them.
+        if (broken) return { registered: null, detail: 'Chumi\'s block in the DeepSeek Harness settings file has lost its end line. Remove what is left of it, then connect again.' };
+        return handWrittenDsh(rest) ? { registered: true, detail: 'A server named chumi was added to the DeepSeek Harness settings file outside Chumi; Chumi leaves it to you.' } : { registered: false };
       }
       const entry = readDshBlock(block);
       return { registered: true, outdated: outdated(entry.args, entry.env) };

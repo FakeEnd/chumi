@@ -241,7 +241,7 @@ test('DeepSeek Harness: YAML Chumi cannot safely extend, a chumi server added by
     writeFileSync(file, byHand);
     const st = await integration.status('deepseek-harness');
     assert.equal(st.registered, true);
-    assert.match(st.detail ?? '', /added outside Chumi/);
+    assert.match(st.detail ?? '', /outside Chumi; Chumi leaves it to you/);
     await assert.rejects(integration.connect('deepseek-harness'), /already has a server named chumi/);
     await integration.disconnect('deepseek-harness');
     assert.equal(readFileSync(file, 'utf8'), byHand, 'Disconnect leaves an entry Chumi did not write');
