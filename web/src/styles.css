@@ -216,8 +216,6 @@ button.badge { cursor: pointer; }
 .md { line-height: 1.55; overflow-wrap: anywhere; }
 .md p { margin: 4px 0; } .md ul, .md ol { margin: 4px 0; padding-left: 1.5em; } .md li { margin: 2px 0; }
 .md h1, .md h2, .md h3 { font-size: var(--fs-md); margin: 12px 0 4px; }
-/* Answers are prose: lines stop at about 75 characters (35 in Chinese) however wide the column gets. Tables keep the full width. */
-.card .md > :is(p, ul, ol, blockquote, h1, h2, h3, h4) { max-width: 35em; }
 .md table { border-collapse: collapse; font-size: var(--fs-sm); margin: 6px 0; width: 100%; }
 .md th, .md td { border: 1px solid var(--border); padding: 4px 6px; text-align: left; vertical-align: top; }
 .md blockquote { margin: 4px 0; padding-left: 12px; border-left: 3px solid var(--border); color: var(--muted); }
