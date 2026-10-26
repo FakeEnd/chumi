@@ -85,7 +85,7 @@ export interface Settings {
   /** Interface language ('auto' follows the system). Explanation language is separate (profile).
    *  setupDismissed: the user hid the getting-started checklist on Home. */
   ui: { language: 'auto' | 'en' | 'zh'; setupDismissed: boolean };
-  /** The desktop pet in Chumi.app on macOS (docs/desktop-pet.md). */
+  /** The desktop pet on macOS and Windows (docs/desktop-pet.md). */
   pet: {
     enabled: boolean;
     /** Scale of the whole pet (the character, its toolbar and its cards), 0.5–2. */

@@ -11,8 +11,8 @@ function macos(root: string, version: string, hash: string): string {
   mkdirSync(dir, { recursive: true });
   return dir;
 }
-function binary(dir: string, mode = 0o755): string {
-  const p = join(dir, 'claude');
+function binary(dir: string, mode = 0o755, name = 'claude'): string {
+  const p = join(dir, name);
   writeFileSync(p, '#!/bin/sh\n');
   chmodSync(p, mode);
   return p;
@@ -27,9 +27,11 @@ test('versions compare numerically', () => {
 test('the Claude app fallback picks the newest runnable Claude Code', (t) => {
   const root = mkdtempSync(join(tmpdir(), 'chumi-claude-code-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  symlinkSync(join(root, '2.1.284', 'gone', 'claude'), join(macos(root, '2.1.310', 'a1'), 'claude')); // dangling link
+  if (process.platform !== 'win32') {
+    symlinkSync(join(root, '2.1.284', 'gone', 'claude'), join(macos(root, '2.1.310', 'a1'), 'claude')); // dangling link
+    binary(macos(root, '2.1.308', 'c3'), 0o644); // not executable
+  }
   macos(root, '2.1.309', 'b2'); // binary missing
-  binary(macos(root, '2.1.308', 'c3'), 0o644); // not executable
   const want = binary(macos(root, '2.1.304', '6bbba6adc37f'));
   binary(macos(root, '2.1.95', 'd4')); // older, though it sorts after 2.1.304 as text
   binary(macos(root, 'latest', 'e5')); // not a version folder
@@ -49,7 +51,7 @@ test('a claude on PATH wins over the Claude app copy', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'chumi-path-'));
   const path = process.env.PATH;
   t.after(() => { process.env.PATH = path; rmSync(dir, { recursive: true, force: true }); });
-  const own = binary(dir);
+  const own = binary(dir, 0o755, process.platform === 'win32' ? 'claude.exe' : 'claude');
   process.env.PATH = [dir, path].join(delimiter);
   assert.equal(findClaude(), own);
 });

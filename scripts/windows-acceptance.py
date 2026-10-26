@@ -56,7 +56,7 @@ def wait_for(fn, seconds=150):
 
 with sync_playwright() as playwright:
     browser = playwright.chromium.connect_over_cdp(f'http://127.0.0.1:{args.debug_port}')
-    page = next(p for c in browser.contexts for p in c.pages if p.url.startswith(base))
+    page = next(p for c in browser.contexts for p in c.pages if p.url == base + '/')
     page.reload()
     page.locator('.start-card').nth(2).wait_for()
     assert api('/api/state')['live']['status'] == 'idle', 'End the current recording before running acceptance.'

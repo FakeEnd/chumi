@@ -367,8 +367,19 @@ export class Companion {
     this.listEl.replaceChildren(...nodes);
     this.listEl.hidden = !nodes.length;
     // Stop before the bottom of the screen: drop the oldest cards that don't fit (always keep one).
-    const budget = this.room - this.listEl.getBoundingClientRect().top - 16;
+    const top = this.el.getBoundingClientRect().top;
+    const budget = this.room - top - this.listEl.offsetTop - 16;
     while (this.listEl.querySelectorAll('.card:not(.empty)').length > 1 && this.listEl.getBoundingClientRect().height > budget) this.listEl.lastElementChild!.remove();
+    // A single expanded answer must fit too, including its title and Open in Chumi link.
+    const body = this.listEl.querySelector<HTMLElement>('.card .md');
+    if (body) {
+      const overflow = Math.max(0, this.listEl.getBoundingClientRect().height - budget);
+      body.style.maxHeight = `${Math.max(48, Math.min(300, body.getBoundingClientRect().height - overflow))}px`;
+    }
+    // On a very short display, keep the toolbar, ask box and card footer reachable by scrolling.
+    const available = Math.max(60, this.room - top - 14);
+    this.el.style.maxHeight = `${available}px`;
+    this.el.style.overflowY = this.el.scrollHeight > available + 1 ? 'auto' : '';
     for (const c of this.listEl.querySelectorAll<HTMLElement>('.card')) { const md = c.querySelector('.md'); if (md) md.scrollTop = inner.get(c.dataset.id!) ?? 0; }
   }
 

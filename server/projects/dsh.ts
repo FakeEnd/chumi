@@ -5,7 +5,7 @@
  * dsh composes its configuration from YAML patch layers. $DSH_HOME/cordis.patch.yml applies to every profile, the desktop
  * app's included, so Chumi's server goes there, as a block between two marker comments that Chumi alone writes and removes.
  */
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile, execSync } from 'node:child_process';
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -139,9 +139,21 @@ let windowsInstall: { dir: string | null; at: number } | undefined;
  */
 function windowsInstallDir(): string | null {
   if (windowsInstall && (windowsInstall.dir || Date.now() - windowsInstall.at < 60_000)) return windowsInstall.dir;
-  let dir: string | null;
-  const script = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like 'DeepSeek Harness*' -and $_.InstallLocation } | Select-Object -First 1 -ExpandProperty InstallLocation";
-  try { dir = execFileSync('powershell.exe', ['-NoProfile', '-Command', script], { encoding: 'utf8', timeout: 10_000, windowsHide: true }).trim() || null; } catch { dir = null; }
+  let dir: string | null = null;
+  for (const hive of ['HKCU', 'HKLM']) {
+    let entries: string;
+    try {
+      // reg.exe otherwise pipes text in the Windows legacy code page, corrupting non-ASCII install folders.
+      const query = `chcp 65001 >nul & reg.exe query "${hive}\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall" /s`;
+      entries = execSync(query, { encoding: 'utf8', timeout: 10_000, windowsHide: true });
+    } catch { continue; }
+    for (const entry of entries.split(/\r?\n(?=HKEY_)/)) {
+      if (!/^\s*DisplayName\s+REG_SZ\s+DeepSeek Harness/im.test(entry)) continue;
+      dir = entry.match(/^\s*InstallLocation\s+REG_SZ\s+(.+)$/m)?.[1].trim() || null;
+      if (dir) break;
+    }
+    if (dir) break;
+  }
   if (!dir) {
     const usual = join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'Programs', 'DeepSeek Harness');
     dir = existsSync(usual) ? usual : null;

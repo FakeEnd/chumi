@@ -29,7 +29,7 @@ async function componentHarness(file: string, name: string, props: Record<string
     const index = cursor++, previous = cells[index];
     if (!previous || deps.some((value, i) => !Object.is(value, previous[i]))) { cells[index] = deps; effects.push(fn); }
   };
-  const source = readFileSync(new URL(`../web/src/components/${file}`, import.meta.url), 'utf8').replace(/^import .*;\n/gm, '').replace(/^export /gm, '');
+  const source = readFileSync(new URL(`../web/src/components/${file}`, import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
   const transformed = await transformWithOxc(source, file, { jsx: { runtime: 'classic', pragma: '_testJsx', pragmaFrag: 'Fragment' } });
   const deps = { useState, useRef, useEffect, _testJsx: h, Fragment: 'fragment', t: (s: string) => s, msg: (s: string) => s, fmtDate: String, ACTION_STATUSES, isActionResultUrl, ...adapters };
   const renderComponent = new Function(...Object.keys(deps), `${transformed.code}\nreturn ${name};`)(...Object.values(deps));
@@ -141,7 +141,7 @@ test('clipboard failure offers the exact prompt and never reports successful cop
 });
 
 test('handoff destination defaults to Codex app, remembers valid choices, and handles unavailable storage', () => {
-  const source = stripTypeScriptTypes(readFileSync(new URL('../web/src/handoffDestination.ts', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '').replace(/^export /gm, ''));
+  const source = stripTypeScriptTypes(readFileSync(new URL('../web/src/handoffDestination.ts', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, ''));
   let stored: string | null = null;
   const create = (storage: any) => new Function('localStorage', 'isAgent', `${source}\nreturn { loadHandoffDestination, saveHandoffDestination };`)(storage, (v: string) => Object.keys(AGENT_NAMES).includes(v));
   const pref = create({ getItem: () => stored, setItem: (_key: string, value: string) => { stored = value; } });

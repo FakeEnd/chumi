@@ -36,7 +36,7 @@ interface Actions {
 // Execute the shipped action functions with deterministic HTTP/SSE/store adapters, without a browser,
 // live server or AI provider. Each test gets fresh module-level request and navigation state.
 const source = stripTypeScriptTypes(readFileSync(new URL('../web/src/actions.ts', import.meta.url), 'utf8')
-  .replace(/^import .*;\n/gm, '').replace(/^export /gm, ''));
+  .replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, ''));
 function harness(initial: Partial<AppState> = {}) {
   let state = {
     loaded: true, connected: true, viewId: 'a', data: session(), deltas: {}, focus: null, attached: null,

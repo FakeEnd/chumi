@@ -29,7 +29,7 @@ function Chips<T extends Topic>({ all, on, label, onChange }: { all: readonly T[
 /** Settings → Desktop pet: the small Chumi that floats on the desktop in Chumi.app (docs/desktop-pet.md). */
 export function PetSettings() {
   const pet = useStore((s) => s.settings!.pet);
-  const app = useStore((s) => s.appMode && s.platform === 'darwin');
+  const app = useStore((s) => s.appMode && (s.platform === 'darwin' || s.platform === 'win32'));
   const [moved, setMoved] = useState(false);
   const [pct, setPct] = useState(Math.round(pet.size * 100));
   const S = (patch: Partial<Settings['pet']>) => void saveSettings({ pet: patch });
@@ -44,7 +44,7 @@ export function PetSettings() {
   return (
     <section>
       <p className="small">{t('A small Chumi in the corner of your screen, above other windows. From its toolbar you start, pause or end a meeting, catch up and ask, and its cards show the latest answers, so you can follow along without leaving your call.')}</p>
-      {!app && <p className="small warn-text">{t('The desktop pet is part of Chumi.app on macOS. These settings apply there.')}</p>}
+      {!app && <p className="small warn-text">{t('The desktop pet is part of the Chumi desktop app on macOS and Windows. These settings apply there.')}</p>}
       <label className="field check"><input type="checkbox" checked={pet.enabled} onChange={(e) => S({ enabled: e.target.checked })} /> {t('Show the desktop pet')}</label>
 
       <fieldset className="field" disabled={!pet.enabled}>

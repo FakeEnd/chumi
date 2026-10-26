@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, shell, globalShortcut, Notification, powerSaveBlocker, desktopCapturer, nativeImage, safeStorage } = require('electron');
+const { app, BrowserWindow, Menu, dialog, shell, globalShortcut, Notification, powerSaveBlocker, desktopCapturer, nativeImage, safeStorage, ipcMain } = require('electron');
 const { createHash } = require('node:crypto');
 const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
@@ -6,6 +6,7 @@ const path = require('node:path');
 const net = require('node:net');
 const { once } = require('node:events');
 const { isDesktopRequestUrl, isExternalNavigationUrl } = require('./external-links.cjs');
+const { PetPanel } = require('./pet-panel.cjs');
 
 const root = path.resolve(__dirname, '../../..');
 const dataDir = process.env.CHUMI_DATA_DIR || path.join(process.env.LOCALAPPDATA || path.join(app.getPath('home'), 'AppData', 'Local'), 'Chumi');
@@ -14,7 +15,7 @@ fs.mkdirSync(logDir, { recursive: true });
 app.setPath('userData', path.join(dataDir, 'desktop'));
 app.setAppUserModelId('org.chumi.desktop');
 
-let window, server, baseUrl, log, quitting = false, recording = false, sleepBlocker;
+let window, petPanel, server, baseUrl, log, quitting = false, recording = false, sleepBlocker;
 let windowReady = false;
 const geometryFile = path.join(dataDir, 'window.json');
 const iconMode = process.argv.includes('--make-icon');
@@ -70,6 +71,7 @@ async function startServer() {
   server.on('message', (message) => void onServerMessage(message));
   server.on('exit', (code) => {
     if (quitting || !windowReady) return;
+    petPanel?.suspend();
     setRecording(false);
     windowReady = false;
     void showStartup(`Chumi 的后台服务已停止（${code}）。会议记录已保存，请重新打开应用。`);
@@ -129,7 +131,7 @@ async function onServerMessage(message) {
       }
       case 'screen-list': {
         const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 0, height: 0 } });
-        value = sources.filter((s) => s.name !== 'Chumi').map((s) => ({ id: Number(s.id.split(':')[1]), title: s.name, app: '', bundleId: '', pid: 0, width: 0, height: 0, onScreen: true }));
+        value = sources.filter((s) => s.name !== 'Chumi' && s.name !== 'Chumi pet').map((s) => ({ id: Number(s.id.split(':')[1]), title: s.name, app: '', bundleId: '', pid: 0, width: 0, height: 0, onScreen: true }));
         break;
       }
       case 'screen-capture': {
@@ -209,12 +211,14 @@ function makeWindow() {
     { label: 'Chumi', submenu: [{ label: '查看日志', click: () => void shell.openPath(logDir) }, { type: 'separator' }, { role: 'quit', label: '退出' }] },
     { role: 'editMenu', label: '编辑' },
     { label: '视图', submenu: [{ role: 'reload' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }, ...(!app.isPackaged ? [{ role: 'toggleDevTools' }] : [])] },
+    { label: '窗口', submenu: [{ id: 'desktop-pet', label: '桌宠', type: 'checkbox', checked: true, click: () => petPanel?.toggle() }] },
   ]));
 }
 
 app.on('before-quit', (e) => {
   if (quitting) return;
   quitting = true;
+  petPanel?.destroy();
   if (!server?.pid) return; // A second launch can quit synchronously, before Electron is ready.
   e.preventDefault();
   globalShortcut.unregisterAll(); setRecording(false);
@@ -252,7 +256,25 @@ else {
   app.whenReady().then(async () => {
     makeWindow();
     await showStartup('正在准备会议空间…');
-    try { await startServer(); if (!quitting) { await window.loadURL(baseUrl); windowReady = true; } }
+    try {
+      await startServer();
+      if (!quitting) {
+        await window.loadURL(baseUrl); windowReady = true;
+        petPanel = new PetPanel({ baseUrl, dataDir,
+          onOpen: (where) => {
+            if (window.isMinimized()) window.restore();
+            window.show(); window.focus();
+            if (where.session) void window.webContents.executeJavaScript(`window.chumiOpen?.(${JSON.stringify(where)})`);
+          },
+          onEnabled: (on) => { Menu.getApplicationMenu().getMenuItemById('desktop-pet').checked = on; },
+        });
+        ipcMain.on('chumi-shell', (event, message) => {
+          if (event.sender === window.webContents && event.senderFrame === event.sender.mainFrame && isAppUrl(event.senderFrame.url)
+              && message?.type === 'pet-reset') petPanel.resetPosition();
+        });
+        await petPanel.load();
+      }
+    }
     catch (e) { await showStartup(e.message); }
   });
 }

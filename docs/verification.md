@@ -1,5 +1,38 @@
 # Verification log
 
+## DeepSeek Harness on Windows — 2026-10-26
+
+Integrated the Mac implementation from PR #30 into the Windows desktop branch. DSH 0.2.1-rc.3 is installed in a custom folder, outside `PATH`.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 333 tests: 326 pass, 7 existing platform skips, 0 failures. |
+| Discovery and Unicode | Finds the installed `dsh.cmd` through its uninstall entry and runs `--version`. Registry queries use a child UTF-8 code page: a read-only comparison with Windows' Unicode registry API confirmed that default `reg.exe` output on this machine is GBK and would corrupt a Chinese folder name. |
+| Real CLI, stand-in | Connect, MCP read and Disconnect all pass in a temporary home; the model receives all seven Chumi tools and the read is logged as `dsh-mcp-client`. |
+| Real credentials | The supplied-key `--real` trial passes. Separately, Chumi's actual Connect and read-check routes pass with `DEEPSEEK_API_KEY` absent, using the key already saved by the desktop app. Original patch and backup bytes are restored after the trial. |
+| Continue and clipboard | The actual Continue route copies the complete 538-character instruction, including the Chinese project path, and brings the already-running Harness window forward. Snapshot and clipboard agree. All five original clipboard formats are restored afterwards. |
+| Full agent handoff | A real read-only headless run, using the saved desktop key and DeepSeek Flash with high effort, reads the handoff, original passages and project README, then proposes a Chinese plan. MCP logs contain `get_handoff` and `get_passages` for the same meeting/revision. Completed work is not proposed again; project file hashes stay unchanged. |
+| Actual Electron UI | In an isolated production-page run, DeepSeek Harness appears in the selector, instructions and feedback are Chinese, and changing the destination updates the pet immediately. Continue saves a new immutable snapshot. This UI run uses `CHUMI_NO_LAUNCH=1`; the actual clipboard and app-opening checks are separate above. No renderer errors. |
+| Installed registration | The final installed build registers its bundled Node and installed MCP server paths. With only System32 on `PATH` and no environment key, a real saved-key read succeeds in the installed Chumi store: registered, current and verified. |
+
+The full receiving-agent run uses the real CLI and MCP path. Starting a new chat and pasting in the Harness GUI remains a separate manual check; the existing desktop conversations were not changed.
+
+## Windows mainline catch-up and desktop pet — 2026-10-26
+
+Started from main `6578a45` on Windows 11, with Node 24.21.0 and Electron 44.7.0. All trial data is isolated from the user's meetings; AI responses use the offline provider.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 325 tests: 318 pass, 7 existing platform skips, 0 failures. Fixed CRLF import stripping and POSIX-only test fixtures that caused 24 mainline failures on Windows. Six new tests run the actual pet host with Electron substitutes for IPC, placement, zoom, click-through, focus, menus, capture protection and renderer recovery. |
+| Native Electron pet | Real Win32 input verifies transparent-area click-through, taps preserving foreground focus, dragging and saved position. 150% pet zoom leaves the main window at its original scale. Settings hide, restore and reset the panel. Windows reports capture affinity 17 when excluded and 0 when sharing is enabled. |
+| Meeting controls | Real Whisper file transcription plus offline AI: catch-up, typed Ask, pause, resume and two-click End. Hiding while Ask is open closes the input, so restoring never leaves an unfocusable text box. No renderer errors. |
+| Large cards | Production-page trials at 100% and 200%, with recent answers and a short display plus Ask. Expanded text scrolls within the available space; its final paragraph and Open in Chumi remain reachable. |
+| Recording and project work | A 45-second synthetic clip produces 5 real Whisper passages and a completed offline summary. Saved PCM matches the source sample for sample; byte ranges return 206/416 correctly and WAV export matches playback. Chinese/space paths preserve two immutable Codex app snapshots. Action progress, result links, agenda persistence and stale-version 409 responses pass. |
+| Build | Production web build and Windows x64 NSIS packaging pass, including the bundled Node/SDK dependency check. |
+| Installed application | Updated the per-user installation outside the repository. With only System32 on `PATH`, repeated the real window, focus, drag, zoom, capture-visibility, Ask and meeting-control checks. The pet's Quick start captured synthetic playback through real WASAPI and bundled Whisper, producing the expected English passage. The isolated app exited normally with no renderer errors. |
+
+Codex app preparation uses `CHUMI_NO_LAUNCH=1`; the installed Windows `codex://` registration is present, but a real composer and model send were not exercised. Other Windows hardware, full-screen call applications and third-party screen-sharing tools remain separate checks.
+
 ## DeepSeek Harness as a coding agent — 2026-10-26
 
 DeepSeek Harness (dsh) 0.2.1-rc.3, the desktop app on the development Mac, using the `dsh` inside it. Details are in [agents.md](agents.md).
