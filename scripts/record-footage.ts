@@ -63,7 +63,7 @@ async function until<T>(fn: () => Promise<T | null | undefined | false>, ms: num
 
 // ------------------------------------------------------------------ CDP pages
 type Ev = { t: number; type: 'move' | 'down' | 'up' | 'mark'; x?: number; y?: number; name?: string };
-type Clip = { name: string; dir: string; frames: Array<{ t: number; f: string }>; start: number; stop?: () => Promise<void> };
+type Clip = { name: string; dir: string; frames: Array<{ t: number; f: string }>; start: number; stop?: () => Promise<void>; track: number[][] };
 
 class Page {
   private ws!: WebSocket;
@@ -190,12 +190,33 @@ class Page {
 
   // ---------------------------------------------------------------- recording
   private clip: Clip | null = null;
+  /**
+   * While a clip records, sample `expr` ten times a second: a number, or [top, bottom], in captured px (null when
+   * absent). It tells the video where the streaming answer is, so its camera can follow the newest line and see
+   * when the text stops growing.
+   */
+  private sample(clip: Clip, expr: string | undefined): () => Promise<void> {
+    if (!expr) return async () => {};
+    let on = true;
+    const loop = (async () => {
+      while (on) {
+        const v = await this.eval(expr).catch(() => null);
+        const px = (x: number) => Math.round(x * (this.scale === PET_ZOOM ? 1 : this.scale));
+        if (typeof v === 'number') clip.track.push([Date.now(), px(v)]);
+        else if (Array.isArray(v) && v.length === 2) clip.track.push([Date.now(), px(v[0]), px(v[1])]);
+        await sleep(100);
+      }
+    })();
+    return async () => { on = false; await loop; };
+  }
+
   /** Screenshot loop at the page's device scale (Chumi's window). */
-  async recordShots(name: string): Promise<void> {
+  async recordShots(name: string, track?: string): Promise<void> {
     await this.focus();
     const dir = join(OUT, name); rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
-    const clip: Clip = this.clip = { name, dir, frames: [], start: Date.now() };
+    const clip: Clip = this.clip = { name, dir, frames: [], start: Date.now(), track: [] };
     this.events = [];
+    const stopSampling = this.sample(clip, track);
     let on = true;
     const loop = (async () => {
       while (on) {
@@ -208,14 +229,15 @@ class Page {
         clip.frames.push({ t: Date.now(), f });
       }
     })();
-    clip.stop = async () => { on = false; await loop; };
+    clip.stop = async () => { on = false; await loop; await stopSampling(); };
   }
   /** Screencast with a transparent background (the pet), kept at about 30 frames a second. */
-  async recordCast(name: string): Promise<void> {
+  async recordCast(name: string, track?: string): Promise<void> {
     await this.focus();
     const dir = join(OUT, name); rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
-    const clip: Clip = this.clip = { name, dir, frames: [], start: Date.now() };
+    const clip: Clip = this.clip = { name, dir, frames: [], start: Date.now(), track: [] };
     this.events = [];
+    const stopSampling = this.sample(clip, track);
     let last = 0;
     this.onFrame = (data, _s, meta?: { deviceWidth: number; deviceHeight: number }) => {
       const now = Date.now();
@@ -227,7 +249,7 @@ class Page {
       clip.frames.push({ t: now, f });
     };
     await this.send('Page.startScreencast', { format: 'png', everyNthFrame: 1, maxWidth: PET_W * PET_ZOOM, maxHeight: PET_H * PET_ZOOM });
-    clip.stop = async () => { await this.send('Page.stopScreencast'); this.onFrame = null; };
+    clip.stop = async () => { await this.send('Page.stopScreencast'); this.onFrame = null; await stopSampling(); };
   }
   async stop(extra: Record<string, unknown> = {}): Promise<void> {
     const c = this.clip!;
@@ -237,7 +259,7 @@ class Page {
     const clip = JSON.stringify({
       name: c.name, lang: LANG, scale: this.scale, duration: rel(Date.now()),
       frames: c.frames.map((x) => [rel(x.t), x.f]),
-      events: this.events.map((e) => ({ ...e, t: rel(e.t) })), ...extra,
+      events: this.events.map((e) => ({ ...e, t: rel(e.t) })), track: c.track.map(([t, ...v]) => [rel(t), ...v]), ...extra,
     });
     writeFileSync(join(c.dir, 'clip.json'), clip);
     // The same as a script, so a page opened from disk (the promo videos) can load it with a <script> tag.
@@ -321,7 +343,7 @@ async function main(): Promise<void> {
     await done((await api('/api/ai/explain', { sessionId: sid, term: 'DPO', selection: dpo ? { fromT: dpo.t_start, toT: dpo.t_end, text: dpo.text } : null, depth: 'standard' })).id);
     log('waiting for the judge-bias debate to be transcribed');
     await until(async () => (await lastT()) > debateEnd.endMs - 9000, 400000, 'transcript near the end of the debate');
-    await main.recordShots('main-catchup');
+    await main.recordShots('main-catchup', followText(`document.querySelector('.card-catchup .md')`));
     await until(async () => (await lastT()) > debateEnd.endMs, 120000, 'transcript past the debate');
     await sleep(1500);
     let before = await known();
@@ -338,7 +360,7 @@ async function main(): Promise<void> {
     // The window's catch-up left a "ready" bubble on the pet: let it go first, so this one starts clean.
     await pet.focus();
     await until(async () => pet.eval(`getComputedStyle(document.querySelector('.chumi-bubble')).visibility === 'hidden'`), 15000, 'the pet bubble to clear').catch(() => {});
-    await pet.recordCast('pet-catchup');
+    await pet.recordCast('pet-catchup', `(() => { const c = document.querySelector('.cards'); return c && !c.hidden ? c.getBoundingClientRect().bottom : null; })()`);
     await pet.moveTo(sc(330), sc(60), 10);
     await sleep(400);
     before = await known();
@@ -367,13 +389,13 @@ async function main(): Promise<void> {
 
     // ---- Chumi's window: an explanation, pitched to the profile
     await until(async () => (await lastT()) > lineOf(/eight passages for the main results/).endMs, 300000, 'transcript past the compute plan');
-    await main.recordShots('main-explain');
+    // (The DPO explanation from earlier is also a .card-explain: look at the KV cache one.)
+    const kvCard = `[...document.querySelectorAll('.card-explain')].find((c) => /KV cache/.test(c.querySelector('.card-title')?.textContent ?? ''))`;
+    await main.recordShots('main-explain', followText(`${kvCard}?.querySelector('.md')`));
     await sleep(1500);
     const kv = (await api(`/api/sessions/${sid}`)).segments.find((s: any) => /KV/i.test(s.text));
     main.mark('ask');
     const ex = (await api('/api/ai/explain', { sessionId: sid, term: 'KV cache', selection: kv ? { fromT: kv.t_start, toT: kv.t_end, text: kv.text } : null, depth: 'standard' })).id;
-    // (The DPO explanation from earlier is also a .card-explain: look at the KV cache one.)
-    const kvCard = `[...document.querySelectorAll('.card-explain')].find((c) => /KV cache/.test(c.querySelector('.card-title')?.textContent ?? ''))`;
     await until(async () => main.eval(`(${kvCard}?.querySelector('.md')?.textContent ?? '').length > 20`), 120000, 'explanation text').then(() => main.mark('streaming'));
     await done(ex); main.mark('done');
     await sleep(2500);
@@ -405,6 +427,21 @@ async function main(): Promise<void> {
   }
 }
 
+/**
+ * [top, bottom] of an answer's text (viewport px) as it streams in. Like a reader, it scrolls the answer column when
+ * the newest line would go below the window, so the end of a long answer is written where the camera can see it.
+ */
+const followText = (md: string) => `(() => {
+  const m = ${md}; if (!m) return null;
+  let b = m.getBoundingClientRect().bottom; const limit = innerHeight - 28;
+  if (b > limit) {
+    let p = m.parentElement;
+    while (p && !(p.scrollHeight > p.clientHeight + 2 && /(auto|scroll)/.test(getComputedStyle(p).overflowY))) p = p.parentElement;
+    if (p) { p.scrollTop += b - limit; b = m.getBoundingClientRect().bottom; }
+  }
+  return [m.getBoundingClientRect().top, b];
+})()`;
+
 /** Continue a confirmed handoff: in Chumi's window with each destination, then once from the pet's toolbar. */
 async function recordAgent(main: Page, pet: Page, meetingEndMs: number): Promise<void> {
   const sc = (v: number) => v * PET_ZOOM;
@@ -433,6 +470,8 @@ async function recordAgent(main: Page, pet: Page, meetingEndMs: number): Promise
   await until(async () => main.eval(`!!document.querySelector('.dialog .handoff-destination select')`), 10000, 'handoff dialog');
   await sleep(800);
   const select = await main.box('.dialog .handoff-destination select');
+  // The first item, its origin and its evidence: the video's handoff scene highlights them in this same footage.
+  const item = await main.box('.dialog .hitem'), origin = await main.box('.dialog .hitem .tag'), evidence = await main.box('.dialog .hitem .evidence');
   const delivered = (via: string) => until(async () => (await api(`/api/sessions/${sid}/handoff`)).handoff?.delivered_via === via, 20000, `delivery to ${via}`);
   await main.recordShots('main-handoff');
   await main.moveTo(W * 0.62, H * 0.92, 10);
@@ -451,7 +490,7 @@ async function recordAgent(main: Page, pet: Page, meetingEndMs: number): Promise
     await sleep(2800);
   }
   const dialogBox = await main.box('.dialog');
-  await main.stop({ box: { select, dialog: dialogBox, cont: await main.box('.dialog .btn.primary'), hint: await main.box('.dialog .small.muted') } });
+  await main.stop({ box: { select, dialog: dialogBox, item, origin, evidence, cont: await main.box('.dialog .btn.primary'), hint: await main.box('.dialog .small.muted') } });
 
   // ---- the pet: the meeting's handoff is confirmed, so its toolbar continues it (in Codex app, chosen last)
   await pet.focus();

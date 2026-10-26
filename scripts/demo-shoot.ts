@@ -308,7 +308,11 @@ async function main(): Promise<void> {
       await sleep(500);
       if (!await page.measure('.card-answer .pc-sources')) throw new Error('the project-context answer is not in view');
       await page.shot('project-context');
-      regions.pc = { toggle: await page.measure('.chip-toggle'), card: await page.measure('.card-answer'), sources: await page.measure('.card-answer .pc-sources') };
+      regions.pc = {
+        toggle: await page.measure('.chip-toggle'), card: await page.measure('.card-answer'),
+        // The chip (its row is the card's full width) and the row under the question, where the video's answer view starts.
+        sources: await page.measure('.card-answer .pc-sources .range'), meta: await page.measure('.card-answer .card-meta'),
+      };
     }
 
     if (!ONLY_AGENT) {

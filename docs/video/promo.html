@@ -6,8 +6,9 @@
   and docs/assets/screens/zh/ (中文). The catch-up, the explanation and the desktop pet are live footage from
   scripts/record-footage.ts (dist/footage/<lang>/): the real window and pet, recorded while the answers streamed in, and
   the handoff dialog continuing in Claude Code, Codex and Codex app (recorded with nothing actually opened). The two
-  terminals are drawn here from real Claude Code and Codex runs on the sample project, condensed; the Codex app itself
-  is not shown, only Chumi's side of it.
+  terminals are drawn here from real Claude Code and Codex runs on the sample project, condensed. Codex app is the real
+  app's window (dist/footage/<lang>/codex-app/), recorded once on the sample project: the handoff in its composer, Send,
+  and Codex reading it through Chumi and proposing a plan.
 -->
 <html><head><meta charset="utf-8">
 <script>
@@ -15,7 +16,7 @@
   const SHOTS = '../assets/screens/' + (LANG === 'zh' ? 'zh/' : '');
   document.write('<script src="' + SHOTS + 'regions.js"><\/script>');
   const FOOT = '../../dist/footage/' + LANG + '/';
-  for (const c of ['main-catchup', 'main-explain', 'pet-catchup', 'main-handoff']) document.write('<script src="' + FOOT + c + '/clip.js"><\/script>');
+  for (const c of ['main-catchup', 'main-explain', 'pet-catchup', 'main-handoff', 'codex-app']) document.write('<script src="' + FOOT + c + '/clip.js"><\/script>');
 </script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -79,6 +80,9 @@
   .tl.say { color: #f1f2f8; } .tl.say b { color: #fcd34d; font-weight: 600; } .tl.dim { color: #b4bad3; }
   .term.codex { background: #0f1013; } .term.codex .term-bar { background: #1b1c21; }
   .term.codex .tl.tool b { color: #a5b4fc; } .term.codex .tl.cmd b { color: #93c5fd; }
+  /* Codex app: its recorded window takes over Chumi's after Continue, as the terminals do */
+  .capp { position: absolute; inset: 0; z-index: 4; opacity: 0; background: #fff; transform-origin: 50% 60%; }
+  .capp img { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   .caret { display: inline-block; width: 10px; height: 1.1em; vertical-align: -3px; background: #e6e8f2; margin-left: 2px; }
 
   /* the Continue in menu: the system draws it, so the video does (from the recorded choice) */
@@ -180,6 +184,7 @@
             <div class="dctl"><b></b><b></b><b></b><b class="end"></b></div></div>
           <img id="petFoot"></div></div>
         <div class="term" id="term"><div class="term-bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span id="termTitle">citation-rag — claude</span></div><div class="term-body" id="termBody"></div></div>
+        <div class="capp" id="capp"><img id="cappImg"></div>
         <div class="menu" id="menu"></div>
         <div class="hl" id="hl"></div>
         <div class="ripple" id="ripple"></div>
@@ -272,7 +277,8 @@ const TXT = {
       ['After the meeting', 'Listen again,\nfrom any line.', 'The recording stays on your Mac. Click ▶ on a line to hear that moment, or export the meeting as one audio file.'],
       ['Hand it on', 'A handoff\nyou review.', 'Agreed, only suggested, or proposed by Chumi, each cited. Only what you confirm becomes work.'],
       ['In your project', 'Your coding agent\npicks it up.', 'Continue in Claude Code or Codex in Terminal, or in Codex app. The agent reads the handoff and the original lines, then proposes a plan.',
-        'Codex app opens a new chat with the handoff already in its composer. Nothing starts until you click Send.'],
+        'Codex app opens a new chat with the handoff already in its composer. Nothing starts until you click Send.',
+        'Codex reads the handoff and the original lines through Chumi, looks at the project, and proposes a plan first.'],
       ['Next meeting', 'It knows what\nthe agents did.', 'Turn on Project context: answers cite your earlier agent sessions, found through mybot.'],
     ],
     term: [
@@ -330,7 +336,8 @@ const TXT = {
       ['会议结束后', '从任意一句\n再听一遍。', '录音只保存在你的 Mac 上。点某一行的 ▶ 就能回放那一刻，也能把整场会议导出成一个音频文件。'],
       ['交接', '一份由你审核的\n交接。', '区分“已商定”“仅建议”和“Chumi 提议”，每条都有出处。只有你确认的才会交出去。'],
       ['在你的项目里', '编程智能体\n接着干。', '选择在终端里的 Claude Code、Codex，或在 Codex app 中继续。智能体读取交接和原始转写，先给出计划。',
-        'Codex app 会新开一个对话，交接已经填进输入框。你检查后点“发送”，它才开始。'],
+        'Codex app 会新开一个对话，交接已经填进输入框。你检查后点“发送”，它才开始。',
+        'Codex 通过 Chumi 读取交接和原始转写，看过项目后，先给出计划。'],
       ['下次开会', '它知道 agent\n做过什么。', '打开“项目上下文”，回答会引用你之前的 agent 会话（通过 mybot 检索）。'],
     ],
     term: [
@@ -410,7 +417,7 @@ const B = {
   hDialog: box(G.handoff?.dialog, [200, 60, 960, 740]), hItem: box(G.handoff?.item, [230, 230, 900, 120]), hOrigin: box(G.handoff?.origin, [240, 240, 140, 24]),
   hEvidence: box(G.handoff?.evidence, [240, 320, 200, 24]), hCont: box(G.handoff?.cont, [960, 760, 190, 36]),
   hPlace: box(G.handoff?.place, [700, 770, 250, 30]),
-  pcToggle: box(G.pc?.toggle, [1150, 300, 130, 26]), pcCard: box(G.pc?.card, [904, 400, 436, 440]), pcSources: box(G.pc?.sources, [912, 430, 200, 24]),
+  pcToggle: box(G.pc?.toggle, [1150, 300, 130, 26]), pcCard: box(G.pc?.card, [904, 400, 436, 440]), pcSources: box(G.pc?.sources, [912, 430, 200, 24]), pcMeta: box(G.pc?.meta, [904, 412, 436, 12]),
 };
 const R = {
   hDialog: focus(B.hDialog, .98), hItem: focus([B.hItem[0] - 20, B.hItem[1] - 30, B.hItem[2] + 40, B.hItem[3] + 60], .95),
@@ -421,17 +428,32 @@ const R = {
 const center = (r) => [r[0] + r[2] / 2, r[1] + r[3] / 2];
 /** Chumi's answer column from page y `top` down, its left edge in the gap between the columns. `card` is the
  *  column's card in page CSS px. Fitted to the card's text (at most 35em wide), not its full width, so the view is
- *  not half empty on the right. */
-function column(card, top) {
-  const z = VW / Math.min(card[2] + 20, 640);
+ *  not half empty on the right; `full` fits the whole card, for a view whose chips and tags run the full width. */
+function column(card, top, full = false) {
+  const z = VW / Math.min(card[2] + 20, full ? Infinity : 640);
   return { z, x: clamp(-(card[0] - 10) * z, VW - IW * z, 0), y: clamp(-top * z, VH - IH * z, 0) };
 }
-/** How far the camera follows a card down as it streams in: its final height beyond what the column view shows. */
-const follow = (card, z) => Math.max(0, card[3] + 30 - VH / z);
-/** The explanation's column view, k of the way down the card (0 at its top, 1 when it has finished streaming). */
-function explainView(k) {
-  const card = (CL['main-explain']?.box.card ?? [0, 0, 1280, 1200]).map((x) => x / 2), z = column(card, 0).z;
-  return column(card, card[1] - 14 + follow(card, z) * k);
+// The streaming answer as the recorder tracked it, ten times a second: [clip time, top, bottom] in captured px (2×).
+/** [top, bottom] of a clip's streaming text at clip time ct, in page CSS px, between samples; null if not tracked. */
+function textAt(c, ct) {
+  const tr = (c?.track ?? []).filter((r) => r.length === 3);
+  if (!tr.length) return null;
+  let i = tr.findIndex((r) => r[0] >= ct);
+  if (i < 0) i = tr.length - 1;
+  const a = tr[Math.max(0, i - 1)], b = tr[i], k = b[0] > a[0] ? clamp((ct - a[0]) / (b[0] - a[0])) : 1;
+  return [lerp(a[1], b[1], k) / 2, lerp(a[2], b[2], k) / 2];
+}
+/** When the streaming text stopped changing (clip time): after `from`, no later than `done`. */
+function textEnd(c, from, done) {
+  const tr = (c?.track ?? []).filter((r) => r.length === 3 && r[0] >= from && r[0] <= done);
+  let end = from;
+  for (let i = 1; i < tr.length; i++) if (Math.abs(tr[i][2] - tr[i - 1][2]) > 3 || Math.abs(tr[i][1] - tr[i - 1][1]) > 3) end = tr[i][0];
+  return tr.length > 1 ? Math.min(done, end + 0.15) : done;
+}
+/** The answer column on the newest line: the whole text while it fits, then its end near the bottom of the frame. */
+function followCam(card, text) {
+  const z = column(card, 0).z, viewH = VH / z;
+  return column(card, text ? Math.max(text[0] - 14, text[1] + 22 - viewH) : card[1] - 14);
 }
 // All screenshots are loaded up front and crossfaded (never re-sourced) so no frame shows a half-loaded image.
 function setShots(a, b, k) {
@@ -455,6 +477,18 @@ function frameAt(c, ct) {
   while (lo < hi) { const m = (lo + hi + 1) >> 1; if (f[m][0] <= ct) lo = m; else hi = m - 1; }
   return FOOT + c.name + '/' + f[lo][1];
 }
+/** Codex app's window k seconds into its footage: that frame, cropped to the camera's view. */
+function drawCapp(k) {
+  const img = $('cappImg'), [l, top, w] = cappView(k), iw = VW / w, ih = iw / CA.aspect;
+  img.style.width = `${iw}px`; img.style.height = `${ih}px`; img.style.transform = `translate(${-l * iw}px, ${-top * ih}px)`;
+  return show(img, frameAt(CA, remap(CA_KEYS, k)));
+}
+/** The time of the frame frameAt shows at clip time ct. */
+function shownAt(c, ct) {
+  const f = c.frames; let lo = 0, hi = f.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (f[m][0] <= ct) lo = m; else hi = m - 1; }
+  return f[lo][0];
+}
 /** Scene time → clip time through [scene time, clip time] keys: real time where it matters, faster through waits. */
 function remap(keys, u) {
   if (u <= keys[0][0]) return keys[0][1];
@@ -471,12 +505,16 @@ async function show(img, src) { if (img.dataset.src === src) return; img.dataset
 
 // Catch me up: the transcript arriving, the click, the wait (shortened), the answer streaming in (sped up), a pause.
 const MC = CL['main-catchup'], cuClick = mark(MC, 'click', 4), cuStream = mark(MC, 'streaming', cuClick + 3), cuDone = mark(MC, 'done', cuStream + 8);
-const CU_LEAD = 2.4, CU_WAIT = 0.7, CU_STREAM = clamp((cuDone - cuStream) / 3, 2.6, 4), CU_HOLD = 1.2;
-const KEYS_CU = [[0, cuClick - CU_LEAD], [CU_LEAD, cuClick], [CU_LEAD + CU_WAIT, cuStream], [CU_LEAD + CU_WAIT + CU_STREAM, cuDone], [CU_LEAD + CU_WAIT + CU_STREAM + CU_HOLD, cuDone + CU_HOLD]];
+// The text can be complete well before Chumi marks the answer done: stream to where it stopped, then go on.
+const cuEnd = textEnd(MC, cuStream, cuDone);
+const CU_LEAD = 2.4, CU_WAIT = 0.7, CU_STREAM = clamp((cuEnd - cuStream) / 2.5, 2.4, 4.2), CU_DONE = 0.3, CU_HOLD = 1.5;
+const CU_END_AT = CU_LEAD + CU_WAIT + CU_STREAM;  // scene time the text stops
+const KEYS_CU = [[0, cuClick - CU_LEAD], [CU_LEAD, cuClick], [CU_LEAD + CU_WAIT, cuStream], [CU_END_AT, cuEnd], [CU_END_AT + CU_DONE, cuDone], [CU_END_AT + CU_DONE + CU_HOLD, cuDone + CU_HOLD]];
 // An explanation for the profile, streaming in.
 const ME = CL['main-explain'], exAsk = mark(ME, 'ask', 1.5), exDone = mark(ME, 'done', exAsk + 8), exStream = mark(ME, 'streaming', exAsk + (exDone - exAsk) * 0.3);
-const EX_STREAM = clamp((exDone - exStream) / 3, 2.4, 3.6);
-const KEYS_EX = [[0, exAsk - 0.6], [0.6, exAsk], [1.1, exStream], [1.1 + EX_STREAM, exDone], [1.1 + EX_STREAM + 1.1, exDone + 1.1]];
+const exEnd = textEnd(ME, exStream, exDone);
+const EX_STREAM = clamp((exEnd - exStream) / 2.5, 2.2, 3.8), EX_DONE = 0.3, EX_HOLD = 1.4, EX_END_AT = 1.1 + EX_STREAM;
+const KEYS_EX = [[0, exAsk - 0.6], [0.6, exAsk], [1.1, exStream], [EX_END_AT, exEnd], [EX_END_AT + EX_DONE, exDone], [EX_END_AT + EX_DONE + EX_HOLD, exDone + EX_HOLD]];
 // The desktop pet: the pointer goes to its toolbar, catch up, the card fills in.
 const PC = CL['pet-catchup'], petClick = mark(PC, 'click', 2), petDone = mark(PC, 'done', petClick + 8);
 const PET_LEAD = 1.3, PET_STREAM = clamp((petDone - petClick) / 3, 2.8, 4.2);
@@ -487,10 +525,23 @@ const D = 5.4;
 const OLD = [[8.0, 14.2], [14.2, 19.6], [19.6, 19.6 + D], [19.6 + D, 26.2 + D], [26.2 + D, 33.0 + D], [33.0 + D, 39.8 + D]];
 
 // Continuing the handoff (main-handoff): for each destination the pointer goes to Continue in, picks it and clicks
-// Continue. Claude Code and Codex then get their terminal; Codex app ends on Chumi's own message beside the button.
-const MH = CL['main-handoff'];
+// Continue. Claude Code and Codex then get their terminal; Codex app shows Chumi's message beside the button, then the
+// real Codex app window (codex-app): the handoff in the composer, Send, Codex at work (sped up) and its plan.
+const MH = CL['main-handoff'], CA = CL['codex-app'];
 const PLACES = ['claude-code', 'codex', 'codex-app'];
-const AG_IN = 0.4, TERM_SECS = 3.6, AG_HOLD = 2.4;
+const AG_IN = 0.4, TERM_SECS = 3.6, AG_HOLD = 2.4, CA_NOTE = 1.3;
+const CA_KEYS = CA && (() => {
+  const sent = mark(CA, 'sent', 2), work = mark(CA, 'work', sent + 3), plan = mark(CA, 'plan', work + 20), done = mark(CA, 'done', plan + 8);
+  return [[0, sent - 1.2], [1.2, sent], [1.8, work], [3.4, plan], [5.6, done], [7.4, done]];
+})();
+/** Codex app's camera k seconds into its footage, as a crop [left, top, width] of the recorded window: the composer,
+ *  then the chat once sent. When Codex opens its side panel the chat jumps left, and the camera with it on that very
+ *  frame, so the chat holds still. */
+function cappView(k) {
+  const V = CA.views, sent = CA_KEYS[1][0], ct = remap(CA_KEYS, k);
+  const v = V.composer.map((x, i) => lerp(x, V.center[i], ease(seg(k, sent + 0.1, sent + 0.5))));
+  return shownAt(CA, ct) >= mark(CA, 'panel', Infinity) ? [V.column[0], v[1], V.column[2]] : v;
+}
 const AGENT = { keys: [], beats: [], end: 0 };
 {
   let u = 0;
@@ -504,13 +555,30 @@ const AGENT = { keys: [], beats: [], end: 0 };
     key(0.8, chose); const choseAt = u;
     key(0.8, cont); const clickAt = u;
     key(0.8, cont + 1.0);
-    const hold = place === 'codex-app' ? AG_HOLD : TERM_SECS;
-    const after = [u, u + hold];
-    key(hold, cont + 1.0 + (place === 'codex-app' ? AG_HOLD : 0));
-    AGENT.beats.push({ place, start, menuAt, choseAt, clickAt, after });
+    let after, app = null;
+    if (place !== 'codex-app') { after = [u, u + TERM_SECS]; key(TERM_SECS, cont + 1.0); }
+    else if (!CA_KEYS) { after = [u, u + AG_HOLD]; key(AG_HOLD, cont + 1.0 + AG_HOLD); }
+    else {  // Chumi's message, then Codex app's window over Chumi's (which holds still under it)
+      after = [u, u + CA_NOTE + CA_KEYS.at(-1)[0]];
+      key(CA_NOTE, cont + 1.0 + CA_NOTE); app = [u, u + CA_KEYS.at(-1)[0]]; key(CA_KEYS.at(-1)[0], cont + 1.0 + CA_NOTE);
+    }
+    AGENT.beats.push({ place, start, menuAt, choseAt, clickAt, after, app });
   }
   AGENT.end = u + 0.3;
 }
+// The handoff scene: the agent footage's own dialog (so the next scene continues the very same handoff), or the
+// handoff screenshot with its boxes when that footage predates the item measurements.
+const HANDOFF = (() => {
+  const hb = (k) => MH?.box?.[k]?.map((x) => x / 2);
+  if (!hb('item') || !hb('select')) return { shot: 'handoff', frame: null, vDialog: R.hDialog, vItem: R.hItem, vFooter: R.hCont, origin: B.hOrigin, evidence: B.hEvidence, place: B.hPlace };
+  const dlg = hb('dialog'), item = hb('item'), sel = hb('select');
+  return {
+    shot: 'foot', frame: frameAt(MH, mark(MH, 'menu:claude-code', 4.6) - 0.8),
+    vDialog: focus(dlg, .98), vItem: focus([item[0] - 20, item[1] - 30, item[2] + 40, item[3] + 60], .95),
+    vFooter: focus([dlg[0], sel[1] - 150, dlg[2], 220], 1),
+    origin: hb('origin') ?? B.hOrigin, evidence: hb('evidence') ?? B.hEvidence, place: [sel[0] - 110, sel[1], sel[2] + 110, sel[3]],
+  };
+})();
 const DUR = [KEYS_CU.at(-1)[0] + 0.4, KEYS_EX.at(-1)[0] + 0.3, KEYS_PET.at(-1)[0] + 0.4, ...OLD.slice(2).map(([a, b]) => b - a)];
 DUR[5] = AGENT.end;
 const APP = []; { let at = 8.0; for (const d of DUR) { APP.push([at, at + d]); at += d; } }
@@ -522,12 +590,15 @@ const oldT = (i, t) => t - APP[i][0] + OLD[i - 1][0];
 const U0 = D + SHIFT - 0.4, atU = (u) => u + U0;
 const T = { introEnd: 3.2, probEnd: 8.0, appEnd: APP_END, end: atU(53.6) };
 window.DURATION = T.end;
-window.CLICKS = [APP[0][0] + CU_LEAD, APP[2][0] + PET_LEAD, APP[3][0] + 21.9 - 19.6, ...AGENT.beats.map((b) => APP[5][0] + b.clickAt)];
+window.CLICKS = [APP[0][0] + CU_LEAD, APP[2][0] + PET_LEAD, APP[3][0] + 21.9 - 19.6, ...AGENT.beats.map((b) => APP[5][0] + b.clickAt),
+  ...AGENT.beats.filter((b) => b.app).map((b) => APP[5][0] + b.app[0] + CA_KEYS[1][0])];
 // The music (scripts/soundtrack.ts): bass and snaps with the problem, the full groove with the app, the whistled
 // hook over the loop and the closing cards, the last strum as the outro's logo lands.
 window.MUSIC = { build: 3.2, groove: T.probEnd, hook: [[atU(39.8), atU(50.2)]], end: atU(50.2) };
-window.POSTER_T = +(APP[0][0] + CU_LEAD + CU_WAIT + CU_STREAM + 0.6).toFixed(2);
-window.PREVIEW_T = [1.6, 6.4, ...APP.map(([a, b]) => [a + (b - a) * 0.3, a + (b - a) * 0.75]).flat(), APP_END + 2, APP_END + 7, APP_END + 11].map((x) => +x.toFixed(1));
+window.POSTER_T = +(APP[0][0] + CU_END_AT - 0.3).toFixed(2);
+// Codex app's footage: the composer, Send, at work, the plan streaming and the plan.
+const CA_PREVIEW = AGENT.beats.filter((b) => b.app).flatMap((b) => [0.6, 1.25, 2.6, 4.5, 6.9].map((k) => APP[5][0] + b.app[0] + k));
+window.PREVIEW_T = [1.6, 6.4, ...APP.map(([a, b]) => [a + (b - a) * 0.3, a + (b - a) * 0.75]).flat(), ...CA_PREVIEW, APP_END + 2, APP_END + 7, APP_END + 11].map((x) => +x.toFixed(1));
 
 // First frames up front, so the page is complete before the first render.
 if (MC) $('foot').src = frameAt(MC, 0);
@@ -606,12 +677,11 @@ window.render = function (t) {
     setShots('foot', 'foot', 0);
     const ct = remap(KEYS_CU, u0);
     waits.push(show($('foot'), frameAt(MC, ct)));
-    // The whole window while the transcript arrives and the cursor clicks; then the answer column, following the
-    // answer down as it streams in.
+    // The whole window while the transcript arrives and the cursor clicks; then the answer column on its newest
+    // line as it streams in; once written, back to the whole window with the finished answer in its place.
     const btn = MC.box.catchBtn.map((x) => x / 2), card = MC.box.card.map((x) => x / 2);
-    const col = column(card, card[1] - 14), drop = follow(card, col.z);
-    const k = ease(seg(u0, CU_LEAD + CU_WAIT + 0.6, CU_LEAD + CU_WAIT + CU_STREAM + 0.6));
-    v = mix(FULL, column(card, card[1] - 14 + drop * k), ease(seg(u0, CU_LEAD + 0.3, CU_LEAD + 1.3)));
+    v = mix(FULL, followCam(card, textAt(MC, ct)), ease(seg(u0, CU_LEAD + 0.3, CU_LEAD + 1.1)));
+    v = mix(v, FULL, ease(seg(u0, CU_END_AT + CU_DONE, CU_END_AT + CU_DONE + 0.9)));
     const p = ease(seg(u0, CU_LEAD - 1.25, CU_LEAD - 0.2));
     const [bx, by] = toVp(v, ...center(btn));
     cur = [lerp(VW * .55, bx, p), lerp(VH * .9, by, p), fade(u0, CU_LEAD - 1.35, CU_LEAD - 1.05, CU_LEAD + 0.5, CU_LEAD + 0.9)];
@@ -620,14 +690,15 @@ window.render = function (t) {
     const ct = remap(KEYS_EX, u0);
     waits.push(show($('foot2'), frameAt(ME, ct)));
     setShots('foot', 'foot2', ease(seg(u0, 0, 0.2)));  // quick: the two recordings differ, and a slow blend ghosts
-    // From where the catch-up ended to the new card at the top of the column, following it down.
-    const cu = MC.box.card.map((x) => x / 2), from = column(cu, cu[1] - 14 + follow(cu, column(cu, 0).z));
-    v = mix(from, explainView(ease(seg(u0, 1.4, 1.1 + EX_STREAM + 0.5))), ease(seg(u0, 0, 0.9)));
+    // From the whole window to the new card, on its newest line as it streams in; then the whole window again.
+    const card = ME.box.card.map((x) => x / 2);
+    v = mix(FULL, followCam(card, textAt(ME, ct)), ease(seg(u0, 0.5, 1.3)));
+    v = mix(v, FULL, ease(seg(u0, EX_END_AT + EX_DONE, EX_END_AT + EX_DONE + 0.9)));
   } else if (idx === 2) {     // the desktop pet over the call: catch up from its toolbar, the card fills in
     // The desk opens as a circle from the pet and closes back into it. Under it: the explanation's last view as it
     // opens, the next scene's screenshot as it closes.
     setShots(u0 < DUR[2] / 2 ? 'foot2' : 'playback', u0 < DUR[2] / 2 ? 'foot2' : 'playback', 0);
-    if (u0 < DUR[2] / 2) { v = explainView(1); waits.push(show($('foot2'), frameAt(ME, KEYS_EX.at(-1)[1]))); }
+    if (u0 < DUR[2] / 2) waits.push(show($('foot2'), frameAt(ME, KEYS_EX.at(-1)[1])));
     const ct = remap(KEYS_PET, u0);
     waits.push(show($('petFoot'), frameAt(PC, ct)));
     // The desk's camera comes in on the pet as the answer arrives.
@@ -659,27 +730,38 @@ window.render = function (t) {
     if (t > 23.5) hl = hlBox(v, B.pbPlayer, fade(t, 23.6, 23.9, 24.5, 24.9));
   } else if (idx === 4) {     // the reviewed handoff: an item with its origin and evidence, then where to continue
     const t = oldT(4, arguments[0]), u = t - D;
-    setShots('playback', 'handoff', ease(seg(u, 19.6, 20.1)));
-    const v1 = mix(FULL, R.hDialog, ease(seg(u, 19.6, 20.2)));
-    const v2 = mix(v1, R.hItem, ease(seg(u, 20.4, 21.6)));
-    v = mix(v2, R.hCont, ease(seg(u, 23.6, 24.4)));
-    if (u > 21.6 && u < 22.7) hl = hlBox(v, B.hOrigin, fade(u, 21.7, 22.0, 22.4, 22.7));
-    if (u > 22.7 && u < 23.7) hl = hlBox(v, B.hEvidence, fade(u, 22.75, 23.05, 23.4, 23.7));
-    if (u > 24.4) hl = hlBox(v, B.hPlace, fade(u, 24.5, 24.8, 25.7, 26.1));
+    // The same recorded dialog the next scene continues from, still, before its pointer moves.
+    const H = HANDOFF;
+    setShots('playback', H.shot, ease(seg(u, 19.6, 20.1)));
+    if (H.frame) waits.push(show($('foot'), H.frame));
+    const v1 = mix(FULL, H.vDialog, ease(seg(u, 19.6, 20.2)));
+    const v2 = mix(v1, H.vItem, ease(seg(u, 20.4, 21.6)));
+    v = mix(v2, H.vFooter, ease(seg(u, 23.6, 24.4)));
+    if (u > 21.6 && u < 22.7) hl = hlBox(v, H.origin, fade(u, 21.7, 22.0, 22.4, 22.7));
+    if (u > 22.7 && u < 23.7) hl = hlBox(v, H.evidence, fade(u, 22.75, 23.05, 23.4, 23.7));
+    if (u > 24.4) hl = hlBox(v, H.place, fade(u, 24.5, 24.8, 25.7, 26.1));
   } else if (idx === 5) {     // the agent picks it up: Continue in Claude Code, then Codex (in Terminal), then Codex app
     const ct = remap(AGENT.keys, u0);
     waits.push(show($('foot'), frameAt(MH, ct)));
-    setShots('handoff', 'foot', ease(seg(u0, 0, 0.3)));
+    setShots(HANDOFF.shot, 'foot', HANDOFF.frame ? 1 : ease(seg(u0, 0, 0.3)));
     // The dialog's footer across its whole width (a narrower crop would cut its text): Continue in, Continue, and what
     // Chumi says beside them.
     const sel = MH.box.select.map((x) => x / 2), dlg = MH.box.dialog.map((x) => x / 2);
     const beat = [...AGENT.beats].reverse().find((b) => u0 >= b.start) ?? AGENT.beats[0];
-    v = mix(R.hCont, focus([dlg[0], sel[1] - 150, dlg[2], 220], 1), ease(seg(u0, 0, 0.35)));
+    v = mix(HANDOFF.vFooter, focus([dlg[0], sel[1] - 150, dlg[2], 220], 1), ease(seg(u0, 0, 0.35)));
     const inTerm = beat.place !== 'codex-app' && u0 >= beat.after[0] - 0.05;
+    // Codex app's own window (its recorded pointer and clicks are in the footage).
+    // It stays up to the end of the scene; the next meeting crossfades in from it.
+    const app = beat.app ? seg(u0, beat.app[0], beat.app[0] + 0.35) : 0;
+    $('capp').style.opacity = app;
+    if (app > 0) {
+      $('capp').style.transform = `scale(${lerp(0.97, 1, ease(seg(u0, beat.app[0], beat.app[0] + 0.45)))})`;
+      waits.push(drawCapp(u0 - beat.app[0]));
+    }
     const ptr = pointerAt(MH, ct);
-    if (ptr && !inTerm) {
+    if (ptr && !inTerm && app < 1) {
       const [x, y] = toVp(v, ptr.x / 2, ptr.y / 2);
-      cur = [x, y, Math.min(seg(u0, 0.2, 0.5), 1 - seg(u0, beat.after[0] - 0.3, beat.after[0]) * (beat.place === 'codex-app' ? 0 : 1))];
+      cur = [x, y, Math.min(seg(u0, 0.2, 0.5), 1 - seg(u0, beat.after[0] - 0.3, beat.after[0]) * (beat.place === 'codex-app' ? 0 : 1)) * (1 - app)];
       rip = ptr.since >= 0 && ptr.since < 0.7 ? ptr.since / 0.7 : 0;
     }
     // The system's menu for Continue in, from the recorded choice.
@@ -702,17 +784,23 @@ window.render = function (t) {
       const k = fade(u0, b.after[0], b.after[0] + 0.25, b.after[1] - 0.25, b.after[1]);
       if (k > 0) { term = k; renderTerm(b.place, u0 - b.after[0]); }
     }
-    // Codex app: the caption says what is waiting there.
+    // Codex app: the caption says what is waiting there, then what Codex does with it.
     if (beat.place === 'codex-app') {
-      const sw = seg(u0, beat.start, beat.start + 0.25);
-      $('csub').textContent = TXT.s[5][3];
-      $('csub').style.opacity = sw;
+      const sentAt = beat.app && beat.app[0] + CA_KEYS[1][0], inApp = beat.app && u0 >= sentAt;
+      $('csub').textContent = TXT.s[5][inApp ? 4 : 3];
+      $('csub').style.opacity = inApp ? seg(u0, sentAt, sentAt + 0.25) : seg(u0, beat.start, beat.start + 0.25);
     }
   } else {                    // next meeting: Project context on, an answer that cites the earlier agent sessions
     const t = oldT(6, arguments[0]), u = t - D;
-    setShots('foot', 'pc', ease(seg(u, 33.0, 33.4)));
-    // The answer column from the Project context switch down, then the answer and its sources.
-    const pcAsk = column(B.pcCard, B.pcToggle[1] - 150), pcCard = column(B.pcCard, B.pcCard[1] - 14);
+    // From Codex app's plan when the agent scene ended on it, else from the handoff dialog.
+    const fromApp = AGENT.beats.at(-1).app ? 1 - ease(seg(u, 33.0, 33.45)) : 0;
+    setShots('foot', 'pc', AGENT.beats.at(-1).app ? 1 : ease(seg(u, 33.0, 33.4)));
+    $('capp').style.opacity = fromApp; $('capp').style.transform = 'none';
+    if (fromApp > 0) waits.push(drawCapp(CA_KEYS.at(-1)[0]));
+    // The Ask box across the column's width (its chips run that wide), from just below the toolbar row (wider than the
+    // column, so it would be cut at the edge); then the answer fitted to its text, from the row under the question (the
+    // question's level tags sit at the card's right edge, outside a view that size).
+    const pcAsk = column(B.pcCard, B.pcToggle[1] - 70, true), pcCard = column(B.pcCard, B.pcMeta[1] - 4);
     v = mix(pcAsk, pcCard, ease(seg(u, 35.0, 36.4)));
     if (u > 33.6 && u < 34.9) hl = hlBox(v, B.pcToggle, fade(u, 33.7, 34.0, 34.5, 34.9));
     if (u > 36.4) hl = hlBox(v, B.pcSources, fade(u, 36.6, 36.9, 39.2, 39.6));
@@ -721,6 +809,7 @@ window.render = function (t) {
   $('desk').style.opacity = desk;
   $('term').style.opacity = term;
   if (idx !== 5) $('menu').style.opacity = 0;
+  if (idx < 5) $('capp').style.opacity = 0;
   const H = $('hl');
   if (hl) { H.style.left = hl[0] - 6 + 'px'; H.style.top = hl[1] - 4 + 'px'; H.style.width = hl[2] + 12 + 'px'; H.style.height = hl[3] + 8 + 'px'; H.style.opacity = hl[4]; } else H.style.opacity = 0;
   const C = $('cursor');

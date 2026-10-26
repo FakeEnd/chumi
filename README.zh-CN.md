@@ -21,7 +21,7 @@
 
 https://github.com/user-attachments/assets/65b6bba9-4126-404c-a0d7-d1037f99f8bc
 
-<p align="center"><sub>▶ 81 秒介绍视频（有背景音乐）· <a href="README.md">English version</a> · 播放器空白或卡住？<a href="docs/assets/chumi-promo-zh.mp4?raw=1">下载 MP4</a> · 快剪版下载：<a href="docs/assets/chumi-promo-zh-1.5x.mp4?raw=1">54 秒</a>、<a href="docs/assets/chumi-promo-zh-2x.mp4?raw=1">41 秒</a></sub></p>
+<p align="center"><sub>▶ 89 秒介绍视频（有背景音乐）· <a href="README.md">English version</a> · 播放器空白或卡住？<a href="docs/assets/chumi-promo-zh.mp4?raw=1">下载 MP4</a> · 快剪版下载：<a href="docs/assets/chumi-promo-zh-1.5x.mp4?raw=1">59 秒</a>、<a href="docs/assets/chumi-promo-zh-2x.mp4?raw=1">45 秒</a></sub></p>
 
 ---
 
@@ -105,7 +105,7 @@ Chumi.app 还可以在屏幕角落放一只小 Chumi。它下面的工具栏可�
 <p align="center">
   <a href="docs/assets/chumi-pet-zh.mp4"><img src="docs/assets/chumi-pet-zh-poster.jpg" width="900" alt="Chumi 桌宠在组会通话旁边，说刚才讲的已经帮你理好了，并提示点我看看"></a>
 </p>
-<p align="center"><sub>▶ <a href="docs/assets/chumi-pet-zh.mp4">70 秒视频</a> · <a href="docs/assets/chumi-pet.mp4">English</a></sub></p>
+<p align="center"><sub>▶ <a href="docs/assets/chumi-pet-zh.mp4">71 秒视频</a> · <a href="docs/assets/chumi-pet.mp4">English</a></sub></p>
 
 #### 关于截图
 
