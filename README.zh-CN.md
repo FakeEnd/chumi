@@ -17,14 +17,15 @@
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
+<!-- 每张卡片链接到上传到 GitHub 的视频（拖进评论框得到的链接），GitHub 会把这种链接显示成播放器；仓库里的 MP4，GitHub 只提供下载。scripts/make-banner.sh 会把卡片做成视频的第一帧，播放器未播放时显示的就是卡片。重新渲染后，运行它，把四个 MP4 重新上传，并替换这里和 README.md 中的链接。 -->
 <table align="center">
   <tr>
-    <td width="420"><a href="docs/assets/chumi-promo-zh.mp4"><img src="docs/assets/card-tour-zh.jpg" width="420" alt="播放 89 秒介绍视频：从一场组会到写进代码，全程真实界面"></a></td>
-    <td width="420"><a href="docs/assets/chumi-pet-zh.mp4"><img src="docs/assets/card-pet-zh.jpg" width="420" alt="播放 71 秒桌宠视频：在通话旁边陪你听会"></a></td>
+    <td width="420"><a href="https://github.com/user-attachments/assets/68e90c64-7d3b-45d2-a398-a71004f0182b"><img src="docs/assets/card-tour-zh.jpg" width="420" alt="播放 89 秒介绍视频：从一场组会到写进代码，全程真实界面"></a></td>
+    <td width="420"><a href="https://github.com/user-attachments/assets/9ca3c9d6-2b5c-4227-bb9b-6ee339c41413"><img src="docs/assets/card-pet-zh.jpg" width="420" alt="播放 71 秒桌宠视频：在通话旁边陪你听会"></a></td>
   </tr>
   <tr>
-    <td align="center"><sub>有背景音乐 · 快剪版：<a href="docs/assets/chumi-promo-zh-1.5x.mp4?raw=1">59 秒</a>、<a href="docs/assets/chumi-promo-zh-2x.mp4?raw=1">45 秒</a> · <a href="docs/assets/chumi-promo.mp4">English</a></sub></td>
-    <td align="center"><sub>Chumi.app 的桌宠 · <a href="docs/desktop-pet.md">使用说明</a> · <a href="docs/assets/chumi-pet.mp4">English</a></sub></td>
+    <td align="center"><sub>有背景音乐 · <a href="https://github.com/user-attachments/assets/e1b6437f-6c71-4a74-af53-8a2820997daf">English</a> · 快剪版下载：<a href="docs/assets/chumi-promo-zh-1.5x.mp4?raw=1">59 秒</a>、<a href="docs/assets/chumi-promo-zh-2x.mp4?raw=1">45 秒</a></sub></td>
+    <td align="center"><sub>Chumi.app 的桌宠 · <a href="docs/desktop-pet.md">使用说明</a> · <a href="https://github.com/user-attachments/assets/82eb1067-9354-4e0e-9508-450eec2c0bfa">English</a></sub></td>
   </tr>
 </table>
 
@@ -233,7 +234,7 @@ npm run build:tools                            # 重新编译窗口截图和快�
 2. 准备智能体协作流程（只需一次）：`node scripts/demo-shoot.ts --prepare-agent --project-folder DIR` 会为项目文件夹起草并确认交接内容，同时保留相应的数据文件夹。在 `DIR` 中使用生成的提示词运行 Claude Code（或 Codex），将 Chumi 的 MCP 服务指向保留的数据文件夹，再等待 mybot 索引这次会话。
 3. 截图：`node scripts/demo-shoot.ts --project-folder DIR`（加 `--lang zh` 生成 `docs/assets/screens/zh/` 中的中文版），大约使用 15 次 Claude 订阅请求；加 `--provider codex` 改用 ChatGPT 订阅。
 4. 现场录屏：`node scripts/record-footage.ts`（加 `--lang zh` 录中文）在回答实时生成时录下真实的窗口和桌宠，存到 `dist/footage/`，会先重新构建网页界面，大约使用 6 次请求（默认用 Codex；加 `--provider claude-cli` 改用 Claude 订阅）。`--only agent --project-folder DIR` 录下继续一份已确认交接的过程（不会真的打开任何程序），并保留数据文件夹，供编程智能体在 `DIR` 中真实运行。
-5. 视频：`node scripts/make-video.ts` 渲染 `docs/video/promo.html`；加 `--lang zh` 生成中文版，加 `--speed 1.5` 或 `--speed 2` 生成快剪版。`node scripts/make-pet-video.ts` 渲染桌宠视频（`--lang en` 生成英文版）。两个都需要第 4 步的录屏。之后运行 `bash scripts/make-banner.sh`，重新生成横幅和两张视频卡片。
+5. 视频：`node scripts/make-video.ts` 渲染 `docs/video/promo.html`；加 `--lang zh` 生成中文版，加 `--speed 1.5` 或 `--speed 2` 生成快剪版。`node scripts/make-pet-video.ts` 渲染桌宠视频（`--lang en` 生成英文版）。两个都需要第 4 步的录屏。之后运行 `bash scripts/make-banner.sh`，重新生成横幅和两张视频卡片，并把卡片做成视频的第一帧。再把四个介绍视频和桌宠视频上传到 GitHub（拖进评论框），把卡片换成新链接：GitHub 会把它们显示成播放器。
 
 </details>
 
