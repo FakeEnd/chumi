@@ -147,7 +147,7 @@ test('DeepSeek Harness: the instruction is copied before the app opens and point
   const steps: string[] = [];
   const prompt = '请先给出计划。\nProject: café & research #1\n' + 'Long meeting details — 中文。\n'.repeat(1000);
   const r = await continueInDeepSeekHarness(f.id, f.workspace, prompt, {
-    dataDir: f.dataDir,
+    dataDir: f.dataDir, installed: () => true,
     copy: async (text) => { steps.push(`copy ${text}`); },
     open: async () => { steps.push('open'); },
   });
@@ -167,13 +167,22 @@ test('DeepSeek Harness: the instruction is copied before the app opens and point
 test('DeepSeek Harness: a clipboard failure still opens the app and reports it; an open failure keeps the snapshot', async (t) => {
   const f = fixture(t);
   let opened = 0;
-  const r = await continueInDeepSeekHarness(f.id, f.workspace, 'Instructions.', { dataDir: f.dataDir, copy: async () => { throw new Error('no pasteboard'); }, open: async () => { opened++; } });
+  const r = await continueInDeepSeekHarness(f.id, f.workspace, 'Instructions.', { dataDir: f.dataDir, installed: () => true, copy: async () => { throw new Error('no pasteboard'); }, open: async () => { opened++; } });
   assert.equal(r.copied, false);
   assert.equal(opened, 1);
-  await assert.rejects(continueInDeepSeekHarness(f.id, f.workspace, 'Kept.', { dataDir: f.dataDir, copy: async () => {}, open: async () => { throw new Error('no handler'); } }),
+  await assert.rejects(continueInDeepSeekHarness(f.id, f.workspace, 'Kept.', { dataDir: f.dataDir, installed: () => true, copy: async () => {}, open: async () => { throw new Error('no handler'); } }),
     /Could not open the DeepSeek Harness app.*Copy instructions/);
   const kept = readdirSync(join(f.dataDir, 'handoffs')).filter((n) => n.includes('-dsh-')).map((n) => readFileSync(join(f.dataDir, 'handoffs', n), 'utf8'));
   assert.ok(kept.includes('Kept.'));
-  await assert.rejects(continueInDeepSeekHarness('../x', f.workspace, 'x', { dataDir: f.dataDir, copy: async () => {}, open: async () => { opened++; } }), /Invalid handoff ID/);
+  await assert.rejects(continueInDeepSeekHarness('../x', f.workspace, 'x', { dataDir: f.dataDir, installed: () => true, copy: async () => {}, open: async () => { opened++; } }), /Invalid handoff ID/);
   assert.equal(opened, 1);
+});
+
+test('DeepSeek Harness: without the desktop app nothing is saved, copied or opened', async (t) => {
+  const f = fixture(t);
+  const steps: string[] = [];
+  await assert.rejects(continueInDeepSeekHarness(f.id, f.workspace, 'Instructions.', { dataDir: f.dataDir, installed: () => false, copy: async () => { steps.push('copy'); }, open: async () => { steps.push('open'); } }),
+    /desktop app is not installed.*Copy instructions/);
+  assert.deepEqual(steps, []);
+  assert.equal(existsSync(f.dataDir), false);
 });

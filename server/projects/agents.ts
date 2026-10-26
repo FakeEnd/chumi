@@ -97,8 +97,9 @@ function replaceFile(file: string, text: string, newMode = 0o644, backup = true)
     renameSync(tmp, target);
   } finally { rmSync(tmp, { force: true }); }
 }
+/** null only when the file does not exist: any other read error must stop a change, not look like an empty file. */
 function readText(file: string): string | null {
-  try { return readFileSync(file, 'utf8'); } catch { return null; }
+  try { return readFileSync(file, 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; }
 }
 function readJsonc(file: string): Record<string, any> | null {
   if (!existsSync(file)) return null;
@@ -295,7 +296,8 @@ const ADAPTERS: Record<AgentId, Adapter> = {
     bin: 'dsh', client: 'dsh-mcp', strip: [],
     setup: (m) => `${dshPatchFile()}\n${dshBlock(m)}`,
     async registration() {
-      const text = readText(dshPatchFile());
+      let text: string | null;
+      try { text = readText(dshPatchFile()); } catch (e) { return { registered: null, detail: (e as Error).message }; }
       const { rest, block, broken } = splitDshPatch(text ?? '');
       if (!block) {
         // No path in these: the page translates whole sentences, and the file is named in the setup block below them.
@@ -313,7 +315,10 @@ const ADAPTERS: Record<AgentId, Adapter> = {
       const r = await run(cli, ['--profile', 'headless', '--dump-config'], { timeoutMs: 60_000 });
       if (r.code === 0 && /serverName: ['"]?chumi\b/.test(r.out)) return;
       if (before === null) rmSync(file, { force: true }); else replaceFile(file, before, undefined, false);
-      throw new Error(`DeepSeek Harness did not accept the new entry, so ${file} was restored. ${ansi(r.err || r.out).trim().split('\n').slice(-3).join(' ').slice(0, 400)}`);
+      // dsh prints its own message ("dsh: failed to parse patches …") above a Node stack trace.
+      const lines = ansi(`${r.err}\n${r.out}`).split('\n').map((l) => l.trim()).filter(Boolean);
+      const why = r.code === 0 ? 'It composed its settings without Chumi\'s server.' : lines.find((l) => /^(Error: )?dsh: /.test(l)) ?? lines.slice(-3).join(' ');
+      throw new Error(`DeepSeek Harness did not accept the new entry, so ${file} was restored. ${why.slice(0, 400)}`);
     },
     async disconnect() {
       const file = dshPatchFile();

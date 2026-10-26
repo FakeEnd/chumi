@@ -205,7 +205,8 @@ export class Companion {
           const r = await api<{ launched: boolean; paste?: { copied: boolean } }>(`/api/handoffs/${encodeURIComponent(h.id)}/continue`, { body: { agent: place } });
           const name = isAgent(place) ? AGENT_NAMES[place] : place;
           // The app is no use without the instruction: when it could not be copied, Continue in Chumi's handoff dialog shows it.
-          if (!r.launched || (r.paste && !r.paste.copied)) this.host.open({ session: h.session_id });
+          if (r.paste && !r.paste.copied) { this.host.say(t('Could not copy the instruction for {agent}. Continue from the handoff in Chumi’s window to copy it by hand.', { agent: name }), 'warn'); this.host.open({ session: h.session_id }); }
+          else if (!r.launched) this.host.open({ session: h.session_id });
           else if (r.paste) this.host.say(t('Opened {agent} and copied a one-line instruction. Open the project folder there, start a new session and paste it.', { agent: name }));
           else this.host.say(place === 'codex-app' ? t('Requested Codex app to open the handoff. Review it there, then click Send to start.')
             : t('Opened {agent} in Terminal in the project folder, starting from this handoff.', { agent: name }));

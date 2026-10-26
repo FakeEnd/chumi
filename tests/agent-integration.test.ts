@@ -184,7 +184,8 @@ function dshCli(fail = false): string {
   return cliFile(fail ? 'dsh-bad' : 'dsh', `const fs = require('node:fs'), path = require('node:path');
 const args = process.argv.slice(2);
 if (args.join(' ') !== '--profile headless --dump-config') { console.error('unexpected ' + args.join(' ')); process.exit(2); }
-if (${fail}) { console.error('dsh: patch: invalid entry'); process.exit(1); }
+// A rejected layer: dsh's own message, then a Node stack trace (as the real CLI prints it).
+if (${fail}) { console.error('file:///dsh/cli.js:120\\n  throw e;\\nError: dsh: failed to parse patches: invalid entry\\n    at boot (file:///dsh/cli.js:115:2)\\n\\nNode.js v24.0.0'); process.exit(1); }
 console.log(fs.readFileSync(path.join(process.env.DSH_HOME, 'cordis.patch.yml'), 'utf8'));
 `);
 }
@@ -248,12 +249,24 @@ test('DeepSeek Harness: YAML Chumi cannot safely extend, a chumi server added by
 
     writeFileSync(file, '- id: x\n  disabled: true\n');
     integration.cli = () => dshCli(true);
-    await assert.rejects(integration.connect('deepseek-harness'), /did not accept the new entry.*invalid entry/);
+    await assert.rejects(integration.connect('deepseek-harness'), /did not accept the new entry, so .* was restored\. Error: dsh: failed to parse patches: invalid entry$/);
     assert.equal(readFileSync(file, 'utf8'), '- id: x\n  disabled: true\n', 'restored after dsh failed to compose it');
     assert.equal(readFileSync(`${file}.bak`, 'utf8'), '- id: x\n  disabled: true\n', 'and the backup is still the user\'s version');
     rmSync(file);
     await assert.rejects(integration.connect('deepseek-harness'));
     assert.equal(existsSync(file), false, 'a file Chumi created is removed again');
+
+    const flow = '- insert: [{ id: mine, name: "@deepseek-ai/dsh-mcp-client", config: {serverName: chumi, command: node} }]\n';
+    writeFileSync(file, flow);
+    integration.cli = () => dshCli();
+    await assert.rejects(integration.connect('deepseek-harness'), /already has a server named chumi/, 'also in {…} form');
+    assert.equal(readFileSync(file, 'utf8'), flow);
+    rmSync(file);
+    mkdirSync(file);
+    await assert.rejects(integration.connect('deepseek-harness'), /EISDIR|directory/i, 'a file that cannot be read is not treated as missing');
+    assert.ok(statSync(file).isDirectory());
+    assert.equal((await integration.status('deepseek-harness')).registered, null);
+    rmSync(file, { recursive: true });
   } finally {
     store.close();
   }
@@ -268,6 +281,22 @@ test('DeepSeek Harness: the block keeps Windows line endings and paths with quot
   assert.deepEqual(readDshBlock(splitDshPatch(text).block!), m);
   assert.equal(withoutDshBlock(text), mine);
   assert.equal(withoutDshBlock(mine), null);
+});
+
+test('DeepSeek Harness: a byte-order mark, a document start, blank lines at the end and a comment on [] all survive', async () => {
+  const { withDshBlock, withoutDshBlock, splitDshPatch, handWrittenDsh } = await import('../server/projects/dsh.ts');
+  const m = { command: 'node', args: ['main.ts'], env: {} };
+  for (const mine of ['\uFEFF- id: x\n  disabled: true\n', '---\n- id: x\n  disabled: true\n', '- id: x\n  disabled: true\n\n\n', '\uFEFF', '']) {
+    const text = withDshBlock(mine, m, 'f');
+    assert.ok(text.startsWith(mine), JSON.stringify(mine));
+    assert.equal(withoutDshBlock(text), mine.replace(/^\uFEFF?$/, (b) => `${b}[]\n`), JSON.stringify(mine));
+  }
+  const bomBlock = `\uFEFF${withDshBlock('', m, 'f')}`;
+  assert.ok(splitDshPatch(bomBlock).block, 'Chumi\'s own block after a byte-order mark is still Chumi\'s');
+  assert.equal(handWrittenDsh(splitDshPatch(bomBlock).rest), false);
+  const commented = withDshBlock('[] # nothing yet\n', m, 'f');
+  assert.match(commented, /^# nothing yet\n# >>> chumi/);
+  assert.equal(withoutDshBlock(commented), '# nothing yet\n[]\n');
 });
 
 test('JSONC: comments and trailing commas are ignored, comment markers inside strings are kept', () => {

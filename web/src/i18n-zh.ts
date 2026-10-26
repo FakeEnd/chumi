@@ -1091,6 +1091,8 @@ export const ZH: Record<string, string> = {
   "Qwen Code is not installed (the `qwen` command was not found).": "未安装 Qwen Code（找不到 `qwen` 命令）。",
   "Antigravity is not installed (the `agy` command was not found).": "未安装 Antigravity（找不到 `agy` 命令）。",
   "DeepSeek Harness is not installed (the `dsh` command was not found).": "未安装 DeepSeek Harness（找不到 `dsh` 命令）。",
+  "The DeepSeek Harness desktop app is not installed. Install it, or choose “Copy instructions”.": "没有安装 DeepSeek Harness 桌面应用。请先安装，或者选择“复制指令”。",
+  "Could not copy the instruction for {agent}. Continue from the handoff in Chumi’s window to copy it by hand.": "没能为 {agent} 复制指令。请在 Chumi 窗口的交接内容里点“继续”，手动复制。",
   "Chumi's block in the DeepSeek Harness settings file has lost its end line. Remove what is left of it, then connect again.": "DeepSeek Harness 设置文件里 Chumi 的配置段缺少结束行。请删掉残留的部分，然后重新连接。",
   "A server named chumi was added to the DeepSeek Harness settings file outside Chumi; Chumi leaves it to you.": "DeepSeek Harness 的设置文件里已有一个不是 Chumi 添加的 chumi 服务，Chumi 不会改动它。",
   "Registered but disabled in Antigravity.": "已注册，但在 Antigravity 中被停用。",

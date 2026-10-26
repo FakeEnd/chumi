@@ -71,8 +71,9 @@ export function copyText(text: string): Promise<void> {
       ? spawn('powershell.exe', ['-NoProfile', '-Command', '[Console]::InputEncoding = [Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())'], { windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] })
       // pbcopy reads the locale's encoding, which can be MacRoman when Chumi starts outside a shell.
       : spawn('/usr/bin/pbcopy', [], { env: { ...process.env, LC_CTYPE: 'UTF-8' }, stdio: ['pipe', 'ignore', 'ignore'] });
-    child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`Copying to the clipboard failed (exit ${code}).`))));
+    const timer = setTimeout(() => { stopProcess(child, 'SIGKILL'); reject(new Error('Copying to the clipboard timed out.')); }, 10_000);
+    child.on('error', (e) => { clearTimeout(timer); reject(e); });
+    child.on('close', (code) => { clearTimeout(timer); if (code === 0) resolve(); else reject(new Error(`Copying to the clipboard failed (exit ${code}).`)); });
     child.stdin!.end(text);
   });
 }

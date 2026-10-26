@@ -3,7 +3,7 @@ import { chmod, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { DATA_DIR } from '../paths.ts';
 import { copyText, openExternalUrl } from '../platform.ts';
-import { openDeepSeekHarness } from './dsh.ts';
+import { dshAppInstalled, openDeepSeekHarness } from './dsh.ts';
 
 interface DesktopHandoffDependencies {
   dataDir: string;
@@ -79,6 +79,7 @@ export async function launchCodexDesktop(
 
 interface DeepSeekHarnessDependencies {
   dataDir: string;
+  installed: () => boolean;
   copy: (text: string) => Promise<void>;
   open: () => Promise<void>;
 }
@@ -97,6 +98,8 @@ export async function continueInDeepSeekHarness(
   dependencies: Partial<DeepSeekHarnessDependencies> = {},
 ): Promise<{ instruction: string; copied: boolean }> {
   await checkHandoff(handoffId, workspace, prompt, 'DeepSeek Harness');
+  // Checked first: on Windows, opening a link nothing handles is not reported as a failure, and the clipboard would be overwritten for nothing.
+  if (!(dependencies.installed ?? dshAppInstalled)()) throw new Error('The DeepSeek Harness desktop app is not installed. Install it, or choose “Copy instructions”.');
   let file: string;
   try {
     file = await saveSnapshot(dependencies.dataDir ?? DATA_DIR, handoffId, 'dsh', prompt);
