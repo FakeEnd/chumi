@@ -1,5 +1,5 @@
 /**
- * Coding agents (Claude Code, Codex, opencode, Qwen Code, Antigravity): register Chumi's MCP server with each client, report
+ * Coding agents (Claude Code, Codex, opencode, Qwen Code, Antigravity, DeepSeek Harness): register Chumi's MCP server with each client, report
  * what is verified, run an explicit read check, and open a project session that starts from a confirmed handoff.
  * Nothing here runs an agent on its own: registration, the read check and continuation are user actions.
  */
@@ -13,11 +13,12 @@ import { DATA_DIR, findClaude, REPO_ROOT, which } from '../paths.ts';
 import { uid } from '../util.ts';
 import { IS_WIN, openInTerminal, runCommand as run } from '../platform.ts';
 import { AGENT_BILLING, AGENT_NAMES, AGENTS, type AgentId } from '../../shared/agents.ts';
+import { dshBlock, dshCheckPatches, dshPatchFile, findDsh, handWrittenDsh, readDshBlock, splitDshPatch, withDshBlock, withoutDshBlock } from './dsh.ts';
 
 export { AGENTS, type AgentId };
 const NAME = 'chumi';
 // Same safety rule as the AI providers: never let an API key in the environment turn a plan into paid usage.
-// Agents billed through the user's own model account (opencode, Qwen Code, Antigravity) keep their keys: that is how they work.
+// Agents billed through the user's own model account (opencode, Qwen Code, Antigravity, DeepSeek Harness) keep their keys: that is how they work.
 const PLAN_STRIP_ENV = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'OPENAI_API_KEY'];
 
 export const MCP_SCRIPT = join(REPO_ROOT, 'server', 'mcp', 'main.ts');
@@ -78,15 +79,27 @@ function editJsonFile(file: string, edit: (cfg: Record<string, any>) => boolean,
   } else if (fresh) cfg = fresh;
   else return;
   if (!edit(cfg)) return;
+  replaceFile(target, `${JSON.stringify(cfg, null, 2)}\n`);
+}
+/**
+ * Writes atomically next to the real file (following a link to it), keeps its mode, and leaves the previous version as
+ * <file>.bak (not when putting the file back after a failed change: the backup is then still the user's version).
+ */
+function replaceFile(file: string, text: string, newMode = 0o644, backup = true): void {
+  const target = existsSync(file) ? realpathSync(file) : file;
   mkdirSync(dirname(target), { recursive: true });
-  const mode = existsSync(target) ? statSync(target).mode & 0o777 : 0o644;
+  const mode = existsSync(target) ? statSync(target).mode & 0o777 : newMode;
   const tmp = `${target}.chumi-${process.pid}.tmp`;
   try {
-    writeFileSync(tmp, `${JSON.stringify(cfg, null, 2)}\n`, { mode });
+    writeFileSync(tmp, text, { mode });
     chmodSync(tmp, mode);
-    if (existsSync(target)) { copyFileSync(target, `${target}.bak`); chmodSync(`${target}.bak`, mode); }
+    if (backup && existsSync(target)) { copyFileSync(target, `${target}.bak`); chmodSync(`${target}.bak`, mode); }
     renameSync(tmp, target);
   } finally { rmSync(tmp, { force: true }); }
+}
+/** null only when the file does not exist: any other read error must stop a change, not look like an empty file. */
+function readText(file: string): string | null {
+  try { return readFileSync(file, 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; }
 }
 function readJsonc(file: string): Record<string, any> | null {
   if (!existsSync(file)) return null;
@@ -102,7 +115,7 @@ export interface AgentStatus {
   registered: boolean | null;
   /** Registered with a different Chumi location or data folder (re-connect to fix). */
   outdated: boolean;
-  /** Health reported by the client itself (Claude Code, opencode and Qwen Code start the server to list it); unknown for Codex and Antigravity. */
+  /** Health reported by the client itself (Claude Code, opencode and Qwen Code start the server to list it); unknown for Codex, Antigravity and DeepSeek Harness. */
   clientHealth: 'connected' | 'failed' | 'unknown';
   /** A real agent read through this client, recorded by the MCP server. */
   lastRead: { at: number; tool: string } | null;
@@ -120,7 +133,7 @@ const outdated = (args: string[] | undefined, env: Record<string, string> | null
 /** What Chumi needs to know about one agent. */
 interface Adapter {
   bin: string;
-  /** Part of the MCP clientInfo name it sends (Claude Code "claude-code", Codex "codex-mcp-client", opencode "opencode", Qwen Code "qwen-cli-mcp-client-chumi", Antigravity "antigravity-client"). */
+  /** Part of the MCP clientInfo name it sends (Claude Code "claude-code", Codex "codex-mcp-client", opencode "opencode", Qwen Code "qwen-cli-mcp-client-chumi", Antigravity "antigravity-client", DeepSeek Harness "dsh-mcp-client"). */
   client: string;
   /** Removed from the environment of commands Chumi runs. */
   strip: string[];
@@ -131,8 +144,8 @@ interface Adapter {
   disconnect(cli: string): Promise<void>;
   /** The read check: one non-interactive run, in an empty folder, asked to call only Chumi's check tool. */
   check(prompt: string, extraArgs: string[]): { args: string[]; env?: Record<string, string> };
-  /** The command line that starts an interactive session in the project folder, with the handoff where MESSAGE is. */
-  start(cli: string, workspace: string): Array<string | typeof MESSAGE>;
+  /** The command line that starts an interactive session in the project folder, with the handoff where MESSAGE is. None: the agent has no terminal session. */
+  start?(cli: string, workspace: string): Array<string | typeof MESSAGE>;
 }
 
 /** Stands for the first message in Adapter.start. */
@@ -276,6 +289,47 @@ const ADAPTERS: Record<AgentId, Adapter> = {
     check: (prompt, extra) => ({ args: ['-p', prompt, ...extra] }),
     start: (cli) => [cli, '-i', MESSAGE],
   },
+  // DeepSeek Harness (dsh) has no command for adding a server, so Chumi keeps its own block in $DSH_HOME/cordis.patch.yml,
+  // the layer every dsh profile (the desktop app's included) applies (dsh.ts). It has no terminal session to start:
+  // handoffs continue in its desktop app (desktop-handoff.ts).
+  'deepseek-harness': {
+    bin: 'dsh', client: 'dsh-mcp', strip: [],
+    setup: (m) => `${dshPatchFile()}\n${dshBlock(m)}`,
+    async registration() {
+      let text: string | null;
+      try { text = readText(dshPatchFile()); } catch (e) { return { registered: null, detail: (e as Error).message }; }
+      const { rest, block, broken } = splitDshPatch(text ?? '');
+      if (!block) {
+        // No path in these: the page translates whole sentences, and the file is named in the setup block below them.
+        if (broken) return { registered: null, detail: 'Chumi\'s block in the DeepSeek Harness settings file has lost its end line. Remove what is left of it, then connect again.' };
+        return handWrittenDsh(rest) ? { registered: true, detail: 'A server named chumi was added to the DeepSeek Harness settings file outside Chumi; Chumi leaves it to you.' } : { registered: false };
+      }
+      const entry = readDshBlock(block);
+      return { registered: true, outdated: outdated(entry.args, entry.env) };
+    },
+    async connect(cli, m) {
+      const file = dshPatchFile();
+      const before = readText(file);
+      replaceFile(file, withDshBlock(before ?? '', m, file), 0o600);
+      // dsh itself must still compose every layer, now with Chumi's server; otherwise put the file back as it was.
+      const r = await run(cli, ['--profile', 'headless', '--dump-config'], { timeoutMs: 60_000 });
+      if (r.code === 0 && /serverName: ['"]?chumi\b/.test(r.out)) return;
+      if (before === null) rmSync(file, { force: true }); else replaceFile(file, before, undefined, false);
+      // dsh prints its own message ("dsh: failed to parse patches …") above a Node stack trace.
+      const lines = ansi(`${r.err}\n${r.out}`).split('\n').map((l) => l.trim()).filter(Boolean);
+      const why = r.code === 0 ? 'It composed its settings without Chumi\'s server.' : lines.find((l) => /^(Error: )?dsh: /.test(l)) ?? lines.slice(-3).join(' ');
+      throw new Error(`DeepSeek Harness did not accept the new entry, so ${file} was restored. ${why.slice(0, 400)}`);
+    },
+    async disconnect() {
+      const file = dshPatchFile();
+      const text = readText(file);
+      const after = text === null ? null : withoutDshBlock(text);
+      if (after !== null) replaceFile(file, after);
+    },
+    // Read-only, with the model and sign-in chosen in the desktop app (dsh.ts). In this mode dsh calls Chumi's tools,
+    // which are marked read-only, without asking.
+    check: (prompt, extra) => ({ args: ['--profile', 'headless', ...dshCheckPatches(), ...extra, prompt], env: { DSH_PERMISSION_MODE: 'read-only' } }),
+  },
 };
 function opencodeEntry(m: McpServer) {
   return { type: 'local', command: [m.command, ...m.args], enabled: true, ...(Object.keys(m.env).length ? { environment: m.env } : {}) };
@@ -297,7 +351,7 @@ export class AgentIntegration {
   mcpServer(): McpServer {
     return { command: stableNode(), args: [MCP_SCRIPT], env: process.env.CHUMI_DATA_DIR ? { CHUMI_DATA_DIR: DATA_DIR } : {} };
   }
-  cli(agent: AgentId): string | null { return agent === 'claude-code' ? findClaude() : which(ADAPTERS[agent].bin); }
+  cli(agent: AgentId): string | null { return agent === 'claude-code' ? findClaude() : agent === 'deepseek-harness' ? findDsh() : which(ADAPTERS[agent].bin); }
 
   /** Copyable commands (or configuration) for manual setup. */
   setupCommands(): Record<AgentId, string> {
@@ -375,6 +429,8 @@ export class AgentIntegration {
 
   /** Writes the handoff and a script that starts the agent in the project folder with it as the first message. */
   launchScript(agent: AgentId, handoffId: string, workspace: string, prompt: string): string {
+    const start = ADAPTERS[agent].start;
+    if (!start) throw new Error(`${AGENT_NAMES[agent]} has no terminal session to start. Continue in its app instead.`);
     const cli = this.cli(agent);
     if (!cli) throw new Error(`${AGENT_NAMES[agent]} is not installed.`);
     if (!existsSync(workspace) || !statSync(workspace).isDirectory()) throw new Error(`The project folder is not available: ${workspace}. Choose its new location in Projects.`);
@@ -382,7 +438,7 @@ export class AgentIntegration {
     mkdirSync(dir, { recursive: true });
     const promptFile = join(dir, `${handoffId}-${agent}.md`);
     writeFileSync(promptFile, prompt);
-    const words = ADAPTERS[agent].start(cli, workspace);
+    const words = start(cli, workspace);
     if (IS_WIN) {
       // cmd.exe cannot pass a multi-line argument, so the agent starts with a one-line pointer to the handoff file.
       const message = `Read the file ${promptFile} and follow the instructions in it.`;

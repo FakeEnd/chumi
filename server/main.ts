@@ -46,7 +46,7 @@ import { acquireDataDirectoryLock } from './instance-lock.ts';
 import { speechEngineChanged, speechRestartRequired } from './asr/settings-guard.ts';
 import { finishShutdown, SHUTDOWN_GRACE_MS } from './shutdown.ts';
 import { ProjectWorkService, ProjectWorkError } from './projects/work.ts';
-import { launchCodexDesktop } from './projects/desktop-handoff.ts';
+import { continueInDeepSeekHarness, launchCodexDesktop } from './projects/desktop-handoff.ts';
 
 const PORT = Number(process.env.PORT || 4777);
 const HOST = '127.0.0.1';
@@ -610,21 +610,27 @@ route('POST', '/api/handoffs/:id/continue', async (req, _res, p) => {
   if (!h) throw new HttpError(404, 'Handoff not found');
   const prompt = handoffs.continuationPrompt(p.id, chumiLink(), store.getProfile().explanationLanguage !== 'English');
   let launched = false;
+  /** For an app that cannot be given the handoff: the instruction to paste there, and whether Chumi put it on the clipboard. */
+  let paste: { text: string; copied: boolean } | undefined;
   if (via !== 'copy') {
     const project = store.getProject(h.project_id!)!;
     try {
       const skipped = (what: string) => log('handoff', `CHUMI_NO_LAUNCH: not opened: ${what}`);
       if (via === 'codex-app') await launchCodexDesktop(h.id, project.workspace, prompt, NO_LAUNCH ? { openUrl: async (url) => skipped(url) } : {});
-      else if (NO_LAUNCH) skipped(agents.launchScript(via as AgentId, h.id, project.workspace, prompt));
+      else if (via === 'deepseek-harness') {
+        // For recordings the dialog says what a real Continue says, so a skipped copy reports as copied.
+        const r = await continueInDeepSeekHarness(h.id, project.workspace, prompt, NO_LAUNCH ? { installed: () => true, copy: async (text) => skipped(`clipboard: ${text}`), open: async () => skipped('dsh://open') } : {});
+        paste = { text: r.instruction, copied: r.copied };
+      } else if (NO_LAUNCH) skipped(agents.launchScript(via as AgentId, h.id, project.workspace, prompt));
       else agents.launch(via as AgentId, h.id, project.workspace, prompt);
       launched = true;
     } catch (e) { throw new HttpError(400, (e as Error).message); }
   }
   handoffs.markDelivered(p.id, via);
-  return { prompt, launched, handoff: handoffs.view(h.session_id) };
+  return { prompt, launched, paste, handoff: handoffs.view(h.session_id) };
 });
 
-// ---------------------------------------------------------------- coding agent connection (Claude Code, Codex, opencode, Qwen Code, Antigravity)
+// ---------------------------------------------------------------- coding agent connection (Claude Code, Codex, opencode, Qwen Code, Antigravity, DeepSeek Harness)
 const isAgent = (a: string): a is AgentId => AGENTS.includes(a as AgentId);
 route('GET', '/api/agents', async () => {
   const [local, ...statuses] = await Promise.all([agents.localCheck(), ...AGENTS.map((a) => agents.status(a))]);

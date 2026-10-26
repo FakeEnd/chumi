@@ -30,4 +30,9 @@ test('destinations are named as in Chumi’s Continue in menu, in its language',
   assert.equal(placeLabel('codex'), 'Codex');
   assert.equal(placeLabel('qwen-code'), 'Qwen Code');
   assert.equal(placeName('opencode'), 'opencode');
+  assert.equal(placeLabel('deepseek-harness'), 'DeepSeek Harness');
+  setLang('zh');
+  assert.equal(t('Opened {agent} and copied a one-line instruction. Open the project folder there, start a new session and paste it.', { agent: placeName('deepseek-harness') }),
+    '已打开 DeepSeek Harness，并复制了一行指令。请在那里打开项目文件夹，新建会话后粘贴。');
+  setLang('en');
 });

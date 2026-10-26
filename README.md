@@ -35,7 +35,7 @@ It transcribes lab meetings, advisor 1:1s, lectures and seminars on your Mac, in
 
 - **During the meeting:** catch up in one click, get terms explained at your level, and ask about the slide on screen. Every answer cites the moment it came from. A desktop pet can sit beside your call and do the same from its toolbar.
 - **After the meeting:** read a structured summary, play the recording back from any line, and review a handoff of decisions and actions.
-- **In your project:** Codex app, Claude Code, Codex, opencode, Qwen Code or Antigravity continues the work, reading the original evidence through Chumi's MCP server.
+- **In your project:** Codex app, Claude Code, Codex, opencode, Qwen Code, Antigravity or DeepSeek Harness continues the work, reading the original evidence through Chumi's MCP server.
 - **At the next meeting:** answers can draw on what those agents already did.
 
 It runs on the ChatGPT or Claude plan you already have, or on a local model. By default, audio never leaves your Mac.
@@ -148,7 +148,7 @@ Local models and compatible APIs are set up in [docs/other-models.md](docs/other
 ```mermaid
 flowchart LR
   M["Meeting<br/>live transcript · catch-up<br/>explanations at your level"] --> H["Reviewed handoff<br/>decisions · actions · open questions<br/>each cited to the transcript"]
-  H --> A["Your coding agent<br/>Codex app · Claude Code · Codex · opencode · Qwen Code · Antigravity<br/>reads the evidence over MCP"]
+  H --> A["Your coding agent<br/>Codex app · Claude Code · Codex · opencode · Qwen Code · Antigravity · DeepSeek Harness<br/>reads the evidence over MCP"]
   A --> P["Project memory<br/>the agents' sessions,<br/>indexed by mybot"]
   P -- "Project context" --> M
 ```
