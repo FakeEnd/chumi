@@ -211,7 +211,12 @@ export function HandoffDialog() {
       {confirmed && (
         <>
           <label className="handoff-destination small"><span>{t('Continue in')}</span>
-            <select value={selected} disabled={busy} onChange={(e) => { const next = e.target.value as HandoffDestination; setDestination(next); saveHandoffDestination(next); }}>
+            <select value={selected} disabled={busy} onChange={(e) => {
+              const next = e.target.value as HandoffDestination;
+              setDestination(next); saveHandoffDestination(next);
+              // What the last Continue did belongs to the last destination, not this one.
+              setDelivered(''); setDeliveryError(''); setManualPrompt('');
+            }}>
               <option value="codex-app">{t('Codex app')}</option>
               <option value="codex">{t('Codex in Terminal')}</option>
               <option value="claude-code">{t('Claude Code in Terminal')}</option>

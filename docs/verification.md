@@ -1,5 +1,20 @@
 # Verification log
 
+## Promo: the real Codex app, and the camera on streaming answers — 2026-10-25
+
+On the development Mac, after PR #26. Codex (the ChatGPT plan) answered.
+
+| Check | Result |
+|---|---|
+| Streaming answers | All footage re-recorded in both languages. The recorder now samples the streaming answer's top and bottom ten times a second and scrolls the answer column when the text runs past the window, so nothing is written out of view. The video follows those samples, speeds through the stream until the text actually stops (before Chumi marks the answer done) and then returns to the whole window. Previously the view panned at a fixed rate: its box drifted from the text, long answers were written below the window, and the last seconds held a page that no longer changed. |
+| Codex app, for real | Continue from a throwaway server on each recording's data folder opened Codex app with a new chat for the sample project and the handoff in its composer. The user clicked Send. Codex read the handoff file, then the handoff and the cited passages through Chumi's MCP server, looked at the project's files and proposed a plan, waiting for a go-ahead (about 1:45 in Chinese, 1:30 in English). For the two takes, Codex app's Chumi server read the recording's data folder (one temporary `env` line in `~/.codex/config.toml`, removed afterwards), so it could not see real meetings. Only Codex's window was recorded (ScreenCaptureKit window capture), and the frames drop its left rail. The promo shows Chumi's message, then that window: the composer, Send, the work sped up, the plan streaming and the finished plan. |
+| Videos | Both promos re-rendered (89 s, with 59 s and 45 s cuts) and both pet videos (69 s in English, 71 s in Chinese) from the new footage. Frames were checked at the scene seams and in the Codex app scene in both languages. |
+| `npm run check` | Both TypeScript projects pass; 319 / 319 tests. |
+
+Found and fixed: after switching Continue in, the handoff dialog still showed the last destination's message ("Requested Codex app…" beside Claude Code); a new choice now clears it. The first Codex app take recorded a screen area, not the window: other windows on top got into the footage, along with another chat under Codex's "Trust this folder?" prompt. That take was deleted unused and both takes were recorded window-only. The next-meeting shot cut the toolbar row and the question's level tags at its edges. It now shows the Ask box at its full width from just below the toolbar. Then it fits the answer to its text from the row under the question, and highlights the sources chip rather than its whole row. `demo-shoot.ts` now measures the chip and that row; the current screenshots' boxes were measured from their pixels. Showing the whole card instead left its right third blank, because answer paragraphs are capped at 35em per line.
+
+Not verified: a fresh Claude Code run. Its sign-in has expired, so the promo's Claude Code terminal is still the run from 2026-10-21.
+
 ## Continuing in agents, and the pet's Continue — 2026-10-25
 
 On the development Mac, after merging main (PR #25, the Codex app destination). Codex (the ChatGPT plan) answered.

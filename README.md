@@ -21,7 +21,7 @@
 
 https://github.com/user-attachments/assets/6c8d26d6-d376-49f3-acc6-194e2f6edf9d
 
-<p align="center"><sub>▶ The 81-second tour, with music · <a href="README.zh-CN.md">中文版</a> · player blank or stuck? <a href="docs/assets/chumi-promo.mp4?raw=1">Download the MP4</a> · faster cuts to download: <a href="docs/assets/chumi-promo-1.5x.mp4?raw=1">54 s</a>, <a href="docs/assets/chumi-promo-2x.mp4?raw=1">41 s</a></sub></p>
+<p align="center"><sub>▶ The 89-second tour, with music · <a href="README.zh-CN.md">中文版</a> · player blank or stuck? <a href="docs/assets/chumi-promo.mp4?raw=1">Download the MP4</a> · faster cuts to download: <a href="docs/assets/chumi-promo-1.5x.mp4?raw=1">59 s</a>, <a href="docs/assets/chumi-promo-2x.mp4?raw=1">45 s</a></sub></p>
 
 ---
 
