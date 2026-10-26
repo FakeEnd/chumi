@@ -22,8 +22,9 @@ import { TAGS, TOPICS, type Tag, type Topic } from './tags.ts';
 import { PetView } from './view.ts';
 import './pet.css';
 
-type Native = { postMessage(m: unknown): void };
-const native: Native | undefined = (window as any).webkit?.messageHandlers?.chumiPet;
+type Native = { postMessage(m: unknown): void; onEvent?(callback: (event: { method: keyof typeof bridge; args: unknown[] }) => void): void };
+const windowsNative: Native | undefined = (window as any).chumiPetNative;
+const native: Native | undefined = windowsNative ?? (window as any).webkit?.messageHandlers?.chumiPet;
 const post = (m: Record<string, unknown>) => native?.postMessage(m);
 
 const app = document.getElementById('app')!;
@@ -41,7 +42,7 @@ function applyPet(p: Partial<PetSettings> | undefined): void {
   if (!p) return;
   pet = { ...pet, ...p };
   app.hidden = !pet.enabled;
-  companion.configure({ toolbar: pet.toolbar, cards: pet.cards, tags: pet.tags });
+  companion.configure({ toolbar: pet.enabled && pet.toolbar, cards: pet.cards, tags: pet.tags });
   report();
 }
 const savePet = (patch: Partial<PetSettings>) => {
@@ -76,6 +77,7 @@ const companion = new Companion({
   setTags: (tags) => savePet({ tags }),
 });
 app.appendChild(companion.el);
+window.addEventListener('storage', (e) => { if (e.key === 'chumi.handoffDestination') companion.render(); });
 
 // ------------------------------------------------------------------ size and click regions
 const box = (e: Element) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round); };
@@ -200,6 +202,28 @@ const bridge = {
   },
 };
 (window as any).chumiPet = bridge;
+
+if (windowsNative) {
+  windowsNative.onEvent!(({ method, args }) => { Reflect.apply(bridge[method], bridge, args); });
+  const onUI = (e: Event) => e.composedPath().some((n) => n instanceof Element && n.classList.contains('ui'));
+  let down: { x: number; y: number } | null = null, moved = false;
+  document.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || onUI(e)) return;
+    down = { x: e.screenX, y: e.screenY }; moved = false;
+    (e.target as Element).setPointerCapture(e.pointerId);
+    post({ type: 'drag', phase: 'start' });
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (!down) return;
+    if (Math.hypot(e.screenX - down.x, e.screenY - down.y) >= 4) moved = true;
+    post({ type: 'drag', phase: 'move' });
+  });
+  const release = () => { if (down) { down = null; post({ type: 'drag', phase: 'end' }); } };
+  document.addEventListener('pointerup', release);
+  document.addEventListener('pointercancel', release);
+  document.addEventListener('click', (e) => { if (!onUI(e) && !moved) bridge.click(e.clientX, e.clientY, e.detail); });
+  document.addEventListener('contextmenu', (e) => { e.preventDefault(); post({ type: 'menu' }); });
+}
 
 if (!native) {
   document.addEventListener('mousemove', (e) => bridge.pointer(e.clientX, e.clientY));

@@ -27,6 +27,7 @@ The helper emits the same `CHA1` 16 kHz mono PCM protocol and JSON status events
 ## Desktop behaviour
 
 - A single Chumi window with normal Windows move, resize, minimize and maximize controls; size and position are remembered.
+- A transparent, always-on-top desktop pet reuses the same character, toolbar and answer cards as macOS. Enable it in **Settings → Desktop pet** or **窗口 → 桌宠**. Drag the character to move it; empty areas pass clicks through, and only the Ask box takes keyboard focus. Size, tag filters, screen-capture visibility and resetting its position use the shared settings.
 - The backend and audio engine run without console windows. Closing Chumi shuts them down and saves an active meeting as interrupted, ready to resume next time.
 - A second launch brings the existing window forward. A separate older Chumi server using the same data folder is reported before starting another backend.
 - Native project folder selection, export save dialogs and external links in the default browser.
@@ -42,6 +43,8 @@ Data stays in `%LOCALAPPDATA%\Chumi`: the database, models, captures, handoffs, 
 Chumi bundles the official Codex CLI so new users can sign in and use it without installing npm. Other coding agents are discovered through `PATH`, `%APPDATA%\npm` and `%USERPROFILE%\.local\bin`. Connecting an agent registers the bundled Node and installed MCP server paths. Reconnect an existing registration if it points to an older checkout.
 
 **Continue in an agent** opens its console in the chosen project folder. The first message points to the reviewed handoff file; the agent can retrieve original passages and screenshots over MCP. Details are in [agents.md](agents.md).
+
+**Continue in Codex app** prepares an immutable handoff file and asks Windows to open the installed app's `codex://` handler with a prefilled composer. The user still clicks Send in Codex. **Copy instructions** remains available. Action progress, result links and the next-meeting project brief use the same workflow as macOS. Saved audio plays from transcript lines and exports as WAV on Windows.
 
 ## Build from source (developers)
 

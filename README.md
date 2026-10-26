@@ -117,7 +117,7 @@ On first launch, the **Get Chumi ready** checklist on Home covers the rest: AI s
 - **By hand:** `git clone https://github.com/FakeEnd/chumi.git && cd chumi && bash scripts/setup.sh`. [The install guide](docs/install.md) covers the options (including `--mirror` for mainland China), permissions, troubleshooting and uninstalling.
 - **Check an install:** `npm run doctor` prints the fix for anything missing.
 - **In a browser:** `npm start`, then open http://127.0.0.1:4777.
-- **Windows (desktop preview):** an installer with microphone and computer-audio capture, local speech recognition and Codex. It has passed real end-to-end checks on Windows 11. See [docs/windows.md](docs/windows.md).
+- **Windows (desktop preview):** an installer with microphone and computer-audio capture, local speech recognition, Codex and the desktop pet. It includes the shared recording, handoff and project-progress workflows. See [docs/windows.md](docs/windows.md) for Windows 11 verification and build instructions.
 - **iPhone (prototype):** a SwiftUI app in [`ios/`](ios/README.md) records and transcribes on the phone with Apple Speech, and pairs with Chumi on the Mac for AI help. It needs full Xcode and hasn't yet been compiled or tested on a device. See [the iPhone guide](ios/README.md).
 
 ## Choose an AI

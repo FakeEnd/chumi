@@ -1314,7 +1314,7 @@ export const ZH: Record<string, string> = {
   "Hide answers": "收起回答",
   "Last meeting’s answers": "上一场会的回答",
   "A small Chumi in the corner of your screen, above other windows. From its toolbar you start, pause or end a meeting, catch up and ask, and its cards show the latest answers, so you can follow along without leaving your call.": "屏幕角落里的一只小 Chumi，浮在所有窗口上面。用它的工具栏可以开始、暂停或结束会议，帮你跟上，也能直接提问；它的卡片显示最新的回答，不用离开会议窗口就能跟上。",
-  "The desktop pet is part of Chumi.app on macOS. These settings apply there.": "桌宠是 macOS 版 Chumi.app 的功能，这里的设置会在那里生效。",
+  "The desktop pet is part of the Chumi desktop app on macOS and Windows. These settings apply there.": "桌宠是 macOS 和 Windows 桌面版 Chumi 的功能，这里的设置会在桌面版中生效。",
   "Show the desktop pet": "显示桌宠",
   "Show under the pet": "桌宠下方显示",
   "Toolbar: quick start, pause, catch up, ask and end": "工具栏：快速开始、暂停、帮我跟上、提问和结束",

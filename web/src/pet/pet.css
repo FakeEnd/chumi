@@ -14,7 +14,7 @@ body { font: 13px/1.45 -apple-system, "SF Pro Text", "PingFang SC", system-ui, s
 .bar, .ask, .card { background: rgba(255, 255, 255, .97); box-shadow: 0 4px 13px rgba(30, 27, 75, .15), 0 0 0 .5px rgba(30, 27, 75, .1); }
 
 .bar[hidden] { display: none; }
-.bar { display: flex; align-items: center; height: 48px; padding: 0 6px; border-radius: 999px; }
+.bar { display: flex; align-items: center; height: 48px; padding: 0 6px; border-radius: 999px; flex: none; }
 .bar button { appearance: none; border: 0; background: transparent; height: 38px; min-width: 44px; padding: 0 11px; border-radius: 999px;
   display: flex; align-items: center; justify-content: center; gap: 7px; color: #2b2d3a; font: 650 13px/1 inherit; font-variant-numeric: tabular-nums; }
 .bar button svg { width: 21px; height: 21px; flex: none; }
@@ -37,13 +37,13 @@ body { font: 13px/1.45 -apple-system, "SF Pro Text", "PingFang SC", system-ui, s
   font-size: 12px; font-weight: 600; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
 .tip.on { opacity: 1; }
 
-.ask { width: 100%; box-sizing: border-box; display: flex; gap: 6px; padding: 6px; border-radius: 18px; }
+.ask { width: 100%; box-sizing: border-box; display: flex; gap: 6px; padding: 6px; border-radius: 18px; flex: none; }
 .ask[hidden] { display: none; }
 .ask input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 8px 10px; font: 14px inherit; color: inherit; -webkit-user-select: text; user-select: text; }
 .ask button { border: 0; border-radius: 13px; padding: 0 15px; background: #4f46e5; color: #fff; font: 700 13px inherit; }
 
 /* No scroll box: the page drops the oldest cards that would not fit on the screen. */
-.cards { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+.cards { width: 100%; display: flex; flex-direction: column; gap: 8px; flex: none; }
 .cards[hidden] { display: none; }
 .list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; align-self: stretch; padding: 6px 8px 6px 14px; border-radius: 999px;
   background: rgba(255, 255, 255, .9); box-shadow: 0 3px 12px rgba(30, 27, 75, .12), 0 0 0 .5px rgba(30, 27, 75, .1); color: #555b70; font-weight: 700; font-size: 12px; }

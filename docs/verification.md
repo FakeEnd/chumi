@@ -1,5 +1,21 @@
 # Verification log
 
+## Windows mainline catch-up and desktop pet — 2026-10-26
+
+Started from main `6578a45` on Windows 11, with Node 24.21.0 and Electron 44.7.0. All trial data is isolated from the user's meetings; AI responses use the offline provider.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 325 tests: 318 pass, 7 existing platform skips, 0 failures. Fixed CRLF import stripping and POSIX-only test fixtures that caused 24 mainline failures on Windows. Six new tests run the actual pet host with Electron substitutes for IPC, placement, zoom, click-through, focus, menus, capture protection and renderer recovery. |
+| Native Electron pet | Real Win32 input verifies transparent-area click-through, taps preserving foreground focus, dragging and saved position. 150% pet zoom leaves the main window at its original scale. Settings hide, restore and reset the panel. Windows reports capture affinity 17 when excluded and 0 when sharing is enabled. |
+| Meeting controls | Real Whisper file transcription plus offline AI: catch-up, typed Ask, pause, resume and two-click End. Hiding while Ask is open closes the input, so restoring never leaves an unfocusable text box. No renderer errors. |
+| Large cards | Production-page trials at 100% and 200%, with recent answers and a short display plus Ask. Expanded text scrolls within the available space; its final paragraph and Open in Chumi remain reachable. |
+| Recording and project work | A 45-second synthetic clip produces 5 real Whisper passages and a completed offline summary. Saved PCM matches the source sample for sample; byte ranges return 206/416 correctly and WAV export matches playback. Chinese/space paths preserve two immutable Codex app snapshots. Action progress, result links, agenda persistence and stale-version 409 responses pass. |
+| Build | Production web build and Windows x64 NSIS packaging pass, including the bundled Node/SDK dependency check. |
+| Installed application | Updated the per-user installation outside the repository. With only System32 on `PATH`, repeated the real window, focus, drag, zoom, capture-visibility, Ask and meeting-control checks. The pet's Quick start captured synthetic playback through real WASAPI and bundled Whisper, producing the expected English passage. The isolated app exited normally with no renderer errors. |
+
+Codex app preparation uses `CHUMI_NO_LAUNCH=1`; the installed Windows `codex://` registration is present, but a real composer and model send were not exercised. Other Windows hardware, full-screen call applications and third-party screen-sharing tools remain separate checks.
+
 ## Screenshots and footage after the answer-width fix — 2026-10-25
 
 680992c removed the 35em cap on answer paragraphs, so answers now fill their card.

@@ -1,10 +1,10 @@
 # Desktop pet
 
-Chumi.app (macOS) can keep a small Chumi in the corner of your screen, with a toolbar and the latest answer under
+The Chumi desktop app on macOS and Windows can keep a small Chumi in the corner of your screen, with a toolbar and the latest answer under
 it, so you can follow a meeting without switching to Chumi's window. It floats above other windows, including a
 full-screen Zoom call.
 
-Turn it on or off in **Settings → Desktop pet**, or with Window → Desktop Pet in the menu bar.
+Turn it on or off in **Settings → Desktop pet**, or with Window → Desktop Pet in the macOS menu bar (**窗口 → 桌宠** on Windows).
 
 ## Settings → Desktop pet
 
@@ -79,19 +79,20 @@ Window → Desktop Pet.
   to whatever is underneath.
 - It never takes focus, so clicking it does not pull you out of your call or slides. The one exception is the ask
   box, which takes the keyboard while it is open and hands it back when it closes.
-- ⌘H hides Chumi's window but leaves the pet.
+- On macOS, ⌘H hides Chumi's window but leaves the pet. On Windows, minimizing the main window leaves the pet; closing the main window exits Chumi.
 - When the cards grow near the bottom of the screen, the panel slides up to fit and returns when they shrink.
 - **Screen sharing:** by default the pet is left out of screen shares and recordings, so a shared screen in a lab
   meeting does not show *Here's what you missed!*. macOS honours this for most capture tools, but some newer ones may
   still capture it. To record the pet on purpose, turn on *Show the pet in screen shares and recordings*.
 
-The Windows app does not have the pet yet.
+On Windows, capture visibility uses Electron's [content protection](https://www.electronjs.org/docs/latest/api/browser-window#winsetcontentprotectionenable) (`WDA_EXCLUDEFROMCAPTURE`). Ordinary interaction leaves the foreground window focused; opening Ask temporarily enables keyboard focus. Position is remembered and restored to the primary display if its previous display is removed.
 
 ## How it works
 
 | Piece | What it does |
 | --- | --- |
 | `native/app/PetPanel.swift` | A borderless, non-activating, transparent panel that shows `pet.html` at the page's height and the size from Settings (`pageZoom`). It drags the character, forwards taps, builds the right-click menu, gives the toolbar and cards normal web clicks, and turns click-through on and off as the cursor moves |
+| `native/windows/desktop/pet-panel.cjs`, `pet-preload.cjs` | The Electron window for the same page: isolated zoom, cursor and drag events, click-through regions, native menu, capture protection and a narrow IPC bridge. The page and the main window share the saved continuation destination |
 | `pet` in Settings (`server/settings.ts`) | On/off, size, toolbar, cards, bubbles and screen shares. The page reads them and tells the panel whether to show, its zoom and whether capture may see it, so Settings, the pet's menu and Window → Desktop Pet stay in step |
 | `web/pet.html`, `web/src/pet/main.ts` | The page: subscribes to `/api/events` (`live`, `level`, `segment`, `ai`, `ai-delta`, `notice`, `session-ended`, `session-deleted`) and tells the panel its height and clickable areas |
 | `web/src/pet/companion.ts`, `recent.ts`, `pet.css` | The toolbar, ask box and cards. They call the same endpoints as Chumi's window (`/api/session/quick-start`, `pause`, `resume`, `end`, `/api/ai/catchup`, `/api/ai/ask`) |

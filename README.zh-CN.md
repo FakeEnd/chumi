@@ -116,7 +116,7 @@ curl -fsSL https://raw.githubusercontent.com/FakeEnd/chumi/main/scripts/install.
 - **手动安装：** `git clone https://github.com/FakeEnd/chumi.git && cd chumi && bash scripts/setup.sh`。[安装指南](docs/install.zh-CN.md)介绍了全部选项（包括用于中国大陆下载加速的 `--mirror`）、权限设置、常见问题和卸载方法。
 - **检查安装：** 运行 `npm run doctor`，查看缺失组件及对应的修复命令。
 - **在浏览器中使用：** 运行 `npm start`，然后打开[本地页面](http://127.0.0.1:4777)。
-- **Windows（桌面预览版）：** 安装包自带麦克风和电脑声音采集、本地语音识别和 Codex，已在 Windows 11 上通过真实的端到端验证。见 [docs/windows.md](docs/windows.md)。
+- **Windows（桌面预览版）：** 安装包自带麦克风和电脑声音采集、本地语音识别、Codex 和桌宠，并包含共享的录音、交接和项目进度功能。Windows 11 验证记录与构建方法见 [docs/windows.md](docs/windows.md)。
 - **iPhone（开发原型）：** [`ios/`](ios/README.zh-CN.md) 里的原生 SwiftUI 工程支持手机录音、本地 Apple Speech 转写，以及配对 Mac 后的会议问答。需要完整 Xcode，尚未完成 iOS 编译和真机验证。见 [iPhone 开发指南](ios/README.zh-CN.md)。
 
 ## 选择 AI
