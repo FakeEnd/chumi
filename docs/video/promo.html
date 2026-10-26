@@ -417,7 +417,7 @@ const B = {
   hDialog: box(G.handoff?.dialog, [200, 60, 960, 740]), hItem: box(G.handoff?.item, [230, 230, 900, 120]), hOrigin: box(G.handoff?.origin, [240, 240, 140, 24]),
   hEvidence: box(G.handoff?.evidence, [240, 320, 200, 24]), hCont: box(G.handoff?.cont, [960, 760, 190, 36]),
   hPlace: box(G.handoff?.place, [700, 770, 250, 30]),
-  pcToggle: box(G.pc?.toggle, [1150, 300, 130, 26]), pcCard: box(G.pc?.card, [904, 400, 436, 440]), pcSources: box(G.pc?.sources, [912, 430, 200, 24]), pcMeta: box(G.pc?.meta, [904, 412, 436, 12]),
+  pcToggle: box(G.pc?.toggle, [1150, 300, 130, 26]), pcCard: box(G.pc?.card, [904, 400, 436, 440]), pcSources: box(G.pc?.sources, [912, 430, 200, 24]),
 };
 const R = {
   hDialog: focus(B.hDialog, .98), hItem: focus([B.hItem[0] - 20, B.hItem[1] - 30, B.hItem[2] + 40, B.hItem[3] + 60], .95),
@@ -427,10 +427,9 @@ const R = {
 };
 const center = (r) => [r[0] + r[2] / 2, r[1] + r[3] / 2];
 /** Chumi's answer column from page y `top` down, its left edge in the gap between the columns. `card` is the
- *  column's card in page CSS px. Fitted to the card's text (at most 35em wide), not its full width, so the view is
- *  not half empty on the right; `full` fits the whole card, for a view whose chips and tags run the full width. */
-function column(card, top, full = false) {
-  const z = VW / Math.min(card[2] + 20, full ? Infinity : 640);
+ *  column's card in page CSS px; the view fits its whole width, as the answer's lines do. */
+function column(card, top) {
+  const z = VW / (card[2] + 20);
   return { z, x: clamp(-(card[0] - 10) * z, VW - IW * z, 0), y: clamp(-top * z, VH - IH * z, 0) };
 }
 // The streaming answer as the recorder tracked it, ten times a second: [clip time, top, bottom] in captured px (2×).
@@ -797,10 +796,9 @@ window.render = function (t) {
     setShots('foot', 'pc', AGENT.beats.at(-1).app ? 1 : ease(seg(u, 33.0, 33.4)));
     $('capp').style.opacity = fromApp; $('capp').style.transform = 'none';
     if (fromApp > 0) waits.push(drawCapp(CA_KEYS.at(-1)[0]));
-    // The Ask box across the column's width (its chips run that wide), from just below the toolbar row (wider than the
-    // column, so it would be cut at the edge); then the answer fitted to its text, from the row under the question (the
-    // question's level tags sit at the card's right edge, outside a view that size).
-    const pcAsk = column(B.pcCard, B.pcToggle[1] - 70, true), pcCard = column(B.pcCard, B.pcMeta[1] - 4);
+    // The Ask box, from just below the toolbar row (wider than the column, so it would be cut at the edge); then the
+    // answer, from its question down.
+    const pcAsk = column(B.pcCard, B.pcToggle[1] - 70), pcCard = column(B.pcCard, B.pcCard[1] - 14);
     v = mix(pcAsk, pcCard, ease(seg(u, 35.0, 36.4)));
     if (u > 33.6 && u < 34.9) hl = hlBox(v, B.pcToggle, fade(u, 33.7, 34.0, 34.5, 34.9));
     if (u > 36.4) hl = hlBox(v, B.pcSources, fade(u, 36.6, 36.9, 39.2, 39.6));

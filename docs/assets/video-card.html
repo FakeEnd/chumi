@@ -1,0 +1,50 @@
+<!doctype html>
+<!--
+  Source for the README's two video cards: a frame of the video, a play button and its title.
+  scripts/make-banner.sh renders them with the frame passed as ?bg=…  Variants: ?video=tour|pet & ?lang=en|zh
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { width: 1280px; height: 720px; overflow: hidden; background: #0b0e1d; -webkit-font-smoothing: antialiased;
+    font-family: -apple-system, "SF Pro Display", "PingFang SC", "Helvetica Neue", Arial, sans-serif; }
+  .card { position: relative; width: 1280px; height: 720px; overflow: hidden; }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(8,10,26,0) 50%, rgba(8,10,26,.6) 74%, rgba(8,10,26,.94) 100%); }
+  .label { position: absolute; left: 52px; right: 52px; bottom: 44px; color: #fff; display: flex; align-items: center; gap: 28px; }
+  .play { flex: none; width: 112px; height: 112px; border-radius: 50%;
+    background: rgba(255,255,255,.95); box-shadow: 0 16px 40px rgba(10,12,40,.5), 0 0 0 9px rgba(255,255,255,.16); display: grid; place-items: center; }
+  .play svg { width: 46px; height: 46px; margin-left: 7px; }
+  .title { font-size: 46px; font-weight: 780; letter-spacing: -.8px; line-height: 1.1; }
+  .sub { margin-top: 10px; font-size: 24px; font-weight: 560; color: rgba(225,229,255,.82); }
+  .sub b { display: inline-block; padding: 3px 12px; margin-right: 12px; border-radius: 999px; background: rgba(143,139,255,.28);
+    border: 1px solid rgba(170,166,255,.45); color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; }
+  html[lang="zh"] .title { letter-spacing: 0; }
+</style>
+</head>
+<body>
+<div class="card">
+  <img class="bg" id="bg" alt="">
+  <div class="shade"></div>
+  <div class="label">
+    <div class="play"><svg viewBox="0 0 24 24"><path d="M6 3.8v16.4a1 1 0 0 0 1.5.86l13.2-8.2a1 1 0 0 0 0-1.72L7.5 2.94A1 1 0 0 0 6 3.8z" fill="url(#g)"/>
+      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f46e5"/><stop offset="1" stop-color="#0e9fb8"/></linearGradient></defs></svg></div>
+    <div><div class="title" id="title"></div><div class="sub" id="sub"></div></div>
+  </div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const lang = q.get('lang') === 'zh' ? 'zh' : 'en', video = q.get('video') === 'pet' ? 'pet' : 'tour';
+  document.documentElement.lang = lang;
+  const T = {
+    tour: { en: ['The tour', 'From one meeting to working code, in the real app'], zh: ['介绍视频', '从一场组会到写进代码，全程真实界面'] },
+    pet: { en: ['The desktop pet', 'It listens with you, right beside your call'], zh: ['桌宠', '在通话旁边陪你听会'] },
+  }[video][lang];
+  document.getElementById('bg').src = q.get('bg');
+  document.getElementById('title').textContent = T[0];
+  document.getElementById('sub').innerHTML = `<b>${q.get('secs') ?? ''}</b>${T[1]}`;
+</script>
+</body>
+</html>
