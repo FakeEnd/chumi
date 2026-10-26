@@ -1,5 +1,21 @@
 # Verification log
 
+## DeepSeek Harness on Windows — 2026-10-26
+
+Integrated the Mac implementation from PR #30 into the Windows desktop branch. DSH 0.2.1-rc.3 is installed in a custom folder, outside `PATH`.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 333 tests: 326 pass, 7 existing platform skips, 0 failures. |
+| Discovery and Unicode | Finds the installed `dsh.cmd` through its uninstall entry and runs `--version`. Registry queries use a child UTF-8 code page: a read-only comparison with Windows' Unicode registry API confirmed that default `reg.exe` output on this machine is GBK and would corrupt a Chinese folder name. |
+| Real CLI, stand-in | Connect, MCP read and Disconnect all pass in a temporary home; the model receives all seven Chumi tools and the read is logged as `dsh-mcp-client`. |
+| Real credentials | The supplied-key `--real` trial passes. Separately, Chumi's actual Connect and read-check routes pass with `DEEPSEEK_API_KEY` absent, using the key already saved by the desktop app. Original patch and backup bytes are restored after the trial. |
+| Continue and clipboard | The actual Continue route copies the complete 538-character instruction, including the Chinese project path, and brings the already-running Harness window forward. Snapshot and clipboard agree. All five original clipboard formats are restored afterwards. |
+| Full agent handoff | A real read-only headless run, using the saved desktop key and DeepSeek Flash with high effort, reads the handoff, original passages and project README, then proposes a Chinese plan. MCP logs contain `get_handoff` and `get_passages` for the same meeting/revision. Completed work is not proposed again; project file hashes stay unchanged. |
+| Actual Electron UI | In an isolated production-page run, DeepSeek Harness appears in the selector, instructions and feedback are Chinese, and changing the destination updates the pet immediately. Continue saves a new immutable snapshot. This UI run uses `CHUMI_NO_LAUNCH=1`; the actual clipboard and app-opening checks are separate above. No renderer errors. |
+
+The full receiving-agent run uses the real CLI and MCP path. Starting a new chat and pasting in the Harness GUI remains a separate manual check; the existing desktop conversations were not changed.
+
 ## Windows mainline catch-up and desktop pet — 2026-10-26
 
 Started from main `6578a45` on Windows 11, with Node 24.21.0 and Electron 44.7.0. All trial data is isolated from the user's meetings; AI responses use the offline provider.

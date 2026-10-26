@@ -46,7 +46,9 @@ Chumi bundles the official Codex CLI so new users can sign in and use it without
 
 **Continue in Codex app** prepares an immutable handoff file and asks Windows to open the installed app's `codex://` handler with a prefilled composer. The user still clicks Send in Codex. **Copy instructions** remains available. Action progress, result links and the next-meeting project brief use the same workflow as macOS. Saved audio plays from transcript lines and exports as WAV on Windows.
 
-DeepSeek Harness is found through `dsh` on `PATH` or the install folder recorded in its uninstall entry (`resources\runtime\cli\bin\dsh.cmd` there). Its settings live in `%USERPROFILE%\.dsh` unless `DSH_HOME` is set. To continue a handoff there, Chumi's server copies the instruction with PowerShell's `Set-Clipboard` and opens `dsh://open` with `explorer.exe` itself, so the desktop shell's link filter is not involved. This path was written on a Mac and has not been run on Windows yet.
+DeepSeek Harness is found through `dsh` on `PATH` or the install folder recorded in its uninstall entry (`resources\runtime\cli\bin\dsh.cmd` there), including folders with Chinese characters. Its settings live in `%USERPROFILE%\.dsh` unless `DSH_HOME` is set. **Connect** registers Chumi; **Test a real agent read** can use the API key already saved in Harness, without setting an environment variable. This was verified with a real model on Windows.
+
+To continue there, Chumi copies a one-line instruction and opens Harness. Open the project folder, start a new session and paste. The snapshot preserves the reviewed handoff; its original evidence remains available through MCP. Copying Chinese text and bringing the existing app forward are verified, as is a full read-only CLI handoff that reads the evidence and proposes a plan. Pasting into a new Harness GUI chat remains a manual check. See [verification.md](verification.md).
 
 ## Build from source (developers)
 
