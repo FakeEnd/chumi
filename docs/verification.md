@@ -13,6 +13,7 @@ Integrated the Mac implementation from PR #30 into the Windows desktop branch. D
 | Continue and clipboard | The actual Continue route copies the complete 538-character instruction, including the Chinese project path, and brings the already-running Harness window forward. Snapshot and clipboard agree. All five original clipboard formats are restored afterwards. |
 | Full agent handoff | A real read-only headless run, using the saved desktop key and DeepSeek Flash with high effort, reads the handoff, original passages and project README, then proposes a Chinese plan. MCP logs contain `get_handoff` and `get_passages` for the same meeting/revision. Completed work is not proposed again; project file hashes stay unchanged. |
 | Actual Electron UI | In an isolated production-page run, DeepSeek Harness appears in the selector, instructions and feedback are Chinese, and changing the destination updates the pet immediately. Continue saves a new immutable snapshot. This UI run uses `CHUMI_NO_LAUNCH=1`; the actual clipboard and app-opening checks are separate above. No renderer errors. |
+| Installed registration | The final installed build registers its bundled Node and installed MCP server paths. With only System32 on `PATH` and no environment key, a real saved-key read succeeds in the installed Chumi store: registered, current and verified. |
 
 The full receiving-agent run uses the real CLI and MCP path. Starting a new chat and pasting in the Harness GUI remains a separate manual check; the existing desktop conversations were not changed.
 
