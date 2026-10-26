@@ -17,14 +17,15 @@
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
+<!-- Each card links to its video as uploaded to GitHub (dragged into a comment), and GitHub shows that link as its own player; it only offers MP4s stored in the repo as downloads. scripts/make-banner.sh makes each card its video's first frame, so the players rest on the cards. After re-rendering, run it, upload the four MP4s again and replace the links here and in README.zh-CN.md. -->
 <table align="center">
   <tr>
-    <td width="420"><a href="docs/assets/chumi-promo.mp4"><img src="docs/assets/card-tour.jpg" width="420" alt="Play the 89-second tour: from one meeting to working code, in the real app"></a></td>
-    <td width="420"><a href="docs/assets/chumi-pet.mp4"><img src="docs/assets/card-pet.jpg" width="420" alt="Play the 69-second desktop-pet video: it listens with you beside your call"></a></td>
+    <td width="420"><a href="https://github.com/user-attachments/assets/e1b6437f-6c71-4a74-af53-8a2820997daf"><img src="docs/assets/card-tour.jpg" width="420" alt="Play the 89-second tour: from one meeting to working code, in the real app"></a></td>
+    <td width="420"><a href="https://github.com/user-attachments/assets/82eb1067-9354-4e0e-9508-450eec2c0bfa"><img src="docs/assets/card-pet.jpg" width="420" alt="Play the 69-second desktop-pet video: it listens with you beside your call"></a></td>
   </tr>
   <tr>
-    <td align="center"><sub>With music · faster cuts: <a href="docs/assets/chumi-promo-1.5x.mp4?raw=1">59 s</a>, <a href="docs/assets/chumi-promo-2x.mp4?raw=1">45 s</a> · <a href="docs/assets/chumi-promo-zh.mp4">中文</a></sub></td>
-    <td align="center"><sub>Chumi.app's desktop pet · <a href="docs/desktop-pet.md">how it works</a> · <a href="docs/assets/chumi-pet-zh.mp4">中文</a></sub></td>
+    <td align="center"><sub>With music · <a href="https://github.com/user-attachments/assets/68e90c64-7d3b-45d2-a398-a71004f0182b">中文</a> · faster cuts to download: <a href="docs/assets/chumi-promo-1.5x.mp4?raw=1">59 s</a>, <a href="docs/assets/chumi-promo-2x.mp4?raw=1">45 s</a></sub></td>
+    <td align="center"><sub>Chumi.app's desktop pet · <a href="docs/desktop-pet.md">how it works</a> · <a href="https://github.com/user-attachments/assets/9ca3c9d6-2b5c-4227-bb9b-6ee339c41413">中文</a></sub></td>
   </tr>
 </table>
 
@@ -230,7 +231,7 @@ npm run build:tools                            # rebuild the window-capture and 
 2. Agent loop, once: `node scripts/demo-shoot.ts --prepare-agent --project-folder DIR` drafts and confirms a handoff for a project folder and keeps its data folder. Run Claude Code (or Codex) in `DIR` with that prompt and Chumi's MCP server pointed at the kept data folder, and let mybot index the session.
 3. Screenshots: `node scripts/demo-shoot.ts --project-folder DIR` (add `--lang zh` for the Chinese set in `docs/assets/screens/zh/`). It uses about 15 requests on your Claude plan, or on your ChatGPT plan with `--provider codex`.
 4. Live footage: `node scripts/record-footage.ts` (and `--lang zh`) records the real window and desktop pet while the answers stream in, into `dist/footage/`. It rebuilds the web UI first, then uses about 6 requests (Codex by default; `--provider claude-cli` for your Claude plan). `--only agent --project-folder DIR` records continuing a confirmed handoff (nothing is actually opened) and keeps its data folder for a real agent run in `DIR`.
-5. Video: `node scripts/make-video.ts` renders `docs/video/promo.html`; add `--lang zh`, or `--speed 1.5` / `--speed 2` for the faster cuts. `node scripts/make-pet-video.ts` renders the desktop-pet video (`--lang en` for English). Both need the footage from step 4. Then `bash scripts/make-banner.sh` re-renders the banner and the two video cards.
+5. Video: `node scripts/make-video.ts` renders `docs/video/promo.html`; add `--lang zh`, or `--speed 1.5` / `--speed 2` for the faster cuts. `node scripts/make-pet-video.ts` renders the desktop-pet video (`--lang en` for English). Both need the footage from step 4. Then `bash scripts/make-banner.sh` re-renders the banner and the two video cards, and makes each card its video's first frame. Upload the four tour and pet MP4s to GitHub (drag them into a comment) and put their links on the cards: GitHub shows them as players.
 
 </details>
 
