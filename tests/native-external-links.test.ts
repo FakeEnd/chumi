@@ -69,7 +69,8 @@ test('Windows navigation, new windows and backend requests use the actual guarde
       dialog: { showErrorBox() {} },
     };
     const context = vm.createContext({
-      require: (name: string) => name === 'electron' ? electron : require(name),
+      // pet-panel.cjs would load the real electron package, which downloads Electron where it is not installed.
+      require: (name: string) => name === 'electron' ? electron : name === './pet-panel.cjs' ? { PetPanel: class {} } : require(name),
       __dirname: resolve('native/windows/desktop'), URL, console,
       process: { env: { CHUMI_DATA_DIR: temp }, argv: [] },
       setTimeout, clearTimeout,
