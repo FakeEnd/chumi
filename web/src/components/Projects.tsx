@@ -83,7 +83,7 @@ export function AgentsTab() {
   useEffect(load, []);
   const act = async (a: AgentStatus, action: 'connect' | 'disconnect' | 'verify') => {
     const agent = a.agent;
-    // opencode, Qwen Code and Antigravity use whatever model account the user set up in them, so Chumi can't keep the check free.
+    // opencode, Qwen Code, Antigravity and DeepSeek Harness use whatever model account the user set up in them, so Chumi can't keep the check free.
     const consent = action === 'verify' && a.billing === 'unknown';
     if (consent && !confirm(t('{name} uses the model account you configured in it, so Chumi cannot tell whether this check is free or billed. Send one small request through {name}?', { name: a.name }))) return;
     setBusy(`${agent}:${action}`); setError(null);
@@ -96,7 +96,7 @@ export function AgentsTab() {
   };
   return (
     <section>
-      <p className="small">{t('Connect Chumi to your coding agents (Claude Code, Codex, opencode, Qwen Code, Antigravity) so an agent working in a project folder can read that project\'s meetings, confirmed handoffs, original transcript passages and screen captures. Agents read only when they call Chumi\'s tools; Chumi never sends meetings anywhere on its own.')}</p>
+      <p className="small">{t('Connect Chumi to your coding agents (Claude Code, Codex, opencode, Qwen Code, Antigravity, DeepSeek Harness) so an agent working in a project folder can read that project\'s meetings, confirmed handoffs, original transcript passages and screen captures. Agents read only when they call Chumi\'s tools; Chumi never sends meetings anywhere on its own.')}</p>
       {error && <p className="error-text small">{error}</p>}
       {!info && !error && <p className="muted small">{t('Checking…')}</p>}
       {info && (
@@ -131,7 +131,7 @@ export function AgentsTab() {
               </div>
             );
           })}
-          <p className="muted small">{tn('Connecting adds a server named {name} to the agent\'s user settings. You can also do it yourself: run the command in Terminal, or for opencode add the entry to the file shown. For Antigravity, Chumi also pre-approves only its check tool in the settings file shown, because Antigravity cannot ask for approval during the read check.', { name: <code>chumi</code> })}</p>
+          <p className="muted small">{tn('Connecting adds a server named {name} to the agent\'s user settings. You can also do it yourself: run the command in Terminal, or for opencode add the entry to the file shown. For Antigravity, Chumi also pre-approves only its check tool in the settings file shown, because Antigravity cannot ask for approval during the read check. For DeepSeek Harness, Chumi adds the block shown to the file shown, which every DeepSeek Harness profile reads, the desktop app included.', { name: <code>chumi</code> })}</p>
           {Object.entries(info.commands).map(([k, cmd]) => <pre key={k} className="cmd small"><span className="muted">{AGENT_NAMES[k as AgentId]}</span>{'\n'}{cmd}</pre>)}
           <h3>{t('Other routes')}</h3>
           <p className="small">{info.exports.mybot ? t('mybot export: {n} file(s) in {dir}. Whether mybot has indexed them cannot be checked from Chumi.', { n: info.exports.mybot.files, dir: info.exports.mybot.dir }) : t('mybot export is off (Integrations).')}</p>

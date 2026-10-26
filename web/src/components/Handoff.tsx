@@ -196,6 +196,8 @@ export function HandoffDialog() {
       } else if (!r.launched) {
         setManualPrompt(r.prompt); setDeliveryError(t('The destination could not be opened. You can copy the instructions below.'));
       } else if (agent === 'codex-app') setDelivered(t('Requested Codex app to open the handoff. Review it there, then click Send to start.'));
+      else if (r.paste?.copied) setDelivered(t('Opened {agent} and copied a one-line instruction. Open the project folder there, start a new session and paste it.', { agent: AGENT_NAMES[agent as AgentId] }));
+      else if (r.paste) { setManualPrompt(r.paste.text); setDelivered(t('Opened {agent}. Copy the instruction below, open the project folder there, start a new session and paste it.', { agent: AGENT_NAMES[agent as AgentId] })); }
       else setDelivered(t('Opened {agent} in Terminal in the project folder, starting from this handoff.', { agent: AGENT_NAMES[agent] }));
     } catch (e) { setDeliveryError(e instanceof Error ? e.message : t('Could not open the handoff destination.')); }
     finally { pendingDelivery.current = false; setBusy(false); }
@@ -245,6 +247,7 @@ export function HandoffDialog() {
       {h.freshness.stale && changes(h).length > 0 && <div className="warn-box small">{confirmed ? t('The meeting changed since you confirmed:') : t('The meeting changed since this draft:')} {changes(h).join(' · ')}</div>}
       {h.error && <p className="error-text small">{h.error}</p>}
       {confirmed && selected === 'codex-app' && <p className="small muted">{t('In Codex app, review the prepared handoff and click Send to begin.')}</p>}
+      {confirmed && selected === 'deepseek-harness' && <p className="small muted">{t('DeepSeek Harness cannot be handed a folder or a message. Chumi saves the handoff, copies a one-line instruction that points to it, and opens the app; you open the project folder there and paste it into a new session.')}</p>}
       {deliveryError && <p className="error-text small" role="alert">{t(deliveryError)}</p>}
       {manualPrompt && <label className="field"><span>{t('Handoff instructions')}</span><textarea readOnly rows={8} value={manualPrompt} onFocus={(e) => e.currentTarget.select()} /></label>}
       {generating && <div className="pending"><span className="spinner" /> {t('Drafting from the transcript…')}</div>}

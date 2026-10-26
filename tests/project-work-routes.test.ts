@@ -16,7 +16,7 @@ function routeSource(start: string, end: string): string {
   return main.slice(main.indexOf(start), main.indexOf(end, main.indexOf(start)));
 }
 class HttpError extends Error { status: number; constructor(status: number, message: string) { super(message); this.status = status; } }
-function fixture(openDesktop: (...args: string[]) => Promise<unknown> = async () => ({})) {
+function fixture(openDesktop: (...args: string[]) => Promise<unknown> = async () => ({}), openDsh: (...args: string[]) => Promise<unknown> = async () => ({ instruction: 'Read the handoff file.', copied: true })) {
   const store = new Store(':memory:');
   store.createProject({ id: 'project', name: 'Synthetic project', workspace: tmpdir() });
   store.createSession({ id: 'meeting', title: 'Synthetic meeting', type: 'lab_meeting', audio_source: 'mic' });
@@ -36,7 +36,7 @@ function fixture(openDesktop: (...args: string[]) => Promise<unknown> = async ()
     readJson: async (body: unknown) => body,
     broadcast: (event: string) => events.push(event), syncMybot: () => events.push('mybot'),
     chumiLink: () => () => null, agents: { launch: (...args: string[]) => terminal.push(args) }, launchCodexDesktop: openDesktop,
-    NO_LAUNCH: false, log: () => {},
+    continueInDeepSeekHarness: openDsh, NO_LAUNCH: false, log: () => {},
   };
   const code = [
     routeSource("route('GET', '/api/projects/:id/brief'", "route('POST', '/api/projects',"),
@@ -74,6 +74,20 @@ test('a desktop open failure preserves delivery state and copy remains available
     const copied = await f.call('POST /api/handoffs/:id/continue', 'handoff', { agent: 'copy' });
     assert.equal(copied.launched, false);
     assert.match(copied.prompt, /Run the comparison/);
+    assert.deepEqual(f.terminal, []);
+  } finally { f.store.close(); }
+});
+
+test('DeepSeek Harness continues through its app with an instruction to paste, never through a terminal', async () => {
+  const calls: string[][] = [];
+  const f = fixture(undefined, async (...args) => { calls.push(args); return { instruction: 'Read the saved handoff.', copied: false }; });
+  try {
+    const r = await f.call('POST /api/handoffs/:id/continue', 'handoff', { agent: 'deepseek-harness' });
+    assert.equal(r.launched, true);
+    assert.deepEqual(r.paste, { text: 'Read the saved handoff.', copied: false }, 'the dialog shows the instruction when the clipboard failed');
+    assert.equal(calls.length, 1);
+    assert.match(calls[0][2], /Run the comparison/);
+    assert.equal(f.store.getHandoff('handoff')!.delivered_via, 'deepseek-harness');
     assert.deepEqual(f.terminal, []);
   } finally { f.store.close(); }
 });

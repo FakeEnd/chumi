@@ -1,5 +1,5 @@
 /**
- * What differs between macOS and Windows: starting command-line tools, notifications, the folder picker,
+ * What differs between macOS and Windows: starting command-line tools, notifications, the folder picker, the clipboard,
  * privacy settings, the system language and opening an agent terminal.
  */
 import { execFile, execFileSync, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
@@ -60,6 +60,22 @@ export function chooseFolder(prompt: string): Promise<string | null> {
   }));
 }
 const psString = (s: string) => `'${s.replace(/'/g, "''")}'`;
+
+/**
+ * Puts text on the clipboard from the server, for a destination that opens another app: the page loses focus (and with
+ * it clipboard access) once that app comes up, and the desktop pet has no page to copy from.
+ */
+export function copyText(text: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = IS_WIN
+      ? spawn('powershell.exe', ['-NoProfile', '-Command', '[Console]::InputEncoding = [Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())'], { windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] })
+      // pbcopy reads the locale's encoding, which can be MacRoman when Chumi starts outside a shell.
+      : spawn('/usr/bin/pbcopy', [], { env: { ...process.env, LC_CTYPE: 'UTF-8' }, stdio: ['pipe', 'ignore', 'ignore'] });
+    child.on('error', reject);
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`Copying to the clipboard failed (exit ${code}).`))));
+    child.stdin!.end(text);
+  });
+}
 
 export function openExternalUrl(url: string): Promise<void> {
   if (DESKTOP) return desktopRequest<void>('open-url', { url });

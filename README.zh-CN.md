@@ -35,7 +35,7 @@
 
 - **会议进行中：** 一键回顾讨论，按你的个人背景解释术语，还能就屏幕上的幻灯片提问。回答会引用对应的发言时间，便于核对原话。桌宠可以待在通话窗口旁边，用它的工具栏做同样的事。
 - **会议结束后：** 阅读结构化总结，从任意转写行回放录音，并审阅包含决定和行动项的交接内容。
-- **在你的项目里：** Codex app、Claude Code、Codex、opencode、Qwen Code 或 Antigravity 继续处理后续工作，通过 Chumi 的 MCP 服务读取原始依据。
+- **在你的项目里：** Codex app、Claude Code、Codex、opencode、Qwen Code、Antigravity 或 DeepSeek Harness 继续处理后续工作，通过 Chumi 的 MCP 服务读取原始依据。
 - **下次开会：** 回答可以参考这些智能体此前的工作记录。
 
 AI 功能可使用你已有的 ChatGPT 或 Claude 订阅，也可以使用本地模型。默认情况下，音频不会离开你的 Mac。
@@ -147,7 +147,7 @@ curl -fsSL https://raw.githubusercontent.com/FakeEnd/chumi/main/scripts/install.
 ```mermaid
 flowchart LR
   M["会议<br/>实时转写 · 帮我跟上<br/>按你的水平解释"] --> H["经审阅的交接内容<br/>决定 · 行动项 · 待解决问题<br/>每条都有出处"]
-  H --> A["你的编程智能体<br/>Codex app · Claude Code · Codex · opencode · Qwen Code · Antigravity<br/>通过 MCP 读取依据"]
+  H --> A["你的编程智能体<br/>Codex app · Claude Code · Codex · opencode · Qwen Code · Antigravity · DeepSeek Harness<br/>通过 MCP 读取依据"]
   A --> P["项目记忆<br/>智能体会话<br/>由 mybot 索引"]
   P -- "项目上下文" --> M
 ```

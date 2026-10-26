@@ -43,6 +43,8 @@ Chumi bundles the official Codex CLI so new users can sign in and use it without
 
 **Continue in an agent** opens its console in the chosen project folder. The first message points to the reviewed handoff file; the agent can retrieve original passages and screenshots over MCP. Details are in [agents.md](agents.md).
 
+DeepSeek Harness is found through `dsh` on `PATH` or the install folder recorded in its uninstall entry (`resources\runtime\cli\bin\dsh.cmd` there). Its settings live in `%USERPROFILE%\.dsh` unless `DSH_HOME` is set. To continue a handoff there, Chumi's server copies the instruction with PowerShell's `Set-Clipboard` and opens `dsh://open` with `explorer.exe` itself, so the desktop shell's link filter is not involved. This path was written on a Mac and has not been run on Windows yet.
+
 ## Build from source (developers)
 
 Requirements: Python 3, Node 24 with npm, and MinGW-w64 `g++` on `PATH`. The build uses static C++ linking; the compiler is needed only on the build machine.
