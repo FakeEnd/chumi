@@ -10,7 +10,8 @@ import { SpeechService } from '../server/asr/speech.ts';
 import { WhisperServer } from '../server/asr/whisper.ts';
 import type { Spoken } from '../server/asr/language.ts';
 import { readWav } from '../server/audio/wav.ts';
-import { QWEN_MODEL_ID } from '../server/asr/models.ts';
+import { sherpaModelId } from '../server/asr/models.ts';
+import { isSherpaEngine, type LocalEngineId } from '../server/asr/engines.ts';
 import { MODELS_DIR, which } from '../server/paths.ts';
 
 interface Clip {
@@ -116,7 +117,7 @@ class EvalWhisperServer extends WhisperServer {
     if (!binary) throw new Error('whisper-server is not installed');
     if (!existsSync(this.modelPath)) throw new Error(`Model not found: ${this.modelPath}`);
     const port = await freePort();
-    if (port === 4777 || port === 8178) throw new Error('Reserved Chumi port');
+    if (port === 4777 || port === 4778 || port === 8178) throw new Error('Reserved Chumi port');
     Reflect.set(this, 'port', port);
     const args = ['-m', this.modelPath, '--host', '127.0.0.1', '--port', String(port), '-l', 'auto', '-t', String(this.threads), '-nth', '0.6'];
     if (process.env.CHUMI_ASR_CPU === '1') args.push('--no-gpu');
@@ -179,10 +180,10 @@ async function main(): Promise<void> {
     prior: { type: 'string', default: 'en' }, model: { type: 'string', default: 'ggml-large-v3-turbo-q8_0.bin' },
     limit: { type: 'string' }, out: { type: 'string' },
   } });
-  if (!values.manifest || !values.out) throw new Error('Usage: node scripts/asr-eval.ts --manifest <jsonl> --out <directory> [--engine whisper|qwen3 --threads N --glossary term1,term2 --lang zh|en|all --language auto|zh|en --guard on|off --prior zh|en --model <ggml> --limit N]');
+  if (!values.manifest || !values.out) throw new Error('Usage: node scripts/asr-eval.ts --manifest <jsonl> --out <directory> [--engine whisper|qwen3|sensevoice --threads N --glossary term1,term2 --lang zh|en|all --language auto|zh|en --guard on|off --prior zh|en --model <ggml> --limit N]');
   if (!['zh', 'en', 'all'].includes(values.lang) || !['auto', 'zh', 'en'].includes(values.language)
     || !['on', 'off'].includes(values.guard) || !['zh', 'en'].includes(values.prior)) throw new Error('Invalid language, guard or prior');
-  if (!['whisper', 'qwen3'].includes(values.engine)) throw new Error('Invalid engine');
+  if (!['whisper', 'qwen3', 'sensevoice'].includes(values.engine)) throw new Error('Invalid engine');
   const threads = Number(values.threads);
   if (!Number.isInteger(threads) || threads < 1 || threads > 16) throw new Error('Invalid threads');
   const glossary = values.glossary.split(',').map((s) => s.trim()).filter(Boolean);
@@ -196,7 +197,7 @@ async function main(): Promise<void> {
   writeFileSync(join(out, 'progress.jsonl'), '');
   const model = isAbsolute(values.model) || values.model.includes('/') || values.model.includes('\\') ? resolve(values.model) : values.model;
   const whisper = new EvalWhisperServer(model, threads);
-  const speech = new SpeechService(whisper, () => ({ engine: values.engine as 'whisper' | 'qwen3', threads, qwenCloud: { baseUrl: '', model: '' }, qwenLocal: { baseUrl: '', model: '' } }), () => false);
+  const speech = new SpeechService(whisper, () => ({ engine: values.engine as LocalEngineId, threads, qwenCloud: { baseUrl: '', model: '' }, qwenLocal: { baseUrl: '', model: '' } }), () => false);
   let currentCalls: Set<Int16Array> = new Set(), calls = 0, retried = false;
   const transcribe = speech.transcribe.bind(speech);
   speech.transcribe = async (samples, options) => {
@@ -245,7 +246,7 @@ async function main(): Promise<void> {
       const rows = results.filter((r) => r.lang === lang);
       return [summarize(rows, lang, 'all'), summarize(rows.filter((r) => r.dur_sec < 3), lang, 'under_3s')];
     });
-    const summary = { config: { ...values, manifest, model: values.engine === 'qwen3' ? join(MODELS_DIR, QWEN_MODEL_ID) : whisper.modelPath, threads, glossary, chineseScript: 'simplified' }, event_loop_max_delay_ms: eventLoopMaxDelayMs, groups };
+    const summary = { config: { ...values, manifest, model: isSherpaEngine(speech.engine) ? join(MODELS_DIR, sherpaModelId(speech.engine)) : whisper.modelPath, threads, glossary, chineseScript: 'simplified' }, event_loop_max_delay_ms: eventLoopMaxDelayMs, groups };
     writeFileSync(join(out, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
     writeFileSync(join(out, 'summary.md'), markdown(groups));
     console.log(markdown(groups));

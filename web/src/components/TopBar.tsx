@@ -63,7 +63,7 @@ export function ProviderBadge() {
 
 function AsrBadge() {
   const asr = useStore((s) => s.live?.asr);
-  const local = useStore((s) => !s.settings || s.settings.asr.engine === 'qwen3' || s.settings.asr.engine === 'whisper');
+  const local = useStore((s) => !s.settings || s.settings.asr.engine === 'qwen3' || s.settings.asr.engine === 'sensevoice' || s.settings.asr.engine === 'whisper');
   if (!asr) return null;
   const label = asr.state === 'ready' ? `${t('Speech')}${asr.latencyMs ? ` · ${(asr.latencyMs / 1000).toFixed(1)}s` : ''}${asr.backlogSec > 3 ? ` · ${t('{n}s behind', { n: asr.backlogSec })}` : ''}`
     : asr.state === 'starting' ? t('Speech: loading…') : asr.state === 'missing_model' || asr.state === 'missing_binary' ? t('Speech: not installed')

@@ -4,8 +4,8 @@ import type { SpeakerAnnotation, SpeakerView } from '../../shared/speakers.ts';
 import type { AgentId } from '../../shared/agents.ts';
 import type { Tag, Topic } from './pet/tags.ts';
 
-/** server/asr/engines.ts: 'qwen3' and 'whisper' run on this computer; the others are speech services. */
-export type SpeechEngineId = 'qwen3' | 'whisper' | 'elevenlabs' | 'qwen-cloud' | 'qwen-local';
+/** server/asr/engines.ts: 'qwen3', 'sensevoice' and 'whisper' run on this computer; the others are speech services. */
+export type SpeechEngineId = 'qwen3' | 'sensevoice' | 'whisper' | 'elevenlabs' | 'qwen-cloud' | 'qwen-local';
 
 export type Depth = 'quick' | 'standard' | 'deep';
 export type Effort = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';

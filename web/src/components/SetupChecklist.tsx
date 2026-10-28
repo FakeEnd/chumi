@@ -36,7 +36,7 @@ export function SetupChecklist() {
 
   if (!settings || settings.ui.setupDismissed) return null;
   const described = !!profile && !!(profile.background.trim() || profile.researchInterests.trim() || profile.domains.length);
-  const localSpeech = settings.asr.engine === 'qwen3' || settings.asr.engine === 'whisper';
+  const localSpeech = settings.asr.engine === 'qwen3' || settings.asr.engine === 'sensevoice' || settings.asr.engine === 'whisper';
   const steps: Step[] = [
     {
       id: 'speech', done: asr?.state === 'ready',

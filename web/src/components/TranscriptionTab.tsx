@@ -8,6 +8,7 @@ import { SpeechEngineSettings } from './SpeechEngineSettings.tsx';
 import { speechSettingsBusy } from '../speechSettings.ts';
 
 interface ModelRow {
+  engine?: 'qwen3' | 'sensevoice';
   id: string; name: string; sizeMB: number; speed: number; accuracy: number; minRamGB: number;
   note: { en: string; zh: string }; installed: boolean; active: boolean;
 }
@@ -66,7 +67,6 @@ export function TranscriptionTab() {
       {!list && <p className="muted small">{t('Loading…')}</p>}
       <ul className="model-list">
         {list?.models.map((m) => {
-          const qwen = m.id === 'qwen3-asr-0.6b-int8';
           const downloading = dl?.id === m.id;
           const pct = downloading && dl!.total ? Math.round((dl!.received / dl!.total) * 100) : 0;
           const tooBig = hw ? hw.memoryGB < m.minRamGB : false;
@@ -76,7 +76,7 @@ export function TranscriptionTab() {
                 <div className="model-name">
                   <b>{m.name}</b>
                   {m.id === list.recommended && <span className="tag">{t('Recommended for this computer')}</span>}
-                  {m.active && <span className="tag tag-ok">{qwen || settings.asr.engine === 'whisper' ? t('In use') : t('Backup')}</span>}
+                  {m.active && <span className="tag tag-ok">{m.engine || settings.asr.engine === 'whisper' ? t('In use') : t('Backup')}</span>}
                   {!m.active && m.installed && <span className="tag tag-muted">{t('Downloaded')}</span>}
                   {tooBig && <span className="tag tag-warn">{t('Needs {n} GB+ memory', { n: m.minRamGB })}</span>}
                 </div>
@@ -92,7 +92,7 @@ export function TranscriptionTab() {
                 {download?.id === m.id && download.status === 'error' && <div className="error-text small">{t('Download failed: {error}', { error: download.error ?? '' })}</div>}
               </div>
               <div className="model-actions">
-                {m.installed && !m.active && <button className="btn small primary" disabled={busySession} title={busySession ? t('End the current session before switching the speech model.') : ''} onClick={() => void S({ asr: qwen ? { engine: 'qwen3' } : { model: m.id } })}>{t('Use')}</button>}
+                {m.installed && !m.active && <button className="btn small primary" disabled={busySession} title={busySession ? t('End the current session before switching the speech model.') : ''} onClick={() => void S({ asr: m.engine ? { engine: m.engine } : { model: m.id } })}>{t('Use')}</button>}
                 {!m.installed && !downloading && (
                   <button className="btn small" disabled={!!dl} onClick={() => { if (confirm(t('Download {name} ({size}) from Hugging Face? It is saved on this computer.', { name: m.name, size: fmtSize(m.sizeMB) }))) void api(`/api/asr/models/${m.id}/download`, { body: {} }); }}>{t('Download')} · {fmtSize(m.sizeMB)}</button>
                 )}
@@ -146,6 +146,7 @@ export function TranscriptionTab() {
       <label className="field"><span>{t('Vocabulary hints (comma separated): improves spelling of technical terms and names')}</span>
         <textarea rows={3} value={glossary} onChange={(e) => setGlossary(e.target.value)} onBlur={() => S({ asr: { glossary: glossary.split(/[,，\n]+/).map((x) => x.trim()).filter(Boolean) } })} />
       </label>
+      {settings.asr.engine === 'sensevoice' && <p className="muted small">{t('SenseVoice does not support vocabulary hints. The glossary has no effect on this engine.')}</p>}
       <label className="field"><span>{t('CPU threads (more is faster up to the number of performance cores; {n} cores on this computer)', { n: hw?.cores ?? '?' })}</span><input type="number" min={2} max={16} value={settings.asr.threads} disabled={busySession} title={busySession ? t('Wait until recording and transcription finish before changing speech recognition settings.') : ''} onChange={(e) => S({ asr: { threads: Number(e.target.value) } })} /></label>
     </section>
   );

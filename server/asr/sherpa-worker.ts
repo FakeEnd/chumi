@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
+import { sherpaConfig } from './sherpa-config.ts';
+import type { SherpaEngineId } from './engines.ts';
 
 interface Stream {
   setOption(key: string, value: string): void;
@@ -8,8 +9,8 @@ interface Stream {
 }
 interface Recognizer {
   createStream(): Stream;
-  decodeAsync(stream: Stream): Promise<{ text: string }>;
-  getResult(stream: Stream): { text: string };
+  setConfig(config: unknown): void;
+  decodeAsync(stream: Stream): Promise<{ text: string; lang?: string }>;
 }
 interface Request { id: number; samples: Int16Array; language: string; hotwords: string }
 
@@ -17,27 +18,25 @@ try {
   const { OfflineRecognizer } = createRequire(import.meta.url)('sherpa-onnx-node') as {
     OfflineRecognizer: { createAsync(config: unknown): Promise<Recognizer> };
   };
-  const { dir, threads } = workerData as { dir: string; threads: number };
-  const recognizer = await OfflineRecognizer.createAsync({
-    featConfig: { sampleRate: 16000, featureDim: 128 },
-    modelConfig: {
-      qwen3Asr: {
-        convFrontend: join(dir, 'conv_frontend.onnx'), encoder: join(dir, 'encoder.int8.onnx'),
-        decoder: join(dir, 'decoder.int8.onnx'), tokenizer: join(dir, 'tokenizer'), maxNewTokens: 256,
-      },
-      tokens: '', numThreads: threads, provider: 'cpu', debug: 0,
-    },
-  });
+  const { engine, dir, threads } = workerData as { engine: SherpaEngineId; dir: string; threads: number };
+  const recognizer = await OfflineRecognizer.createAsync(sherpaConfig(engine, dir, threads));
+  let language = 'auto';
   let queue = Promise.resolve();
   parentPort!.on('message', (request: Request) => {
     queue = queue.then(async () => {
       try {
+        if (engine === 'sensevoice' && language !== request.language) {
+          recognizer.setConfig(sherpaConfig(engine, dir, threads, request.language));
+          language = request.language;
+        }
         const stream = recognizer.createStream();
-        stream.setOption('hotwords', request.hotwords);
-        if (request.language !== 'auto') stream.setOption('language', request.language === 'zh' ? 'Chinese' : 'English');
+        if (engine === 'qwen3') {
+          stream.setOption('hotwords', request.hotwords);
+          if (request.language !== 'auto') stream.setOption('language', request.language === 'zh' ? 'Chinese' : 'English');
+        }
         stream.acceptWaveform({ sampleRate: 16000, samples: Float32Array.from(request.samples, (s) => s / 32768) });
-        await recognizer.decodeAsync(stream);
-        parentPort!.postMessage({ id: request.id, text: recognizer.getResult(stream).text.trim() });
+        const result = await recognizer.decodeAsync(stream);
+        parentPort!.postMessage({ id: request.id, text: result.text.trim(), lang: result.lang });
       } catch (e) { parentPort!.postMessage({ id: request.id, error: (e as Error).message }); }
     });
   });

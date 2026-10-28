@@ -329,7 +329,7 @@ export class Store {
   }
   getSettings(): Settings {
     const settings = deepMerge(DEFAULT_SETTINGS, this.getKV('settings', {})) as Settings;
-    if (settings.asr.engine === 'whisper' && !settings.asr.engineSelected) settings.asr.engine = 'qwen3';
+    if (settings.asr.engine === 'whisper' && !settings.asr.engineSelected) settings.asr.engine = DEFAULT_SETTINGS.asr.engine;
     return settings;
   }
   saveSettings(s: Settings): Settings {
