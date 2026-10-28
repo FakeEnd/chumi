@@ -7,8 +7,11 @@ import type { SourceName } from '../audio/capture.ts';
 import { log } from '../util.ts';
 
 /** `session`: the session the audio was captured in, which may have ended (or been followed by another) by the time the text arrives. */
-/** language: 'auto' | 'en' | 'zh'. prior: the language a meeting most likely opens in (language.ts), used with 'auto'. */
-export interface TranscriberConfig { language: string; glossary: string[]; chineseScript: string; prior?: Spoken }
+/**
+ * language: 'auto' | 'en' | 'zh'. prior: the language a meeting most likely opens in (language.ts), used with 'auto'.
+ * guard: false turns the Mandarin/English policy off, so scripts/asr-eval.ts can measure detection without it.
+ */
+export interface TranscriberConfig { language: string; glossary: string[]; chineseScript: string; prior?: Spoken; guard?: boolean }
 
 export interface FinalPiece { session: string | null; source: SourceName; uttId: number; startSec: number; endSec: number; text: string; lang: string | null }
 
@@ -154,7 +157,7 @@ export class Transcriber extends EventEmitter<{
   }
 
   private async run(job: Job, generation: number): Promise<void> {
-    const { language, glossary, prior } = this.cfg();
+    const { language, glossary, prior, guard } = this.cfg();
     const durSec = job.utt.samples.length / 16000;
     const current = () => job.session === this.session;
     try {
@@ -162,7 +165,7 @@ export class Transcriber extends EventEmitter<{
       let res = await this.speech.transcribe(job.utt.samples, { language, prompt: prompt.text, glossary, timeoutMs: job.kind === 'final' ? 90000 : 20000 });
       if (generation !== this.generation) return;
       let lang = langCode(res.language);
-      if (language === 'auto') {
+      if (language === 'auto' && guard !== false) {
         // Mandarin and English only (language.ts): relabel Chinese text detected as another language, or transcribe it again.
         const decision = decideLanguage({ lang, probs: res.langProbs, text: res.text }, this.recentLang.get(job.source) ?? null, prior ?? 'en');
         if (decision.action === 'relabel') lang = decision.lang;
