@@ -13,7 +13,12 @@ export type SherpaEngineId = 'qwen3' | 'sensevoice';
 export type LocalEngineId = SherpaEngineId | 'whisper';
 export type RemoteEngineId = Exclude<SpeechEngineId, LocalEngineId>;
 
-export function defaultLocalEngine(): SherpaEngineId { return 'qwen3'; }
+/**
+ * The local model a new install uses. Measured on real meeting audio (docs/transcription.md), the two transcribe Mandarin
+ * equally well; Qwen3-ASR also takes the glossary. On a Windows laptop CPU (i9-12900H) Qwen3-ASR is too slow for live
+ * meetings (RTF 0.6, 0.35 on performance cores only; its int8 model is no faster on CUDA), while SenseVoice runs at 0.09.
+ */
+export function defaultLocalEngine(platform: string = process.platform): SherpaEngineId { return platform === 'win32' ? 'sensevoice' : 'qwen3'; }
 export const isSherpaEngine = (engine: SpeechEngineId): engine is SherpaEngineId => engine === 'qwen3' || engine === 'sensevoice';
 export const isLocalEngine = (engine: SpeechEngineId): engine is LocalEngineId => engine === 'whisper' || isSherpaEngine(engine);
 

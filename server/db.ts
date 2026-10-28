@@ -8,6 +8,7 @@ import { dirname } from 'node:path';
 import { DB_PATH } from './paths.ts';
 import { DEFAULT_PROFILE, DEFAULT_SETTINGS, LEGACY_DEFAULT_PROFILE, normalizeLanguage, type Profile, type Settings } from './settings.ts';
 import { deepMerge, now } from './util.ts';
+import { isLocalEngine } from './asr/engines.ts';
 
 export interface SessionRow {
   id: string; title: string; type: string; status: 'recording' | 'paused' | 'ended' | 'interrupted';
@@ -329,7 +330,8 @@ export class Store {
   }
   getSettings(): Settings {
     const settings = deepMerge(DEFAULT_SETTINGS, this.getKV('settings', {})) as Settings;
-    if (settings.asr.engine === 'whisper' && !settings.asr.engineSelected) settings.asr.engine = DEFAULT_SETTINGS.asr.engine;
+    // Until someone picks an engine, the local one follows this version's default for the platform.
+    if (!settings.asr.engineSelected && isLocalEngine(settings.asr.engine)) settings.asr.engine = DEFAULT_SETTINGS.asr.engine;
     return settings;
   }
   saveSettings(s: Settings): Settings {
