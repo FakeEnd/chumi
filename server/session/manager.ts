@@ -3,6 +3,8 @@ import { fmtT, log, now, similarity, uid } from '../util.ts';
 import { FileCapture, HelperCapture, type AudioInput, type SourceName } from '../audio/capture.ts';
 import { Segmenter, type Utterance } from '../audio/vad.ts';
 import { Transcriber, type FinalPiece } from '../asr/transcriber.ts';
+import { languagePrior } from '../asr/language.ts';
+import { preferredLanguage } from '../platform.ts';
 import type { SpeechService } from '../asr/speech.ts';
 import type { Assistant, Broadcast } from '../ai/assistant.ts';
 import type { AudioSourceMode, SessionType } from '../settings.ts';
@@ -35,6 +37,9 @@ export interface StartOptions { title: string; type: SessionType; source: AudioS
  * Owns the live session: audio input → per-source segmenter → transcriber → persisted segments.
  * Transcription never waits on the AI provider; AI work is only *triggered* from here.
  */
+/** The system's preferred language, read once (it runs `defaults read` on macOS). */
+let systemLanguage: string | undefined;
+
 export class SessionManager {
   private store: Store;
   private speech: SpeechService;
@@ -76,7 +81,9 @@ export class SessionManager {
     const t = new Transcriber(this.speech, () => {
       const s = this.store.getSettings();
       const sessionTerms = this.session ? this.store.explainedTerms(this.session.id).map((x) => x.term) : [];
-      return { language: s.asr.language, glossary: [...s.asr.glossary, ...sessionTerms], chineseScript: s.asr.chineseScript };
+      systemLanguage ??= preferredLanguage();
+      const prior = languagePrior({ ui: s.ui.language, system: systemLanguage, explanation: this.store.getProfile().explanationLanguage });
+      return { language: s.asr.language, glossary: [...s.asr.glossary, ...sessionTerms], chineseScript: s.asr.chineseScript, prior };
     });
     t.on('partial', (source, uttId, startSec, text) => {
       if (!this.session || this.status !== 'recording') return;
