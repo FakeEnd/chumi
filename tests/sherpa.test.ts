@@ -91,10 +91,25 @@ test('shared sherpa configuration enables SenseVoice ITN with the requested lang
 });
 
 test('the local default and fallback order stay centralized', () => {
-  assert.equal(defaultLocalEngine(), 'qwen3');
+  assert.equal(defaultLocalEngine('darwin'), 'qwen3');
+  assert.equal(defaultLocalEngine('win32'), 'sensevoice', 'Qwen3-ASR is too slow on a Windows laptop CPU');
   assert.equal(DEFAULT_SETTINGS.asr.engine, defaultLocalEngine());
   assert.deepEqual(localEngineOrder('qwen3'), ['qwen3', 'sensevoice', 'whisper']);
   assert.deepEqual(localEngineOrder('sensevoice'), ['sensevoice', 'qwen3', 'whisper']);
   assert.deepEqual(localEngineOrder('qwen-cloud'), ['qwen3', 'sensevoice', 'whisper']);
   assert.deepEqual(localEngineOrder('whisper'), ['whisper']);
+});
+
+test('a local engine nobody picked follows the platform default; a picked one or a service stays', async () => {
+  const { Store } = await import('../server/db.ts');
+  const store = new Store(':memory:');
+  try {
+    const save = (asr: Record<string, unknown>) => store.setKV('settings', { asr });
+    save({ engine: 'qwen3' });
+    assert.equal(store.getSettings().asr.engine, defaultLocalEngine(), 'saved by an earlier version without a choice');
+    save({ engine: 'whisper', engineSelected: true });
+    assert.equal(store.getSettings().asr.engine, 'whisper');
+    save({ engine: 'elevenlabs' });
+    assert.equal(store.getSettings().asr.engine, 'elevenlabs');
+  } finally { store.close(); }
 });
