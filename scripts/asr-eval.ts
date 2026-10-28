@@ -2,7 +2,7 @@ import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { cpus } from 'node:os';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Transcriber, type FinalPiece } from '../server/asr/transcriber.ts';
@@ -10,7 +10,8 @@ import { SpeechService } from '../server/asr/speech.ts';
 import { WhisperServer } from '../server/asr/whisper.ts';
 import type { Spoken } from '../server/asr/language.ts';
 import { readWav } from '../server/audio/wav.ts';
-import { which } from '../server/paths.ts';
+import { QWEN_MODEL_ID } from '../server/asr/models.ts';
+import { MODELS_DIR, which } from '../server/paths.ts';
 
 interface Clip {
   id: string; lang: Spoken; wav: string; dur_sec: number; ref_norm: string;
@@ -172,14 +173,19 @@ function score(drafts: Draft[], manifest: string): Result[] {
 
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: {
+    engine: { type: 'string', default: 'whisper' }, threads: { type: 'string', default: '4' }, glossary: { type: 'string', default: '' },
     manifest: { type: 'string' }, lang: { type: 'string', default: 'all' },
     language: { type: 'string', default: 'auto' }, guard: { type: 'string', default: 'on' },
     prior: { type: 'string', default: 'en' }, model: { type: 'string', default: 'ggml-large-v3-turbo-q8_0.bin' },
     limit: { type: 'string' }, out: { type: 'string' },
   } });
-  if (!values.manifest || !values.out) throw new Error('Usage: node scripts/asr-eval.ts --manifest <jsonl> --out <directory> [--lang zh|en|all --language auto|zh|en --guard on|off --prior zh|en --model <ggml> --limit N]');
+  if (!values.manifest || !values.out) throw new Error('Usage: node scripts/asr-eval.ts --manifest <jsonl> --out <directory> [--engine whisper|qwen3 --threads N --glossary term1,term2 --lang zh|en|all --language auto|zh|en --guard on|off --prior zh|en --model <ggml> --limit N]');
   if (!['zh', 'en', 'all'].includes(values.lang) || !['auto', 'zh', 'en'].includes(values.language)
     || !['on', 'off'].includes(values.guard) || !['zh', 'en'].includes(values.prior)) throw new Error('Invalid language, guard or prior');
+  if (!['whisper', 'qwen3'].includes(values.engine)) throw new Error('Invalid engine');
+  const threads = Number(values.threads);
+  if (!Number.isInteger(threads) || threads < 1 || threads > 16) throw new Error('Invalid threads');
+  const glossary = values.glossary.split(',').map((s) => s.trim()).filter(Boolean);
   const limit = values.limit === undefined ? Infinity : Number(values.limit);
   if (values.limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw new Error('--limit must be a positive integer');
   const manifest = resolve(values.manifest), out = resolve(values.out);
@@ -187,10 +193,10 @@ async function main(): Promise<void> {
     .filter((r) => values.lang === 'all' || r.lang === values.lang).slice(0, limit);
   if (!clips.length) throw new Error('No selected clips');
   mkdirSync(out, { recursive: true });
+  writeFileSync(join(out, 'progress.jsonl'), '');
   const model = isAbsolute(values.model) || values.model.includes('/') || values.model.includes('\\') ? resolve(values.model) : values.model;
-  const threads = Math.max(2, Math.min(8, cpus().length - 2));
   const whisper = new EvalWhisperServer(model, threads);
-  const speech = new SpeechService(whisper, () => ({ engine: 'whisper', qwenCloud: { baseUrl: '', model: '' }, qwenLocal: { baseUrl: '', model: '' } }), () => false);
+  const speech = new SpeechService(whisper, () => ({ engine: values.engine as 'whisper' | 'qwen3', threads, qwenCloud: { baseUrl: '', model: '' }, qwenLocal: { baseUrl: '', model: '' } }), () => false);
   let currentCalls: Set<Int16Array> = new Set(), calls = 0, retried = false;
   const transcribe = speech.transcribe.bind(speech);
   speech.transcribe = async (samples, options) => {
@@ -198,15 +204,18 @@ async function main(): Promise<void> {
     currentCalls.add(samples);
     return transcribe(samples, options);
   };
-  const transcriber = new Transcriber(speech, () => ({ language: values.language, guard: values.guard === 'on', prior: values.prior as Spoken, glossary: [], chineseScript: 'simplified' }));
+  const transcriber = new Transcriber(speech, () => ({ language: values.language, guard: values.guard === 'on', prior: values.prior as Spoken, glossary, chineseScript: 'simplified' }));
   let pieces: FinalPiece[] = [], errors: string[] = [];
   transcriber.on('final', (batch) => { pieces.push(...batch); });
   transcriber.on('error', (error) => { errors.push(error); });
-  const abort = () => { transcriber.stop(); void whisper.stop(); process.exitCode = 130; };
+  const abort = () => { transcriber.stop(); void speech.stop(); process.exitCode = 130; };
   process.once('SIGINT', abort); process.once('SIGTERM', abort);
   const drafts: Draft[] = [];
+  const eventLoop = monitorEventLoopDelay({ resolution: 10 });
   try {
     await speech.ensure();
+    eventLoop.enable();
+    await new Promise((r) => setTimeout(r, 20));
     let session: string | null = null;
     for (const [i, clip] of clips.entries()) {
       if (transcriber.stopped) throw new Error('Evaluation interrupted');
@@ -227,18 +236,23 @@ async function main(): Promise<void> {
       appendFileSync(join(out, 'progress.jsonl'), JSON.stringify(row) + '\n');
       console.log(`${i + 1}/${clips.length} ${clip.id} ${ms} ms lang=${row.hyp_lang} calls=${calls}${errors.length ? ` errors=${errors.join('; ')}` : ''}`);
     }
+    await new Promise((r) => setTimeout(r, 20));
+    eventLoop.disable();
+    const eventLoopMaxDelayMs = eventLoop.max / 1e6;
     const results = score(drafts, manifest);
     writeFileSync(join(out, 'results.jsonl'), results.map((r) => JSON.stringify(r)).join('\n') + '\n');
     const groups = (['zh', 'en'] as const).filter((lang) => results.some((r) => r.lang === lang)).flatMap((lang) => {
       const rows = results.filter((r) => r.lang === lang);
       return [summarize(rows, lang, 'all'), summarize(rows.filter((r) => r.dur_sec < 3), lang, 'under_3s')];
     });
-    const summary = { config: { ...values, manifest, model: whisper.modelPath, threads, glossary: [], chineseScript: 'simplified' }, groups };
+    const summary = { config: { ...values, manifest, model: values.engine === 'qwen3' ? join(MODELS_DIR, QWEN_MODEL_ID) : whisper.modelPath, threads, glossary, chineseScript: 'simplified' }, event_loop_max_delay_ms: eventLoopMaxDelayMs, groups };
     writeFileSync(join(out, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
     writeFileSync(join(out, 'summary.md'), markdown(groups));
     console.log(markdown(groups));
+    console.log(`Event loop maximum delay: ${eventLoopMaxDelayMs.toFixed(2)} ms`);
   } finally {
-    transcriber.stop(); await whisper.stop();
+    eventLoop.disable();
+    transcriber.stop(); await speech.stop();
     process.off('SIGINT', abort); process.off('SIGTERM', abort);
   }
 }

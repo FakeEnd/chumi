@@ -1,5 +1,5 @@
 /**
- * Speech recognition services other than the local whisper.cpp: ElevenLabs Scribe, Qwen3-ASR on Alibaba Cloud
+ * Speech recognition services other than local Qwen3-ASR and whisper.cpp: ElevenLabs Scribe, Qwen3-ASR on Alibaba Cloud
  * Model Studio, and Qwen3-ASR on a server the user runs (qwen-asr-serve / vllm serve). Each turns one utterance of
  * 16 kHz mono audio into the same result shape as whisper-server, so the transcriber treats them alike.
  */
@@ -7,9 +7,9 @@ import { encodeWav } from '../audio/wav.ts';
 import { langCode } from './clean.ts';
 import type { WhisperResult, WhisperSegment } from './whisper.ts';
 
-export const SPEECH_ENGINES = ['whisper', 'elevenlabs', 'qwen-cloud', 'qwen-local'] as const;
+export const SPEECH_ENGINES = ['qwen3', 'whisper', 'elevenlabs', 'qwen-cloud', 'qwen-local'] as const;
 export type SpeechEngineId = (typeof SPEECH_ENGINES)[number];
-export type RemoteEngineId = Exclude<SpeechEngineId, 'whisper'>;
+export type RemoteEngineId = Exclude<SpeechEngineId, 'whisper' | 'qwen3'>;
 /** Engines whose API key Chumi keeps (Keychain, or encrypted for the Windows account). */
 export const KEYED_ENGINES = ['elevenlabs', 'qwen-cloud'] as const;
 export type KeyedEngineId = (typeof KEYED_ENGINES)[number];
@@ -18,7 +18,7 @@ export const isSpeechEngine = (v: unknown): v is SpeechEngineId => (SPEECH_ENGIN
 export const isKeyedEngine = (v: unknown): v is KeyedEngineId => (KEYED_ENGINES as readonly unknown[]).includes(v);
 
 export const ENGINE_NAMES: Record<SpeechEngineId, string> = {
-  whisper: 'Whisper', elevenlabs: 'ElevenLabs', 'qwen-cloud': 'Qwen3-ASR (Alibaba Cloud)', 'qwen-local': 'Qwen3-ASR (self-hosted)',
+  qwen3: 'Qwen3-ASR (this computer)', whisper: 'Whisper', elevenlabs: 'ElevenLabs', 'qwen-cloud': 'Qwen3-ASR (Alibaba Cloud)', 'qwen-local': 'Qwen3-ASR (self-hosted)',
 };
 
 export const ELEVENLABS_URL = 'https://api.elevenlabs.io/v1/speech-to-text';
@@ -73,7 +73,7 @@ export function keyterms(glossary: string[]): string[] {
   return [...new Set(ok)].slice(0, 100);
 }
 
-/** fallback: false makes a failure surface instead of being covered by local Whisper (the speed test measures the service). */
+/** fallback: false makes a failure surface instead of being covered by local recognition (the speed test measures the service). */
 export interface RemoteOptions { language: string; prompt?: string; glossary?: string[]; timeoutMs?: number; fallback?: boolean }
 type Parsed = Omit<WhisperResult, 'ms'>;
 
@@ -161,7 +161,7 @@ const contextRefused = new Set<string>();
 
 export async function transcribeRemote(t: RemoteTarget, samples: Int16Array, o: RemoteOptions): Promise<WhisperResult> {
   const t0 = Date.now();
-  // Utterances are at most 15 s; a service that takes longer than this is better replaced by local Whisper.
+  // Utterances are at most 15 s; a service that takes longer than this is better replaced by local recognition.
   const timeoutMs = Math.min(o.timeoutMs ?? REMOTE_TIMEOUT_MS, REMOTE_TIMEOUT_MS);
   const signal = AbortSignal.timeout(timeoutMs);
   const service = ENGINE_NAMES[t.engine];

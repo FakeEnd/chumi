@@ -24,18 +24,19 @@ export interface Settings {
     saveRawAudio: boolean;
   };
   asr: {
-    /** 'whisper' runs on this computer. The others send meeting audio to a service (server/asr/engines.ts). */
+    /** 'qwen3' and 'whisper' run on this computer. The others send meeting audio to a service (server/asr/engines.ts). */
     engine: SpeechEngineId;
+    engineSelected?: boolean;
     /** Alibaba Cloud Model Studio: its compatible-mode address and model. The key is kept outside settings. */
     qwenCloud: { baseUrl: string; model: string };
     /** A Qwen3-ASR server the user runs (qwen-asr-serve or vllm serve). */
     qwenLocal: { baseUrl: string; model: string };
-    /** The local Whisper model; with another engine it transcribes whatever that engine fails on. */
+    /** The local Whisper model; used when Qwen3 is unavailable or Whisper is selected. */
     model: string;
     /** 'auto' handles English, Mandarin and code-switching; force a language if detection misbehaves. */
     language: 'auto' | 'en' | 'zh';
     threads: number;
-    /** Extra vocabulary that biases Whisper towards correct spellings of technical terms. */
+    /** Extra vocabulary that biases speech recognition towards correct spellings of technical terms. */
     glossary: string[];
     /** Whisper sometimes emits Traditional characters for Mandarin; convert to Simplified by default. */
     chineseScript: 'simplified' | 'original';
@@ -109,7 +110,7 @@ export type PetTag = typeof PET_TAGS[number];
 export const DEFAULT_SETTINGS: Settings = {
   audio: { source: 'mic', micDeviceUid: null, aec: true, saveRawAudio: true },
   asr: {
-    engine: 'whisper',
+    engine: 'qwen3',
     qwenCloud: { baseUrl: QWEN_CLOUD_REGIONS.singapore, model: QWEN_CLOUD_MODEL },
     qwenLocal: { baseUrl: QWEN_LOCAL_URL, model: QWEN_LOCAL_MODEL },
     model: recommendModel(), // Large v3 Turbo on Apple Silicon with 16 GB+, smaller models elsewhere

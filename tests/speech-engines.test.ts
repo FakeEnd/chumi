@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import {
   keyterms, normalizeLocalAsrUrl, normalizeQwenCloudUrl, parseElevenLabs, parseQwen, qwenBody, transcribeRemote, type RemoteOptions,
 } from '../server/asr/engines.ts';
+import { QwenAsr } from '../server/asr/qwen3.ts';
 import { SpeechService, type SecretStore, type SpeechSettings } from '../server/asr/speech.ts';
 import { Transcriber } from '../server/asr/transcriber.ts';
 import type { WhisperResult, WhisperServer } from '../server/asr/whisper.ts';
@@ -119,7 +120,7 @@ test('a rejected key is reported without echoing it', async () => {
 
 // ---------------------------------------------------------------- SpeechService
 const whisperResult: WhisperResult = { text: 'local', language: 'en', langProbs: {}, segments: [], ms: 5 };
-function makeService(engine: SpeechSettings['engine'], opts: { fallback: boolean; keys?: Record<string, string>; local?: (o: RemoteOptions) => WhisperResult }) {
+function makeService(engine: SpeechSettings['engine'], opts: { fallback: boolean; keys?: Record<string, string>; local?: (o: RemoteOptions) => WhisperResult; qwen?: boolean }) {
   const calls: string[] = [];
   const whisper = Object.assign(new EventEmitter(), {
     state: 'ready', message: null, ensure: async () => {}, stop: async () => { calls.push('stop'); },
@@ -132,7 +133,18 @@ function makeService(engine: SpeechSettings['engine'], opts: { fallback: boolean
     delete: async (_s, account) => { delete keys[account]; },
   };
   const cfg: SpeechSettings = { engine, qwenCloud: { baseUrl: `${base}/cloud`, model: 'qwen3-asr-flash' }, qwenLocal: { baseUrl: 'http://127.0.0.1:18999/v1', model: 'Qwen/Qwen3-ASR-1.7B' } };
-  return { speech: new SpeechService(whisper, () => cfg, () => opts.fallback, secrets), calls, cfg };
+  class FakeQwen extends QwenAsr {
+    override get installed() { return opts.qwen ?? false; }
+    override async ensure() {
+      if (!this.installed) { this.state = 'missing_model'; this.message = 'Download Qwen3-ASR'; throw new Error(this.message); }
+      this.state = 'ready';
+    }
+    override async transcribe(_samples: Int16Array, o: RemoteOptions) {
+      await this.ensure(); calls.push(`qwen:${o.glossary?.join(',') ?? ''}`);
+      return { ...whisperResult, text: 'qwen' };
+    }
+  }
+  return { speech: new SpeechService(whisper, () => cfg, () => opts.fallback, secrets, new FakeQwen(() => 4)), calls, cfg };
 }
 
 test('when the service fails, local Whisper transcribes the utterance and the user is told once', async () => {
@@ -187,7 +199,7 @@ test('a service that is not ready does not block a meeting that local Whisper ca
   assert.match(down.message ?? '', /Cannot reach the Qwen3-ASR server/);
 });
 
-test('Whisper stays the default and keeps live partial text', () => {
+test('Whisper remains selectable and keeps live partial text', () => {
   const { speech } = makeService('whisper', { fallback: true });
   assert.equal(speech.partials, true);
   assert.equal(speech.label, 'Whisper');
@@ -221,4 +233,41 @@ test('the glossary goes out as a sentence, and a prompt the engine repeats as sp
   assert.deepEqual(toWhisper[0].glossary, glossary);
   assert.deepEqual(lines, ['The peaks moved.', 'Next slide.']);
   assert.deepEqual(errors, []);
+});
+
+
+test('Qwen3 is selected locally, and receives glossary hints without calling Whisper', async () => {
+  const { speech, calls } = makeService('qwen3', { fallback: true, qwen: true });
+  await speech.ensure();
+  const result = await speech.transcribe(audio, { language: 'auto', glossary: ['ATAC-seq', 'meeting term'] });
+  assert.equal(result.text, 'qwen');
+  assert.equal(speech.partials, true);
+  assert.deepEqual(calls, ['qwen:ATAC-seq,meeting term']);
+});
+
+test('missing Qwen3 model keeps captions running through Whisper and prompts a download', async () => {
+  const { speech, calls } = makeService('qwen3', { fallback: true });
+  const notices: string[] = [];
+  speech.on('fallback', (m) => notices.push(m));
+  await speech.ensure();
+  assert.equal((await speech.transcribe(audio, { language: 'auto' })).text, 'local');
+  assert.equal(speech.state, 'missing_model');
+  assert.match(speech.message!, /Download Qwen3/);
+  assert.equal(notices.length, 1);
+  assert.deepEqual(calls, ['whisper']);
+  await assert.rejects(speech.transcribe(audio, { language: 'auto', fallback: false }), /Download Qwen3/);
+});
+
+test('remote failures prefer local Qwen3 even when Whisper is unavailable', async () => {
+  const { speech, calls } = makeService('qwen-local', { fallback: false, qwen: true });
+  await speech.ensure();
+  assert.equal((await speech.transcribe(audio, { language: 'auto' })).text, 'qwen');
+  await speech.transcribe(audio, { language: 'auto' });
+  assert.deepEqual(calls, ['qwen:', 'qwen:']);
+});
+
+test('explicit Whisper selection stays on Whisper when Qwen3 is installed', async () => {
+  const { speech, calls } = makeService('whisper', { fallback: true, qwen: true });
+  await speech.transcribe(audio, { language: 'auto' });
+  assert.deepEqual(calls, ['whisper']);
 });

@@ -10,7 +10,7 @@ import { crossSiteSource, deepMerge, log, uid } from './util.ts';
 import { WhisperServer } from './asr/whisper.ts';
 import { SpeechService } from './asr/speech.ts';
 import { ENGINE_NAMES, isKeyedEngine, isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId } from './asr/engines.ts';
-import { MODEL_CATALOG, ModelDownloader, benchmark, hardware, isInstalled, recommendModel } from './asr/models.ts';
+import { MODEL_CATALOG, ModelDownloader, benchmark, hardware, isInstalled, QWEN_MODEL_ID } from './asr/models.ts';
 import { ProviderRegistry } from './ai/registry.ts';
 import { Assistant, publicOutput, type CatchupScope, type Selection } from './ai/assistant.ts';
 import { SessionManager, publicFrame } from './session/manager.ts';
@@ -178,7 +178,7 @@ speech.on('state', (state, message) => broadcast('asr', { state, message }));
 speech.on('fallback', (message) => broadcast('notice', { level: 'warning', code: 'asr_fallback', message }));
 downloader.on('progress', (d) => {
   broadcast('asr-download', d);
-  if (d.status === 'done' && d.id === store.getSettings().asr.model && speech.engine === 'whisper') void whisper.ensure().catch((e) => log('asr', (e as Error).message));
+  if (d.status === 'done' && (d.id === QWEN_MODEL_ID || d.id === store.getSettings().asr.model)) void speech.ensure().catch((e) => log('asr', (e as Error).message));
 });
 
 // ---------------------------------------------------------------- helpers
@@ -266,6 +266,7 @@ function samples(): Array<{ name: string; path: string; sizeMb: number }> {
 function applySettingsPatch(patch: Record<string, any>): Settings {
   const before = store.getSettings();
   const next = deepMerge(before, patch) as Settings;
+  if (patch.asr?.engine !== undefined) next.asr.engineSelected = true;
   if (!isProviderId(next.ai.provider)) throw new HttpError(400, 'Unknown provider');
   // Only a patch that edits the profiles can be rejected for them; a stale saved profile must not block other settings.
   try { next.ai.compatible = validateCompatibleSettings(next.ai.compatible); }
@@ -275,7 +276,7 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   }
   if (next.ai.effort !== 'auto' && !EFFORTS.includes(next.ai.effort)) throw new HttpError(400, 'Unknown effort level');
   if (before.asr.model !== next.asr.model) {
-    if (!isInstalled(next.asr.model)) throw new HttpError(400, 'Download this speech model first.');
+    if (next.asr.model === QWEN_MODEL_ID || !isInstalled(next.asr.model)) throw new HttpError(400, 'Download this speech model first.');
   }
   if (!['auto', 'en', 'zh'].includes(next.ui.language)) throw new HttpError(400, 'Unknown interface language');
   if (typeof next.ui.setupDismissed !== 'boolean') throw new HttpError(400, 'Invalid setup checklist setting');
@@ -308,7 +309,7 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   catch (error) { throw new HttpError(400, (error as Error).message); }
   if (before.assist.autoExplain !== next.assist.autoExplain) assistant.setAutoExplain(next.assist.autoExplain);
   if (before.asr.model !== next.asr.model || before.asr.threads !== next.asr.threads) whisper.configure({ model: next.asr.model, threads: next.asr.threads });
-  if (speechChanged) speech.configure();
+  if (speechChanged || before.asr.threads !== next.asr.threads) speech.configure();
   if (before.quickStart.hotkey !== next.quickStart.hotkey && !process.env.CHUMI_NO_HOTKEY) hotkey.configure(next.quickStart.hotkey);
   if (next.integrations.mybot.enabled && (before.integrations.mybot.shareWithTeam !== next.integrations.mybot.shareWithTeam || !before.integrations.mybot.enabled || before.integrations.mybot.exportDir !== next.integrations.mybot.exportDir)) mybot.exportAll();
   if (before.ai.provider !== next.ai.provider || JSON.stringify(before.ai) !== JSON.stringify(next.ai)) void registry.status(true).catch(() => {});
@@ -695,13 +696,13 @@ route('GET', '/api/integrations/mybot/server', () => projectContext.health());
 route('GET', '/api/asr/models', () => {
   const active = store.getSettings().asr.model;
   return {
-    hardware: hardware(), recommended: recommendModel(), active,
-    models: MODEL_CATALOG.map((m) => ({ ...m, installed: isInstalled(m.id), active: m.id === active })),
+    hardware: hardware(), recommended: QWEN_MODEL_ID, active,
+    models: MODEL_CATALOG.map((m) => ({ ...m, installed: isInstalled(m.id), active: m.id === QWEN_MODEL_ID ? speech.engine === 'qwen3' : m.id === active })),
     download: downloader.current,
   };
 });
 route('POST', '/api/asr/setup', () => {
-  const id = store.getSettings().asr.model;
+  const id = speech.engine === 'whisper' ? store.getSettings().asr.model : QWEN_MODEL_ID;
   if (isInstalled(id)) void speech.ensure().catch((e) => log('asr', (e as Error).message));
   else void downloader.start(id).catch((e) => log('asr', (e as Error).message));
   return { id, download: downloader.current };
@@ -714,8 +715,8 @@ route('POST', '/api/asr/models/:id/download', (_req, _res, p) => {
 route('POST', '/api/asr/models/:id/cancel', () => { downloader.cancel(); return { ok: true }; });
 route('DELETE', '/api/asr/models/:id', (_req, _res, p) => {
   if (!MODEL_CATALOG.some((m) => m.id === p.id)) throw new HttpError(404, 'Unknown model');
-  if (store.getSettings().asr.model === p.id) throw new HttpError(409, 'This model is in use. Switch to another model first.');
-  rmSync(join(MODELS_DIR, p.id), { force: true });
+  if (store.getSettings().asr.model === p.id || (p.id === QWEN_MODEL_ID && (speech.engine === 'qwen3' || manager.status !== 'idle'))) throw new HttpError(409, 'This model is in use. Switch to another model first.');
+  rmSync(join(MODELS_DIR, p.id), { recursive: true, force: true });
   return { ok: true };
 });
 route('POST', '/api/asr/benchmark', async () => {
@@ -723,7 +724,7 @@ route('POST', '/api/asr/benchmark', async () => {
   return { model: speech.engine === 'whisper' ? store.getSettings().asr.model : speech.label, results: await benchmark(speech) };
 });
 route('GET', '/api/asr/engines', async () => ({
-  keys: { elevenlabs: await speech.hasKey('elevenlabs'), 'qwen-cloud': await speech.hasKey('qwen-cloud') }, fallback: whisperUsable(),
+  keys: { elevenlabs: await speech.hasKey('elevenlabs'), 'qwen-cloud': await speech.hasKey('qwen-cloud') }, fallback: isInstalled(QWEN_MODEL_ID) || whisperUsable(),
 }));
 route('POST', '/api/asr/engines/:id/key', async (req, _res, p) => {
   if (!isKeyedEngine(p.id)) throw new HttpError(404, 'This speech engine has no API key.');
@@ -934,7 +935,7 @@ async function shutdown(sig: string): Promise<void> {
     { name: 'save meeting', timeoutMs: 8000, run: () => manager.suspendForShutdown() },
     { name: 'stop speaker analysis', timeoutMs: 3000, run: () => speakers.shutdown() },
     { name: 'stop iPhone companion', timeoutMs: 2000, run: () => mobileServer?.close() },
-    { name: 'stop services', timeoutMs: 3000, run: () => Promise.all([whisper.stop(), registry.shutdown(), localModelDownloader.shutdown()]).then(() => {}) },
+    { name: 'stop services', timeoutMs: 3000, run: () => Promise.all([speech.stop(), registry.shutdown(), localModelDownloader.shutdown()]).then(() => {}) },
   ], budget, (name, error) => log('server', `${name}: ${error.message}`));
   store.close();
   dataLock.release();

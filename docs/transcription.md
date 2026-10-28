@@ -1,10 +1,11 @@
 # Speech recognition engines
 
-Chumi turns meeting audio into text with one of four engines, chosen in **Settings → Transcription**. Whatever the engine, transcription is independent of the AI provider: it keeps running when the AI is unavailable.
+Chumi turns meeting audio into text with one of five engines, chosen in **Settings → Transcription**. Whatever the engine, transcription is independent of the AI provider: it keeps running when the AI is unavailable.
 
 | Engine | Where audio goes | Cost | Live grey text |
 |---|---|---|---|
-| **Whisper** (default) | Nowhere: whisper.cpp on this computer | Free | Yes |
+| **Qwen3-ASR 0.6B int8** (default) | Nowhere: sherpa-onnx on this computer (CPU) | Free | Yes |
+| **Whisper** | Nowhere: whisper.cpp on this computer | Free | Yes |
 | **ElevenLabs Scribe** (`scribe_v2`) | ElevenLabs | Per hour of audio; vocabulary hints add 20% | No |
 | **Qwen3-ASR, Alibaba Cloud** (`qwen3-asr-flash`) | Alibaba Cloud Model Studio | By audio length | No |
 | **Qwen3-ASR, self-hosted** | A server you run | Free | Yes |
@@ -13,17 +14,37 @@ The paid services get finished utterances only. Live grey text re-sends a growin
 
 ## Choosing a service is opt-in
 
-Whisper stays the default. Switching to ElevenLabs or Alibaba Cloud asks for confirmation, because meeting audio then leaves the computer while you record. The engine can only change between sessions.
+Local Qwen3-ASR is the default. Download its model from Home’s **Get Chumi ready** checklist or **Settings → Transcription** (about 941 MB). Whisper remains selectable; until Qwen3 is downloaded, an installed Whisper model keeps captions running and Chumi prompts you to download Qwen3. Installs that kept the old default follow the new one; existing service choices and new explicit engine selections are retained. Older saved Whisper settings have no record of whether Whisper was explicitly reselected, so unmarked Whisper settings follow the new default. Switching to ElevenLabs or Alibaba Cloud asks for confirmation, because meeting audio then leaves the computer while you record. The engine can only change between sessions.
 
 API keys are stored like Chumi's other keys: in the macOS Keychain, or encrypted for your Windows account by the desktop app. They are never written to settings. The Alibaba Cloud key is only ever sent to an `*.aliyuncs.com` address.
 
 ## If a service fails
 
-Each utterance that a service fails on (network down, key rejected, server stopped, no answer within 30 seconds) is transcribed by the local Whisper model instead. After a failure, Chumi uses Whisper directly for 30 seconds before asking the service again, so an outage doesn't make every utterance wait. The first time, Chumi shows a notice, then the speech badge reports the problem. Recording never stops for this, and a meeting can start while the service is unreachable.
+Each utterance that a service fails on (network down, key rejected, server stopped, no answer within 30 seconds) is transcribed by local Qwen3-ASR instead, or by Whisper if the Qwen3 model is missing. After a failure, Chumi uses the local engine directly for 30 seconds before asking the service again, so an outage doesn't make every utterance wait. The first time, Chumi shows a notice, then the speech badge reports the problem. Recording never stops for this, and a meeting can start while the service is unreachable.
 
 **Test speed and accuracy** never falls back: it measures the service itself, and reports its error if it fails.
 
-So keep a Whisper model downloaded, even when you use a service. Without one, the transcriber retries once, then that piece of audio is not transcribed. Settings → Transcription shows which case applies.
+Keep a local Qwen3-ASR or Whisper model downloaded, even when you use a service. Without either, the transcriber retries once, then that piece of audio is not transcribed. Settings → Transcription shows which case applies.
+
+## Local Qwen3-ASR
+
+Chumi uses `sherpa-onnx-node` 2.0.1 with the int8 0.6B model. One persistent worker owns the recognizer, including synchronous feature extraction; loading and decoding also use sherpa’s asynchronous native APIs. Each utterance is one segment spanning the audio’s duration. Since sherpa’s Qwen3 result does not report language, Chumi labels text `zh` when Han characters outnumber English words, otherwise `en`, then applies the same Mandarin/English policy as the other engines.
+
+Vocabulary hints combine **Settings → Transcription → Vocabulary hints** with terms explained during the meeting. Every stream receives those terms through `setOption("hotwords", csv)`, with UTF-8 phrases separated by ASCII commas. This is Qwen3’s stream option, separate from the transducer-only `createStream(hotwords)` interface. One recognizer is reused across utterances, so new meeting terms do not reload the model. See the [sherpa 2.0.1 Qwen3 implementation](https://github.com/k2-fsa/sherpa-onnx/blob/v2.0.1/sherpa-onnx/csrc/offline-recognizer-qwen3-asr-impl.cc#L817).
+
+The model lives in `models/qwen3-asr-0.6b-int8/`, separate from Whisper’s files. Downloads are pinned to commit `68818b2313fe77bd06f6a7c5068ff3ef59d02b8a` of [csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25](https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/tree/68818b2313fe77bd06f6a7c5068ff3ef59d02b8a). All six runtime files must pass their SHA-256 checks before the model directory is installed; `test_wavs` is excluded. **Download** and **Delete** work in Transcription settings. `CHUMI_MODELS_DIR` overrides the model directory. The existing `CHUMI_MODEL_BASE_URL` mirror setting also applies: for example, `https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main` downloads both engines from hf-mirror.com, preserving Qwen3’s repository and pinned commit.
+
+Final results keep priority over grey previews. Previews run only while the final queue is empty, with only the newest pending preview per audio source retained. Local Qwen3 previews start at most once every 5 seconds per source: the end-to-end sample initially showed a final result waiting 1.46 seconds behind a preview.
+
+For the full product path, including the transcriber, language policy and vocabulary hints:
+
+```bash
+node scripts/asr-eval.ts --engine qwen3 --threads 4 \
+  --manifest /path/to/manifest.jsonl --out /path/to/results \
+  --language auto --guard on
+```
+
+Use `--engine whisper` for Whisper, and `--glossary term1,term2` to supply vocabulary hints. The evaluation records event-loop maximum delay during transcription, excluding model loading and scoring.
 
 ## ElevenLabs
 
@@ -60,6 +81,10 @@ The open model detects the language itself and writes `language Chinese<asr_text
 
 ## What was tested
 
+- Full product evaluation on Apple M5, CPU 4 threads, automatic language with the Mandarin/English guard enabled: 291 AliMeeting utterances gave **17.43% Chinese CER**, and 446 AMI utterances gave **19.83% English WER**. RTF was **0.152 / 0.161** (Chinese / English), with **78.77 ms** maximum event-loop delay and no failed transcription requests.
+
+- Local Qwen3 unit tests cover the pinned runtime file catalog, mirror URLs, per-file checksum rejection, model-directory completeness, default migration, local engine selection, missing-model fallback, language labels, hotword formatting and preview throttling.
 - Unit tests (`tests/speech-engines.test.ts`) against a local stand-in server cover request shapes, parsing, refused context, rejected keys (never echoed back), fallback to Whisper, skipping the service during an outage, missing keys, and address checks.
+- End to end, local Qwen3 processed the sample meeting through a development server with isolated data/models directories; saved segments included both `en` and `zh` labels.
 - End to end, with a stand-in for `qwen-asr-serve`: a 16-second clip went through the self-hosted engine, with glossary context, and was saved as two English lines. With the server stopped, the same clip started normally and local Whisper transcribed it.
 - Not yet tested against the real ElevenLabs and Model Studio APIs or a real Qwen3-ASR server. Use **Test speed and accuracy of the engine in use** after adding a key: it sends two short clips, a few seconds of billed audio.

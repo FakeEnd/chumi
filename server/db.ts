@@ -327,11 +327,17 @@ export class Store {
     this.db.prepare('INSERT INTO kv(key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
       .run(key, JSON.stringify(value), now());
   }
-  getSettings(): Settings { return deepMerge(DEFAULT_SETTINGS, this.getKV('settings', {})); }
+  getSettings(): Settings {
+    const settings = deepMerge(DEFAULT_SETTINGS, this.getKV('settings', {})) as Settings;
+    if (settings.asr.engine === 'whisper' && !settings.asr.engineSelected) settings.asr.engine = 'qwen3';
+    return settings;
+  }
   saveSettings(s: Settings): Settings {
     const sessionTypes = validateSessionTypes(s.sessionTypes, this.getSettings().sessionTypes);
     const type = sessionTypes.some((o) => o.id === s.quickStart.type && !o.archived) ? s.quickStart.type : sessionTypes.find((o) => !o.archived)!.id;
-    const next = { ...s, sessionTypes, quickStart: { ...s.quickStart, type } };
+    const asr = { ...s.asr };
+    if (s.asr.engine !== this.getSettings().asr.engine) asr.engineSelected = true;
+    const next = { ...s, asr, sessionTypes, quickStart: { ...s.quickStart, type } };
     this.setKV('settings', next);
     return next;
   }

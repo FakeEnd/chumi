@@ -35,7 +35,7 @@ export function TranscriptionTab() {
   const [bench, setBench] = useState<{ running: boolean; model?: string; results?: BenchResult[]; error?: string }>({ running: false });
   const busySession = speechSettingsBusy(live);
   const load = () => void api<ModelList>('/api/asr/models').then(setList).catch(() => {});
-  useEffect(load, [settings.asr.model]);
+  useEffect(load, [settings.asr.model, settings.asr.engine]);
   useEffect(() => { if (download && download.status !== 'downloading') load(); }, [download?.status]);
   const dl = download?.status === 'downloading' ? download : list?.download?.status === 'downloading' ? list.download : null;
   const S = saveSettings;
@@ -56,7 +56,7 @@ export function TranscriptionTab() {
 
       <SpeakerSettings />
 
-      <h3>{settings.asr.engine === 'whisper' ? t('Speech model') : t('Local Whisper model (backup)')}</h3>
+      <h3>{t('Local speech models')}</h3>
       {hw && (
         <p className="small">
           {hw.appleSilicon ? t('This Mac: {chip} · {mem} GB memory.', { chip: hw.chip, mem: hw.memoryGB }) : t('This computer: {chip} · {mem} GB memory.', { chip: hw.gpu ? `${hw.chip} · ${hw.gpu.name}` : hw.chip, mem: hw.memoryGB })}{' '}
@@ -66,6 +66,7 @@ export function TranscriptionTab() {
       {!list && <p className="muted small">{t('Loading…')}</p>}
       <ul className="model-list">
         {list?.models.map((m) => {
+          const qwen = m.id === 'qwen3-asr-0.6b-int8';
           const downloading = dl?.id === m.id;
           const pct = downloading && dl!.total ? Math.round((dl!.received / dl!.total) * 100) : 0;
           const tooBig = hw ? hw.memoryGB < m.minRamGB : false;
@@ -75,7 +76,7 @@ export function TranscriptionTab() {
                 <div className="model-name">
                   <b>{m.name}</b>
                   {m.id === list.recommended && <span className="tag">{t('Recommended for this computer')}</span>}
-                  {m.active && <span className="tag tag-ok">{settings.asr.engine === 'whisper' ? t('In use') : t('Backup')}</span>}
+                  {m.active && <span className="tag tag-ok">{qwen || settings.asr.engine === 'whisper' ? t('In use') : t('Backup')}</span>}
                   {!m.active && m.installed && <span className="tag tag-muted">{t('Downloaded')}</span>}
                   {tooBig && <span className="tag tag-warn">{t('Needs {n} GB+ memory', { n: m.minRamGB })}</span>}
                 </div>
@@ -91,9 +92,9 @@ export function TranscriptionTab() {
                 {download?.id === m.id && download.status === 'error' && <div className="error-text small">{t('Download failed: {error}', { error: download.error ?? '' })}</div>}
               </div>
               <div className="model-actions">
-                {m.installed && !m.active && <button className="btn small primary" disabled={busySession} title={busySession ? t('End the current session before switching the speech model.') : ''} onClick={() => void S({ asr: { model: m.id } })}>{t('Use')}</button>}
+                {m.installed && !m.active && <button className="btn small primary" disabled={busySession} title={busySession ? t('End the current session before switching the speech model.') : ''} onClick={() => void S({ asr: qwen ? { engine: 'qwen3' } : { model: m.id } })}>{t('Use')}</button>}
                 {!m.installed && !downloading && (
-                  <button className="btn small" disabled={!!dl} onClick={() => { if (confirm(t('Download {name} ({size}) from Hugging Face (ggerganov/whisper.cpp)? It is saved on this computer.', { name: m.name, size: fmtSize(m.sizeMB) }))) void api(`/api/asr/models/${m.id}/download`, { body: {} }); }}>{t('Download')} · {fmtSize(m.sizeMB)}</button>
+                  <button className="btn small" disabled={!!dl} onClick={() => { if (confirm(t('Download {name} ({size}) from Hugging Face? It is saved on this computer.', { name: m.name, size: fmtSize(m.sizeMB) }))) void api(`/api/asr/models/${m.id}/download`, { body: {} }); }}>{t('Download')} · {fmtSize(m.sizeMB)}</button>
                 )}
                 {downloading && <button className="btn small" onClick={() => void api(`/api/asr/models/${m.id}/cancel`, { body: {} })}>{t('Cancel')}</button>}
                 {m.installed && !m.active && <button className="btn small ghost" onClick={() => { if (confirm(t('Delete {name} from this computer? You can download it again later.', { name: m.name }))) void api(`/api/asr/models/${m.id}`, { method: 'DELETE' }).then(load); }}>{t('Delete')}</button>}
@@ -137,7 +138,7 @@ export function TranscriptionTab() {
             <option value="simplified">{t('Simplified (简体): convert any Traditional characters')}</option>
             <option value="original">{t('As recognized: may mix Simplified and Traditional')}</option>
           </select>
-          <span className="muted small hint-line">{tn('Whisper sometimes writes Mandarin in Traditional characters, for example {trad} instead of {simp}. This option converts them to Simplified. English text is never changed.', { trad: <span lang="zh-TW">這個模型</span>, simp: <span lang="zh-CN">这个模型</span> })}</span>
+          <span className="muted small hint-line">{tn('Speech recognition sometimes writes Mandarin in Traditional characters, for example {trad} instead of {simp}. This option converts them to Simplified. English text is never changed.', { trad: <span lang="zh-TW">這個模型</span>, simp: <span lang="zh-CN">这个模型</span> })}</span>
         </label>
       )}
 
