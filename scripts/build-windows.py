@@ -25,26 +25,26 @@ def run(args, **kwargs):
     subprocess.run(list(map(str, args)), cwd=ROOT, check=True, env=env, **kwargs)
 
 
-def sha256_of(path):
-    digest = hashlib.sha256()
+def checksum_of(path, algorithm):
+    digest = hashlib.new(algorithm)
     with open(path, 'rb') as file:
         for chunk in iter(lambda: file.read(1 << 20), b''):
             digest.update(chunk)
     return digest.hexdigest()
 
 
-def download(url, destination, sha256):
-    """Fetch url into destination once. The file must match the pinned SHA-256, a cached copy included."""
-    if destination.exists() and sha256_of(destination) == sha256:
+def download(url, destination, checksum, algorithm='sha256'):
+    """Fetch url into destination once. The file must match the pinned checksum, a cached copy included."""
+    if destination.exists() and checksum_of(destination, algorithm) == checksum:
         return
     destination.parent.mkdir(parents=True, exist_ok=True)
     print('Downloading', destination.name, flush=True)
     part = destination.with_suffix(destination.suffix + '.part')
     urllib.request.urlretrieve(url, part)
-    actual = sha256_of(part)
-    if actual != sha256:
+    actual = checksum_of(part, algorithm)
+    if actual != checksum:
         part.unlink()
-        raise RuntimeError(f'Checksum mismatch for {url}: expected SHA-256 {sha256}, got {actual}.')
+        raise RuntimeError(f'Checksum mismatch for {url}: expected {algorithm.upper()} {checksum}, got {actual}.')
     part.replace(destination)
 
 
@@ -90,13 +90,13 @@ def stage_backend(node):
     shutil.copy2(node, runtime / 'node.exe')
     shutil.copy2(node.parent / 'LICENSE', runtime / 'Node-LICENSE.txt')
     # Include the official CLI so a fresh Windows install can sign in from Chumi without npm or a terminal.
-    codex_version = '0.125.0'
-    tools = BUILD / 'vendor' / 'codex'
+    codex_version = '0.165.0'
+    tools = BUILD / 'vendor' / f'codex-{codex_version}'
     if not (tools / 'vendor').exists():
         archive = BUILD / 'vendor' / f'codex-win32-x64-{codex_version}.tgz'
         # Matches the npm registry's sha512 integrity for this version. A new codex_version needs new pins here and for the LICENSE.
         download(f'https://registry.npmjs.org/@openai/codex/-/codex-{codex_version}-win32-x64.tgz', archive,
-                 'd2086b19328f0d0666bc75c3de32910bd2f2fad13ed4f5c306b385900ed9cf0d')
+                 '7f92cccae80f4a7028be74e747537e48d1d24df599fb29b90381f7cd91f3ff386e306306643f08c547654949446e210d6323d7ac9f06dc987e08bcb34df401e9', 'sha512')
         tools.mkdir(exist_ok=True)
         with tarfile.open(archive, 'r:gz') as bundle:
             bundle.extractall(tools, filter='data')
@@ -104,7 +104,7 @@ def stage_backend(node):
     for file in (tools / 'vendor').rglob('*.exe'):
         shutil.copy2(file, runtime / file.name)
     (runtime / 'Codex-NOTICE.txt').write_text(f'OpenAI Codex CLI {codex_version}\nhttps://github.com/openai/codex\nApache License 2.0\n', encoding='utf-8')
-    download('https://raw.githubusercontent.com/openai/codex/rust-v0.125.0/LICENSE', runtime / 'Codex-LICENSE.txt',
+    download('https://raw.githubusercontent.com/openai/codex/rust-v0.165.0/LICENSE', runtime / 'Codex-LICENSE.txt',
              'd17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc')
     whisper = backend / 'build' / 'whisper'
     whisper.mkdir(parents=True, exist_ok=True)
