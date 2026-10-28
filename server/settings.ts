@@ -1,7 +1,7 @@
 import os from 'node:os';
 import { DEFAULT_SESSION_TYPES, type SessionTypeOption } from '../shared/session-types.ts';
 import { recommendModel } from './asr/models.ts';
-import { QWEN_CLOUD_MODEL, QWEN_CLOUD_REGIONS, QWEN_LOCAL_MODEL, QWEN_LOCAL_URL, type SpeechEngineId } from './asr/engines.ts';
+import { defaultLocalEngine, QWEN_CLOUD_MODEL, QWEN_CLOUD_REGIONS, QWEN_LOCAL_MODEL, QWEN_LOCAL_URL, type SpeechEngineId } from './asr/engines.ts';
 import { defaultCompatibleSettings, type CompatibleSettings } from '../shared/compatible-provider.ts';
 export type AudioSourceMode = 'mic' | 'system' | 'both';
 export type Depth = 'quick' | 'standard' | 'deep';
@@ -24,7 +24,7 @@ export interface Settings {
     saveRawAudio: boolean;
   };
   asr: {
-    /** 'qwen3' and 'whisper' run on this computer. The others send meeting audio to a service (server/asr/engines.ts). */
+    /** 'qwen3', 'sensevoice' and 'whisper' run on this computer. The others send meeting audio to a service (server/asr/engines.ts). */
     engine: SpeechEngineId;
     engineSelected?: boolean;
     /** Alibaba Cloud Model Studio: its compatible-mode address and model. The key is kept outside settings. */
@@ -110,7 +110,7 @@ export type PetTag = typeof PET_TAGS[number];
 export const DEFAULT_SETTINGS: Settings = {
   audio: { source: 'mic', micDeviceUid: null, aec: true, saveRawAudio: true },
   asr: {
-    engine: 'qwen3',
+    engine: defaultLocalEngine(),
     qwenCloud: { baseUrl: QWEN_CLOUD_REGIONS.singapore, model: QWEN_CLOUD_MODEL },
     qwenLocal: { baseUrl: QWEN_LOCAL_URL, model: QWEN_LOCAL_MODEL },
     model: recommendModel(), // Large v3 Turbo on Apple Silicon with 16 GB+, smaller models elsewhere

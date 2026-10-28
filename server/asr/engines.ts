@@ -7,9 +7,21 @@ import { encodeWav } from '../audio/wav.ts';
 import { langCode } from './clean.ts';
 import type { WhisperResult, WhisperSegment } from './whisper.ts';
 
-export const SPEECH_ENGINES = ['qwen3', 'whisper', 'elevenlabs', 'qwen-cloud', 'qwen-local'] as const;
+export const SPEECH_ENGINES = ['qwen3', 'sensevoice', 'whisper', 'elevenlabs', 'qwen-cloud', 'qwen-local'] as const;
 export type SpeechEngineId = (typeof SPEECH_ENGINES)[number];
-export type RemoteEngineId = Exclude<SpeechEngineId, 'whisper' | 'qwen3'>;
+export type SherpaEngineId = 'qwen3' | 'sensevoice';
+export type LocalEngineId = SherpaEngineId | 'whisper';
+export type RemoteEngineId = Exclude<SpeechEngineId, LocalEngineId>;
+
+export function defaultLocalEngine(): SherpaEngineId { return 'qwen3'; }
+export const isSherpaEngine = (engine: SpeechEngineId): engine is SherpaEngineId => engine === 'qwen3' || engine === 'sensevoice';
+export const isLocalEngine = (engine: SpeechEngineId): engine is LocalEngineId => engine === 'whisper' || isSherpaEngine(engine);
+
+export function localEngineOrder(engine: SpeechEngineId): LocalEngineId[] {
+  if (engine === 'whisper') return ['whisper'];
+  const first = isSherpaEngine(engine) ? engine : defaultLocalEngine();
+  return [first, first === 'qwen3' ? 'sensevoice' : 'qwen3', 'whisper'];
+}
 /** Engines whose API key Chumi keeps (Keychain, or encrypted for the Windows account). */
 export const KEYED_ENGINES = ['elevenlabs', 'qwen-cloud'] as const;
 export type KeyedEngineId = (typeof KEYED_ENGINES)[number];
@@ -18,7 +30,7 @@ export const isSpeechEngine = (v: unknown): v is SpeechEngineId => (SPEECH_ENGIN
 export const isKeyedEngine = (v: unknown): v is KeyedEngineId => (KEYED_ENGINES as readonly unknown[]).includes(v);
 
 export const ENGINE_NAMES: Record<SpeechEngineId, string> = {
-  qwen3: 'Qwen3-ASR (this computer)', whisper: 'Whisper', elevenlabs: 'ElevenLabs', 'qwen-cloud': 'Qwen3-ASR (Alibaba Cloud)', 'qwen-local': 'Qwen3-ASR (self-hosted)',
+  qwen3: 'Qwen3-ASR (this computer)', sensevoice: 'SenseVoice-Small (this computer)', whisper: 'Whisper', elevenlabs: 'ElevenLabs', 'qwen-cloud': 'Qwen3-ASR (Alibaba Cloud)', 'qwen-local': 'Qwen3-ASR (self-hosted)',
 };
 
 export const ELEVENLABS_URL = 'https://api.elevenlabs.io/v1/speech-to-text';

@@ -12,9 +12,11 @@ interface EngineStatus { keys: Record<KeyedEngine, boolean>; fallback: boolean }
 
 const ENGINES: { id: SpeechEngineId; name: string; note: string; cloud: string | null }[] = [
   { id: 'qwen3', name: msg('Qwen3-ASR (this computer, recommended)'), cloud: null,
-    note: msg('Free and private. Recognizes Mandarin and English on this computer with Qwen3-ASR 0.6B int8. Download its model below; Whisper takes over until it is ready.') },
+    note: msg('941 MB. Private CPU recognition with vocabulary hints. Slower than SenseVoice; another installed local model takes over if unavailable.') },
+  { id: 'sensevoice', name: msg('SenseVoice-Small (this computer)'), cloud: null,
+    note: msg('228 MB. Fast, private CPU recognition with inverse text normalization. Vocabulary hints have no effect.') },
   { id: 'whisper', name: msg('Whisper (this computer)'), cloud: null,
-    note: msg('Free and private: audio never leaves this computer. Uses the speech model chosen below.') },
+    note: msg('31–1031 MB. Private recognition with vocabulary hints. Speed depends on the model and GPU; choose a model below.') },
   { id: 'elevenlabs', name: msg('ElevenLabs Scribe'), cloud: 'ElevenLabs',
     note: msg('Cloud service, accurate in English, Mandarin and many other languages. ElevenLabs bills per hour of audio; vocabulary hints add 20%.') },
   { id: 'qwen-cloud', name: msg('Qwen3-ASR (Alibaba Cloud)'), cloud: 'Alibaba Cloud',
@@ -106,7 +108,7 @@ export function SpeechEngineSettings() {
     if (where && !confirm(t('While you record, meeting audio is sent to {service} to be transcribed. Continue?', { service: where }))) return;
     void saveSettings({ asr: { engine: e.id } });
   };
-  const ready = (id: SpeechEngineId) => id === 'qwen3' || id === 'whisper' || id === 'qwen-local' || !!status?.keys[id as KeyedEngine];
+  const ready = (id: SpeechEngineId) => id === 'qwen3' || id === 'sensevoice' || id === 'whisper' || id === 'qwen-local' || !!status?.keys[id as KeyedEngine];
   const dirty = (id: SpeechEngineId) => (id === 'qwen-cloud' && cloudDirty) || (id === 'qwen-local' && localDirty);
 
   return (
@@ -114,7 +116,7 @@ export function SpeechEngineSettings() {
       <h3>{t('Speech recognition engine')}</h3>
       <ul className="model-list">
         {ENGINES.map((e) => {
-          const known = e.id === 'qwen3' || e.id === 'whisper' || e.id === 'qwen-local' || !!status;
+          const known = e.id === 'qwen3' || e.id === 'sensevoice' || e.id === 'whisper' || e.id === 'qwen-local' || !!status;
           const expanded = open === e.id || dirty(e.id);
           return (
             <li key={e.id} className={`model-row engine-row ${active === e.id ? 'active' : ''}`}>
@@ -123,10 +125,10 @@ export function SpeechEngineSettings() {
                   <b>{t(e.name)}</b>
                   {active === e.id && <span className="tag tag-ok">{t('In use')}</span>}
                   {e.cloud && <span className="tag tag-warn">{t('Sends audio to {service}', { service: e.cloud })}</span>}
-                  {(e.id === 'qwen3' || e.id === 'whisper') && <span className="tag tag-muted">{t('Private')}</span>}
+                  {(e.id === 'qwen3' || e.id === 'sensevoice' || e.id === 'whisper') && <span className="tag tag-muted">{t('Private')}</span>}
                 </div>
                 {known && <div className="model-actions">
-                  {e.id !== 'whisper' && e.id !== 'qwen3' && (
+                  {e.id !== 'whisper' && e.id !== 'qwen3' && e.id !== 'sensevoice' && (
                     <button type="button" className={`btn small disclosure ${ready(e.id) ? 'ghost' : ''}`} aria-expanded={expanded} disabled={dirty(e.id) || saving}
                       title={dirty(e.id) ? t('Save or discard the changes first.') : ''} onClick={() => setOpen(expanded ? null : e.id)}>
                       {ready(e.id) ? t('Settings') : t('Set up')}
@@ -184,10 +186,10 @@ export function SpeechEngineSettings() {
           );
         })}
       </ul>
-      {active !== 'whisper' && active !== 'qwen3' && (
+      {active !== 'whisper' && active !== 'qwen3' && active !== 'sensevoice' && (
         <p className="muted small">{status?.fallback
-          ? t('If the service fails, Chumi uses local Qwen3-ASR first, then Whisper if the Qwen3 model is missing.')
-          : t('Download Qwen3-ASR or a Whisper model below for local fallback when a speech service fails.')}</p>
+          ? t('If the service fails, Chumi tries Qwen3-ASR, then SenseVoice, then Whisper, using the installed local models.')
+          : t('Download Qwen3-ASR, SenseVoice or Whisper below for local fallback when a speech service fails.')}</p>
       )}
     </>
   );

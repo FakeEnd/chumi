@@ -10,7 +10,7 @@ import type { AddressInfo } from 'node:net';
 // A local server stands in for Hugging Face, so tests never download real models.
 const payload = Buffer.alloc(300_000, 7);
 const server = createServer((req, res) => {
-  if (req.url?.includes('/csukuangfj2/')) { res.writeHead(200, { 'content-length': payload.length }); res.end(payload); return; }
+  if ((req.url?.includes('/csukuangfj2/') || req.url?.includes('/csukuangfj/'))) { res.writeHead(200, { 'content-length': payload.length }); res.end(payload); return; }
   if (req.url?.endsWith('/ggml-tiny-q5_1.bin') || req.url?.endsWith('/ggml-medium-q5_0.bin')) { res.writeHead(200, { 'content-length': payload.length }); res.end(payload); return; }
   if (req.url?.endsWith('/ggml-base-q5_1.bin')) { // stalls after half, so it can be cancelled
     res.writeHead(200, { 'content-length': payload.length }); res.write(payload.subarray(0, 150_000)); return;
@@ -21,7 +21,7 @@ await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
 const modelsDir = mkdtempSync(join(tmpdir(), 'chumi-models-'));
 process.env.CHUMI_MODEL_BASE_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}/m`;
 process.env.CHUMI_MODELS_DIR = modelsDir;
-const { MODEL_CATALOG, ModelDownloader, recommendModel, textAccuracy, QWEN_MODEL_ID, QWEN_FILES, QWEN_REVISION, qwenDownloadBase, isInstalled } = await import('../server/asr/models.ts');
+const { MODEL_CATALOG, ModelDownloader, recommendModel, textAccuracy, QWEN_MODEL_ID, QWEN_FILES, QWEN_REVISION, modelDownloadBase, SENSEVOICE_MODEL_ID, SENSEVOICE_FILES, SENSEVOICE_REVISION, sherpaModelId, isInstalled } = await import('../server/asr/models.ts');
 // The stand-in tiny model is the payload; every other model keeps its real checksum, which the payload fails.
 MODEL_CATALOG.find((m) => m.id === 'ggml-tiny-q5_1.bin')!.sha256 = createHash('sha256').update(payload).digest('hex');
 
@@ -94,7 +94,7 @@ test('Qwen3 catalog pins all runtime files, with a separate model directory and 
   assert.equal(QWEN_FILES.length, 6);
   assert.ok(!QWEN_FILES.some((f) => f.path.startsWith('test_wavs/')));
   assert.match(QWEN_REVISION, /^[0-9a-f]{40}$/);
-  assert.equal(qwenDownloadBase('https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main'),
+  assert.equal(modelDownloadBase(MODEL_CATALOG.find((m) => m.id === QWEN_MODEL_ID)!, 'https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main'),
     `https://hf-mirror.com/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/${QWEN_REVISION}`);
   assert.equal(isInstalled(QWEN_MODEL_ID), false);
 });
@@ -121,4 +121,45 @@ test('Qwen3 downloads and verifies every file before installing the directory', 
     assert.equal(existsSync(dir), false);
     assert.equal(existsSync(`${dir}.part`), false);
   } finally { QWEN_FILES.forEach((f, i) => Object.assign(f, original[i])); }
+});
+
+
+test('SenseVoice pins only int8 weights and tokens in its own complete model directory', async () => {
+  const info = MODEL_CATALOG.find((m) => m.id === SENSEVOICE_MODEL_ID)!;
+  assert.equal(info.engine, 'sensevoice');
+  assert.equal(sherpaModelId('sensevoice'), SENSEVOICE_MODEL_ID);
+  assert.notEqual(sherpaModelId('qwen3'), SENSEVOICE_MODEL_ID);
+  assert.deepEqual(SENSEVOICE_FILES.map((f) => f.path), ['model.int8.onnx', 'tokens.txt']);
+  assert.match(SENSEVOICE_REVISION, /^[0-9a-f]{40}$/);
+  assert.equal(modelDownloadBase(info, 'https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main'),
+    `https://hf-mirror.com/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/${SENSEVOICE_REVISION}`);
+  const original = SENSEVOICE_FILES.map((f) => ({ ...f }));
+  const dir = join(modelsDir, SENSEVOICE_MODEL_ID);
+  try {
+    assert.equal(isInstalled(SENSEVOICE_MODEL_ID), false);
+    for (const f of SENSEVOICE_FILES) { f.bytes = payload.length; f.sha256 = createHash('sha256').update(payload).digest('hex'); }
+    const d = new ModelDownloader();
+    await d.start(SENSEVOICE_MODEL_ID);
+    assert.equal(d.current?.status, 'done');
+    assert.equal(d.current?.total, payload.length * 2);
+    assert.equal(d.current?.received, payload.length * 2);
+    assert.equal(isInstalled(SENSEVOICE_MODEL_ID), true);
+    assert.equal(isInstalled(QWEN_MODEL_ID), false);
+    for (const f of SENSEVOICE_FILES) assert.deepEqual(readFileSync(join(dir, f.path)), payload);
+    rmSync(join(dir, 'tokens.txt'));
+    assert.equal(isInstalled(SENSEVOICE_MODEL_ID), false);
+    await d.start(SENSEVOICE_MODEL_ID);
+    assert.equal(isInstalled(SENSEVOICE_MODEL_ID), true);
+    writeFileSync(join(dir, 'model.int8.onnx'), 'truncated');
+    assert.equal(isInstalled(SENSEVOICE_MODEL_ID), false);
+    SENSEVOICE_FILES[1].sha256 = '0'.repeat(64);
+    await d.start(SENSEVOICE_MODEL_ID);
+    assert.equal(d.current?.status, 'error');
+    assert.match(d.current?.error ?? '', /tokens.txt.*SHA-256/);
+    assert.equal(isInstalled(SENSEVOICE_MODEL_ID), false);
+    assert.equal(existsSync(`${dir}.part`), false);
+  } finally {
+    SENSEVOICE_FILES.forEach((f, i) => Object.assign(f, original[i]));
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

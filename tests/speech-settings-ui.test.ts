@@ -86,6 +86,8 @@ test('privacy text identifies each configured transcription destination in both 
   try {
     for (const lang of ['en', 'zh'] as const) {
       setLang(lang);
+      assert.match(speechPrivacy(asr('sensevoice')), /SenseVoice/);
+      assert.match(speechPrivacy(asr('qwen3')), /Qwen3/);
       assert.match(speechPrivacy(asr('whisper')), /Whisper/);
       assert.match(speechPrivacy(asr('elevenlabs')), /ElevenLabs/);
       assert.match(speechPrivacy(asr('qwen-cloud')), /dashscope-intl\.aliyuncs\.com/);

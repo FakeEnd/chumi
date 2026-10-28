@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import {
   keyterms, normalizeLocalAsrUrl, normalizeQwenCloudUrl, parseElevenLabs, parseQwen, qwenBody, transcribeRemote, type RemoteOptions,
 } from '../server/asr/engines.ts';
-import { QwenAsr } from '../server/asr/qwen3.ts';
+import { SherpaAsr } from '../server/asr/sherpa.ts';
 import { SpeechService, type SecretStore, type SpeechSettings } from '../server/asr/speech.ts';
 import { Transcriber } from '../server/asr/transcriber.ts';
 import type { WhisperResult, WhisperServer } from '../server/asr/whisper.ts';
@@ -120,7 +120,7 @@ test('a rejected key is reported without echoing it', async () => {
 
 // ---------------------------------------------------------------- SpeechService
 const whisperResult: WhisperResult = { text: 'local', language: 'en', langProbs: {}, segments: [], ms: 5 };
-function makeService(engine: SpeechSettings['engine'], opts: { fallback: boolean; keys?: Record<string, string>; local?: (o: RemoteOptions) => WhisperResult; qwen?: boolean }) {
+function makeService(engine: SpeechSettings['engine'], opts: { fallback: boolean; keys?: Record<string, string>; local?: (o: RemoteOptions) => WhisperResult; qwen?: boolean; sensevoice?: boolean; qwenError?: boolean; sensevoiceError?: boolean }) {
   const calls: string[] = [];
   const whisper = Object.assign(new EventEmitter(), {
     state: 'ready', message: null, ensure: async () => {}, stop: async () => { calls.push('stop'); },
@@ -133,18 +133,27 @@ function makeService(engine: SpeechSettings['engine'], opts: { fallback: boolean
     delete: async (_s, account) => { delete keys[account]; },
   };
   const cfg: SpeechSettings = { engine, qwenCloud: { baseUrl: `${base}/cloud`, model: 'qwen3-asr-flash' }, qwenLocal: { baseUrl: 'http://127.0.0.1:18999/v1', model: 'Qwen/Qwen3-ASR-1.7B' } };
-  class FakeQwen extends QwenAsr {
-    override get installed() { return opts.qwen ?? false; }
+  class FakeSherpa extends SherpaAsr {
+    override get installed() { return (this.engine === 'qwen3' ? opts.qwen : opts.sensevoice) ?? false; }
     override async ensure() {
-      if (!this.installed) { this.state = 'missing_model'; this.message = 'Download Qwen3-ASR'; throw new Error(this.message); }
+      if (!this.installed) {
+        this.state = 'missing_model'; this.message = this.engine === 'qwen3' ? 'Download Qwen3-ASR' : 'Download SenseVoice';
+        throw new Error(this.message);
+      }
+      if (this.engine === 'qwen3' ? opts.qwenError : opts.sensevoiceError) {
+        calls.push(`${this.engine}:failed`); throw new Error(`${this.engine} failed`);
+      }
       this.state = 'ready';
     }
     override async transcribe(_samples: Int16Array, o: RemoteOptions) {
-      await this.ensure(); calls.push(`qwen:${o.glossary?.join(',') ?? ''}`);
-      return { ...whisperResult, text: 'qwen' };
+      await this.ensure();
+      const name = this.engine === 'qwen3' ? 'qwen' : 'sensevoice';
+      calls.push(`${name}:${o.glossary?.join(',') ?? ''}`);
+      return { ...whisperResult, text: name };
     }
   }
-  return { speech: new SpeechService(whisper, () => cfg, () => opts.fallback, secrets, new FakeQwen(() => 4)), calls, cfg };
+  return { speech: new SpeechService(whisper, () => cfg, () => opts.fallback, secrets,
+    new FakeSherpa('qwen3', () => 4), new FakeSherpa('sensevoice', () => 4)), calls, cfg };
 }
 
 test('when the service fails, local Whisper transcribes the utterance and the user is told once', async () => {
@@ -271,3 +280,50 @@ test('explicit Whisper selection stays on Whisper when Qwen3 is installed', asyn
   await speech.transcribe(audio, { language: 'auto' });
   assert.deepEqual(calls, ['whisper']);
 });
+
+
+for (const engine of ['qwen3', 'sensevoice'] as const) {
+  const other = engine === 'qwen3' ? 'sensevoice' : 'qwen';
+  test(`${engine} uses the other installed sherpa model before Whisper when missing`, async () => {
+    const { speech, calls } = makeService(engine, { fallback: true, qwen: engine !== 'qwen3', sensevoice: engine !== 'sensevoice' });
+    await speech.ensure();
+    assert.equal((await speech.transcribe(audio, { language: 'auto' })).text, other);
+    assert.deepEqual(calls, [`${other}:`]);
+    await assert.rejects(speech.transcribe(audio, { language: 'auto', fallback: false }), /Download/);
+    assert.deepEqual(calls, [`${other}:`]);
+  });
+  test(`${engine} runtime failure tries the other sherpa model, then Whisper`, async () => {
+    const { speech, calls } = makeService(engine, {
+      fallback: true, qwen: true, sensevoice: true, qwenError: true, sensevoiceError: true,
+    });
+    assert.equal((await speech.transcribe(audio, { language: 'auto' })).text, 'local');
+    const second = engine === 'qwen3' ? 'sensevoice' : 'qwen3';
+    assert.deepEqual(calls, [`${engine}:failed`, `${second}:failed`, 'whisper']);
+  });
+}
+
+test('SenseVoice selection keeps unthrottled previews and does not call Qwen3 or Whisper', async () => {
+  const { speech, calls } = makeService('sensevoice', { fallback: true, qwen: true, sensevoice: true });
+  await speech.ensure();
+  assert.equal((await speech.transcribe(audio, { language: 'auto' })).text, 'sensevoice');
+  assert.equal(speech.partials, true);
+  assert.equal(speech.partialIntervalMs, 0);
+  assert.match(speech.label, /SenseVoice/);
+  assert.deepEqual(calls, ['sensevoice:']);
+  const qwen = makeService('qwen3', { fallback: true, qwen: true }).speech;
+  assert.equal(qwen.partialIntervalMs, 5000);
+});
+
+for (const opts of [
+  { qwen: true, sensevoice: true, expected: ['qwen:'] },
+  { qwen: false, sensevoice: true, expected: ['sensevoice:'] },
+  { qwen: true, qwenError: true, sensevoice: true, expected: ['qwen3:failed', 'sensevoice:'] },
+  { qwen: true, qwenError: true, sensevoice: true, sensevoiceError: true, expected: ['qwen3:failed', 'sensevoice:failed', 'whisper'] },
+]) {
+  test(`cloud failure follows the default sherpa order: ${opts.expected.join(' → ')}`, async () => {
+    const { speech, calls } = makeService('qwen-cloud', { fallback: true, ...opts });
+    await speech.ensure();
+    await speech.transcribe(audio, { language: 'auto' });
+    assert.deepEqual(calls, opts.expected);
+  });
+}

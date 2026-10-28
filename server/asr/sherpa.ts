@@ -2,21 +2,19 @@ import { EventEmitter } from 'node:events';
 import { Worker } from 'node:worker_threads';
 import { join } from 'node:path';
 import { MODELS_DIR } from '../paths.ts';
-import { mostlyHan } from './clean.ts';
-import { isInstalled, QWEN_MODEL_ID } from './models.ts';
-import type { RemoteOptions } from './engines.ts';
+import { qwenHotwords, qwenLanguage, senseVoiceLanguage } from './sherpa-config.ts';
+import { isInstalled, sherpaModelId } from './models.ts';
+import { ENGINE_NAMES, type SherpaEngineId, type RemoteOptions } from './engines.ts';
 import type { AsrState, WhisperResult } from './whisper.ts';
 
+interface DecodeResult { text: string; lang?: string }
 interface DecodeRequest {
-  promise: Promise<string>;
-  resolve(text: string): void;
+  promise: Promise<DecodeResult>;
+  resolve(result: DecodeResult): void;
   reject(error: Error): void;
 }
 
-export const qwenLanguage = (text: string): 'zh' | 'en' => mostlyHan(text) ? 'zh' : 'en';
-export const qwenHotwords = (terms: string[]): string => [...new Set(terms.flatMap((t) => t.split(/[,，\r\n]+/)).map((t) => t.trim()).filter(Boolean))].join(',');
-
-export class QwenAsr extends EventEmitter<{ state: [AsrState, string | null] }> {
+export class SherpaAsr extends EventEmitter<{ state: [AsrState, string | null] }> {
   state: AsrState = 'stopped';
   message: string | null = null;
   private worker: Worker | null = null;
@@ -24,9 +22,10 @@ export class QwenAsr extends EventEmitter<{ state: [AsrState, string | null] }> 
   private nextId = 0;
   private loading: Promise<void> | null = null;
   private threads: () => number;
-  constructor(threads: () => number) { super(); this.threads = threads; }
+  readonly engine: SherpaEngineId;
+  constructor(engine: SherpaEngineId, threads: () => number) { super(); this.engine = engine; this.threads = threads; }
 
-  get installed(): boolean { return isInstalled(QWEN_MODEL_ID); }
+  get installed(): boolean { return isInstalled(sherpaModelId(this.engine)); }
 
   private setState(state: AsrState, message: string | null = null): void {
     this.state = state; this.message = message; this.emit('state', state, message);
@@ -40,12 +39,14 @@ export class QwenAsr extends EventEmitter<{ state: [AsrState, string | null] }> 
 
   private async load(): Promise<void> {
     if (!this.installed) {
-      this.setState('missing_model', 'Download Qwen3-ASR in Settings → Transcription. Chumi uses Whisper until it is downloaded.');
+      this.setState('missing_model', this.engine === 'qwen3'
+        ? 'Download Qwen3-ASR in Settings → Transcription. Another installed local model takes over until it is downloaded.'
+        : 'Download SenseVoice in Settings → Transcription. Another installed local model takes over until it is downloaded.');
       throw new Error(this.message!);
     }
-    this.setState('starting', 'Loading Qwen3-ASR…');
-    const worker = new Worker(new URL('./qwen3-worker.ts', import.meta.url), {
-      workerData: { dir: join(MODELS_DIR, QWEN_MODEL_ID), threads: this.threads() },
+    this.setState('starting', `Loading ${ENGINE_NAMES[this.engine]}…`);
+    const worker = new Worker(new URL('./sherpa-worker.ts', import.meta.url), {
+      workerData: { engine: this.engine, dir: join(MODELS_DIR, sherpaModelId(this.engine)), threads: this.threads() },
     });
     this.worker = worker;
     try {
@@ -56,19 +57,19 @@ export class QwenAsr extends EventEmitter<{ state: [AsrState, string | null] }> 
           this.setState('error', error.message);
           reject(error);
         };
-        worker.on('message', (message: { ready?: boolean; id?: number; text?: string; error?: string }) => {
+        worker.on('message', (message: { ready?: boolean; id?: number; text?: string; lang?: string; error?: string }) => {
           if (message.ready) { resolve(); return; }
           if (message.id === undefined) { fail(new Error(message.error)); return; }
           const request = this.pending.get(message.id);
           this.pending.delete(message.id);
           if (message.error) request?.reject(new Error(message.error));
-          else request?.resolve(message.text ?? '');
+          else request?.resolve({ text: message.text ?? '', lang: message.lang });
         });
         worker.on('error', fail);
         worker.on('exit', (code) => {
           if (this.worker !== worker) return;
           this.worker = null;
-          fail(new Error(`Qwen3-ASR worker exited (${code}).`));
+          fail(new Error(`${ENGINE_NAMES[this.engine]} worker exited (${code}).`));
         });
       });
       this.setState('ready');
@@ -92,13 +93,13 @@ export class QwenAsr extends EventEmitter<{ state: [AsrState, string | null] }> 
     await this.ensure();
     const started = performance.now();
     const id = ++this.nextId;
-    const request = Promise.withResolvers<string>();
+    const request = Promise.withResolvers<DecodeResult>();
     this.pending.set(id, request);
     try { this.worker!.postMessage({ id, samples, language: options.language, hotwords: qwenHotwords(options.glossary ?? []) }); }
     catch (e) { this.pending.delete(id); request.reject(e); }
-    const text = await request.promise;
+    const { text, lang } = await request.promise;
     return {
-      text, language: qwenLanguage(text), langProbs: {},
+      text, language: this.engine === 'qwen3' ? qwenLanguage(text) : senseVoiceLanguage(lang), langProbs: {},
       segments: [{ start: 0, end: samples.length / 16000, text: ` ${text}` }], ms: performance.now() - started,
     };
   }

@@ -9,10 +9,11 @@ import { pipeline } from 'node:stream/promises';
 import { DATA_DIR, MODELS_DIR, REPO_ROOT } from '../paths.ts';
 import { toSimplified } from './clean.ts';
 import { readWav } from '../audio/wav.ts';
+import { type SherpaEngineId } from './engines.ts';
 import type { SpeechService } from './speech.ts';
 
 /**
- * Local Qwen3-ASR and whisper.cpp models from Hugging Face. A mirror must serve the same files:
+ * Local sherpa-onnx and whisper.cpp models from Hugging Face. A mirror must serve the same files:
  * every download is checked against the SHA-256 in MODEL_CATALOG.
  */
 const BASE_URL = process.env.CHUMI_MODEL_BASE_URL || 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
@@ -26,6 +27,9 @@ export interface ModelInfo {
   minRamGB: number;
   /** Of the file: the Hugging Face LFS object id in ggerganov/whisper.cpp (recorded 2026-10-24). */
   sha256?: string;
+  engine?: SherpaEngineId;
+  repo?: string;
+  revision?: string;
   files?: { path: string; bytes: number; sha256: string }[];
   note: { en: string; zh: string };
 }
@@ -42,15 +46,29 @@ export const QWEN_FILES = [
   { path: 'tokenizer/vocab.json', bytes: 2776833, sha256: 'ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910' },
 ];
 
-export function qwenDownloadBase(base = BASE_URL): string {
+export const SENSEVOICE_MODEL_ID = 'sensevoice-small-int8';
+export const SENSEVOICE_REPO = 'csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17';
+export const SENSEVOICE_REVISION = '2365baeacb507f821a0c8120fcee3d484dba7a07';
+export const SENSEVOICE_FILES = [
+  { path: 'model.int8.onnx', bytes: 239233841, sha256: 'c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51' },
+  { path: 'tokens.txt', bytes: 315894, sha256: 'f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc' },
+];
+
+export const sherpaModelId = (engine: SherpaEngineId): string => engine === 'qwen3' ? QWEN_MODEL_ID : SENSEVOICE_MODEL_ID;
+
+export function modelDownloadBase(info: ModelInfo, base = BASE_URL): string {
+  if (!info.repo) return base;
   const mirror = base.replace(/\/ggerganov\/whisper\.cpp\/resolve\/[^/]+\/?$/, '');
-  return `${mirror}/${QWEN_REPO}/resolve/${QWEN_REVISION}`;
+  return `${mirror}/${info.repo}/resolve/${info.revision}`;
 }
 
 export const MODEL_CATALOG: ModelInfo[] = [
   { id: QWEN_MODEL_ID, name: 'Qwen3-ASR 0.6B (int8)', sizeMB: QWEN_FILES.reduce((n, f) => n + f.bytes, 0) / 1048576,
-    speed: 5, accuracy: 5, minRamGB: 8, files: QWEN_FILES,
-    note: { en: 'Recommended. Local Mandarin and English recognition on CPU. Whisper remains available as a backup.', zh: '推荐。使用 CPU 在本机识别中英文，Whisper 可作为备用引擎。' } },
+    speed: 3, accuracy: 5, minRamGB: 8, engine: 'qwen3', repo: QWEN_REPO, revision: QWEN_REVISION, files: QWEN_FILES,
+    note: { en: 'Recommended. Local Mandarin and English on CPU with vocabulary hints. Slower than SenseVoice.', zh: '推荐。使用 CPU 在本机识别中英文，支持术语表；速度比 SenseVoice 慢。' } },
+  { id: SENSEVOICE_MODEL_ID, name: 'SenseVoice-Small (int8)', sizeMB: SENSEVOICE_FILES.reduce((n, f) => n + f.bytes, 0) / 1048576,
+    speed: 5, accuracy: 5, minRamGB: 4, engine: 'sensevoice', repo: SENSEVOICE_REPO, revision: SENSEVOICE_REVISION, files: SENSEVOICE_FILES,
+    note: { en: 'Fast CPU recognition with inverse text normalization. Vocabulary hints have no effect.', zh: 'CPU 识别速度快，开启逆文本规范化；术语表对它不起作用。' } },
   { id: 'ggml-tiny-q5_1.bin', name: 'Tiny', sizeMB: 31, speed: 5, accuracy: 1, minRamGB: 4,
     sha256: '818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7',
     note: { en: 'Fastest and smallest. Misses many technical terms; weak on Mandarin.', zh: '最快最小。专业术语常听错，中文效果较差。' } },
@@ -137,7 +155,7 @@ export class ModelDownloader extends EventEmitter<{ progress: [DownloadState] }>
       for (const file of files) {
         const target = info.files ? join(part, file.path) : part;
         mkdirSync(dirname(target), { recursive: true });
-        const base = info.files ? qwenDownloadBase() : BASE_URL;
+        const base = modelDownloadBase(info);
         const res = await fetch(`${base}/${file.path}`, { signal: this.controller.signal, redirect: 'follow' });
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
         const total = file.bytes || Number(res.headers.get('content-length') ?? 0);

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
-import { QWEN_MODEL_ID } from '../server/asr/models.ts';
+import { MODEL_CATALOG } from '../server/asr/models.ts';
 import { Store } from '../server/db.ts';
 import { deepMerge } from '../server/util.ts';
 import { EFFORTS, PET_TAGS, isProviderId, type Settings } from '../server/settings.ts';
@@ -21,7 +21,7 @@ function fixture(status: LiveStatus, initial: Record<string, unknown> = {}) {
   store.saveSettings(deepMerge(store.getSettings(), initial) as Settings);
   const calls: string[] = [];
   const deps = {
-    QWEN_MODEL_ID, store, manager: { status }, deepMerge, isProviderId, validateCompatibleSettings, EFFORTS, PET_TAGS, isInstalled: () => true,
+    MODEL_CATALOG, store, manager: { status }, deepMerge, isProviderId, validateCompatibleSettings, EFFORTS, PET_TAGS, isInstalled: () => true,
     HttpError, isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId,
     speechEngineChanged, speechRestartRequired, speakerRuntime: () => ({ ready: true }), DEV: true,
     assistant: { setAutoExplain: () => {} }, whisper: { configure: () => calls.push('whisper') },
