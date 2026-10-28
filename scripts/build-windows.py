@@ -84,7 +84,11 @@ def stage_backend(node):
     for name in ['package.json', 'package-lock.json', 'LICENSE']:
         shutil.copy2(ROOT / name, backend / name)
     npm = node.parent / 'node_modules' / 'npm' / 'bin' / 'npm-cli.js'
-    run([node, npm, 'ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', backend])
+    run([node, npm, 'ci', '--omit=dev', '--include=optional', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', backend])
+    sherpa = backend / 'node_modules' / 'sherpa-onnx-win-x64'
+    sherpa_files = ['sherpa-onnx.node', 'sherpa-onnx-c-api.dll', 'sherpa-onnx-cxx-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll']
+    if not (backend / 'node_modules' / 'sherpa-onnx-node' / 'sherpa-onnx.js').exists() or any(not (sherpa / name).exists() for name in sherpa_files):
+        raise RuntimeError('Missing sherpa-onnx Windows x64 runtime or DLLs in staged backend.')
     runtime = BUILD / 'runtime'
     runtime.mkdir(exist_ok=True)
     shutil.copy2(node, runtime / 'node.exe')

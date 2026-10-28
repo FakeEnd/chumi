@@ -52,6 +52,7 @@
     "marked": "^18.1.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "sherpa-onnx-node": "2.0.1",
     "zod": "^4.6.6"
   }
 }

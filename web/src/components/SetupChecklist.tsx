@@ -36,13 +36,14 @@ export function SetupChecklist() {
 
   if (!settings || settings.ui.setupDismissed) return null;
   const described = !!profile && !!(profile.background.trim() || profile.researchInterests.trim() || profile.domains.length);
+  const localSpeech = settings.asr.engine === 'qwen3' || settings.asr.engine === 'whisper';
   const steps: Step[] = [
     {
       id: 'speech', done: asr?.state === 'ready',
-      title: settings.asr.engine === 'whisper' ? t('Speech recognition on this computer') : t('Speech recognition'),
-      detail: asr?.state === 'ready' ? settings.asr.engine === 'whisper' ? t('Ready. Audio never leaves your computer.') : t('Ready. A speech service transcribes your meetings.')
+      title: localSpeech ? t('Speech recognition on this computer') : t('Speech recognition'),
+      detail: asr?.state === 'ready' ? localSpeech ? t('Ready. Audio never leaves your computer.') : t('Ready. A speech service transcribes your meetings.')
         : download?.status === 'downloading' ? t('Downloading speech model: {progress}', { progress: download.total ? `${Math.round(download.received / download.total * 100)}%` : `${Math.round(download.received / 1048576)} MB` })
-          : asr?.state === 'missing_model' ? t('Download the speech model once. Meetings are then transcribed locally.') : asr?.message ?? t('The speech model is not ready yet.'),
+          : asr?.state === 'missing_model' ? settings.asr.engine === 'qwen3' ? t('Download Qwen3-ASR, the recommended local engine. Whisper keeps transcribing if its model is installed.') : t('Download the speech model once. Meetings are then transcribed locally.') : asr?.message ?? t('The speech model is not ready yet.'),
       action: asr?.state === 'ready' || download?.status === 'downloading' || asr?.state === 'starting' ? undefined
         : asr?.state === 'missing_model' ? { label: t('Download speech model'), run: () => void api('/api/asr/setup', { body: {} }) }
           : { label: t('Open Transcription settings'), run: () => setState({ dialog: 'settings', settingsTab: 'asr' }) },

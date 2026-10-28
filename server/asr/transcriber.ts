@@ -36,6 +36,7 @@ export class Transcriber extends EventEmitter<{
   private active: Job | null = null;
   /** Bumped on shutdown: work still in flight from before then must not touch a closed store. */
   private generation = 0;
+  private lastPartialAt = new Map<SourceName, number>();
   private finalizedUtts = new Map<SourceName, number>(); // highest utterance id already finalized per source
   private lastText = new Map<SourceName, string>();
   /** The language each source last spoke, for choosing between Mandarin and English when detection names neither. */
@@ -44,9 +45,9 @@ export class Transcriber extends EventEmitter<{
   stopped = false;
   backlogSec = 0;
 
-  private speech: Pick<SpeechService, 'transcribe' | 'partials'>;
+  private speech: Pick<SpeechService, 'transcribe' | 'partials'> & Partial<Pick<SpeechService, 'partialIntervalMs'>>;
   private cfg: () => TranscriberConfig;
-  constructor(speech: Pick<SpeechService, 'transcribe' | 'partials'>, cfg: () => TranscriberConfig) { super(); this.speech = speech; this.cfg = cfg; }
+  constructor(speech: Pick<SpeechService, 'transcribe' | 'partials'> & Partial<Pick<SpeechService, 'partialIntervalMs'>>, cfg: () => TranscriberConfig) { super(); this.speech = speech; this.cfg = cfg; }
 
   pushProgress(source: SourceName, utt: Utterance): void {
     if (this.stopped || !this.speech.partials) return;
@@ -68,7 +69,7 @@ export class Transcriber extends EventEmitter<{
    * finishes for the session it was captured in: its text is tagged with that session and changes nothing here.
    */
   reset(session: string | null = null): void {
-    this.finals = []; this.partials.clear(); this.finalizedUtts.clear(); this.lastText.clear(); this.recentLang.clear(); this.backlogSec = 0; this.stopped = false;
+    this.finals = []; this.partials.clear(); this.lastPartialAt.clear(); this.finalizedUtts.clear(); this.lastText.clear(); this.recentLang.clear(); this.backlogSec = 0; this.stopped = false;
     this.session = session;
   }
 
@@ -139,12 +140,13 @@ export class Transcriber extends EventEmitter<{
     let job = this.finals.shift();
     if (!job) {
       // Newest partial across sources; skip if its utterance was already finalized.
-      const cands = [...this.partials.values()].sort((a, b) => b.enqueued - a.enqueued);
+      const cands = [...this.partials.values()].filter((p) => Date.now() - (this.lastPartialAt.get(p.source) ?? 0) >= (this.speech.partialIntervalMs ?? 0)).sort((a, b) => b.enqueued - a.enqueued);
       job = cands[0];
       if (job) this.partials.delete(job.source);
       if (job && (this.finalizedUtts.get(job.source) ?? 0) >= job.utt.id) job = undefined;
     }
     if (!job) { this.emit('idle'); return; }
+    if (job.kind === 'partial') this.lastPartialAt.set(job.source, Date.now());
     this.busy = true;
     this.active = job;
     const generation = this.generation;
