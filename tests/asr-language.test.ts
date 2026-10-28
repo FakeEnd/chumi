@@ -78,3 +78,10 @@ for (const { name, lang, text, probs = {}, recent = null, prior = 'en', expected
     assert.deepEqual(decideLanguage({ lang, text, probs }, recent, prior), expected);
   });
 }
+
+test('the label follows the written text between Mandarin and English', () => {
+  assert.deepEqual(decideLanguage({ lang: 'en', probs: {}, text: '我们接下来讨论实验结果' }, null, 'en'), { action: 'relabel', lang: 'zh' });
+  assert.deepEqual(decideLanguage({ lang: 'en', probs: {}, text: 'We use CRISPR 筛选' }, null, 'zh'), { action: 'keep' });
+  assert.deepEqual(decideLanguage({ lang: 'zh', probs: {}, text: 'Sounds good to me.' }, null, 'zh'), { action: 'relabel', lang: 'en' });
+  assert.deepEqual(decideLanguage({ lang: 'zh', probs: {}, text: '用 CRISPR 做筛选' }, null, 'en'), { action: 'keep' });
+});

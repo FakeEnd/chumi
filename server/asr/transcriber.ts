@@ -164,7 +164,8 @@ export class Transcriber extends EventEmitter<{
       const prompt = this.prompt(job.source);
       let res = await this.speech.transcribe(job.utt.samples, { language, prompt: prompt.text, glossary, timeoutMs: job.kind === 'final' ? 90000 : 20000 });
       if (generation !== this.generation) return;
-      let lang = langCode(res.language);
+      // A chosen language is the label: whisper-server reports what it detected even when told which language to use.
+      let lang = language === 'zh' || language === 'en' ? language : langCode(res.language);
       if (language === 'auto' && guard !== false) {
         // Mandarin and English only (language.ts): relabel Chinese text detected as another language, or transcribe it again.
         const decision = decideLanguage({ lang, probs: res.langProbs, text: res.text }, this.recentLang.get(job.source) ?? null, prior ?? 'en');

@@ -79,13 +79,13 @@ test('automatic Spanish preview emits no transcript and makes no retry request',
   assert.deepEqual(cleared, []);
 });
 
-test('forced Mandarin neither retries nor relabels an engine result in another language', { timeout: 5000 }, async (t) => {
+test('forced Mandarin never retries, and labels the result Mandarin whatever the engine detected', { timeout: 5000 }, async (t) => {
   const text = '但是未来肯定是肯定的';
   const { transcriber, calls, finals } = fixture(t, () => result(text, 'korean'), { language: 'zh' });
   transcriber.pushFinal('mic', utterance(1));
   assert.equal(await transcriber.drain(), true);
   assert.deepEqual(calls.map((c) => c.options.language), ['zh']);
-  assert.deepEqual(finals, [[{ session: 'meeting', source: 'mic', uttId: 1, startSec: 1, endSec: 2, text, lang: 'ko' }]]);
+  assert.deepEqual(finals, [[{ session: 'meeting', source: 'mic', uttId: 1, startSec: 1, endSec: 2, text, lang: 'zh' }]]);
 });
 
 for (const prior of ['zh', 'en'] as const) {

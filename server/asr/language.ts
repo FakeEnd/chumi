@@ -23,18 +23,22 @@ const FOREIGN_SCRIPT = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}
 export type LanguageDecision = { action: 'keep' } | { action: 'relabel'; lang: Spoken } | { action: 'retry'; lang: Spoken };
 
 /**
- * What to do with an automatically detected result.
- * - Mandarin or English: keep it.
+ * What to do with an automatically detected result. The label follows the text that was written.
+ * - Mandarin or English: keep it, unless the text says otherwise: Chinese written under 'en' is Mandarin, and text
+ *   with English words and no Chinese character under 'zh' is English.
  * - Another language, but the text is Chinese (mostly Han, no foreign script): the decoder followed the speech, only the
  *   label is wrong, so relabel it as Mandarin.
  * - Anything else: transcribe again, forcing Mandarin or English. Whisper's own probabilities choose when they clearly
  *   prefer one; otherwise the language this source spoke last, otherwise the meeting's prior.
  */
 export function decideLanguage(r: { lang: string | null; probs: Record<string, number>; text: string }, recent: Spoken | null, prior: Spoken): LanguageDecision {
-  if (isSpoken(r.lang) || !r.text.trim()) return { action: 'keep' };
+  if (!r.text.trim()) return { action: 'keep' };
   const han = r.text.match(/\p{Script=Han}/gu)?.length ?? 0;
   const latin = r.text.match(/[A-Za-z]+/g)?.length ?? 0;
-  if (han > latin && !FOREIGN_SCRIPT.test(r.text)) return { action: 'relabel', lang: 'zh' };
+  const chinese = han > latin && !FOREIGN_SCRIPT.test(r.text);
+  if (r.lang === 'en') return chinese ? { action: 'relabel', lang: 'zh' } : { action: 'keep' };
+  if (r.lang === 'zh') return han === 0 && latin > 0 && !FOREIGN_SCRIPT.test(r.text) ? { action: 'relabel', lang: 'en' } : { action: 'keep' };
+  if (chinese) return { action: 'relabel', lang: 'zh' };
   const zh = r.probs.zh ?? 0, en = r.probs.en ?? 0;
   const lang: Spoken = Math.abs(zh - en) >= 0.05 ? (zh > en ? 'zh' : 'en') : (recent ?? prior);
   return { action: 'retry', lang };
