@@ -11,6 +11,7 @@
 #   CHUMI_SIGN_IDENTITY  codesign identity (e.g. "Apple Development: …"). Default: ad-hoc ("-").
 #   CHUMI_DEV=1          dev build: Chumi.app's web view can be inspected (right-click → Inspect Element)
 #   CHUMI_TARGET         swiftc target triple (default: this Mac's CPU, arm64- or x86_64-apple-macos14.4)
+#   CHUMI_NODE           Node executable to record in Chumi.app (default: node on PATH)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -93,6 +94,10 @@ cp "$OBJ_DIR/Chumi" "$APP/Contents/MacOS/Chumi"
 cp "$OBJ_DIR/chumi-audio" "$APP/Contents/MacOS/chumi-audio"
 cp "$SCRIPT_DIR/app/Info.plist" "$APP/Contents/Info.plist"
 plutil -replace ChumiRepoPath -string "$REPO_ROOT" "$APP/Contents/Info.plist"
+NODE="${CHUMI_NODE-$(command -v node || true)}"
+if [[ "$NODE" == /* && -x "$NODE" ]] && "$NODE" -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 24 ? 0 : 1)' >/dev/null 2>&1; then
+  plutil -insert ChumiNodePath -string "$NODE" "$APP/Contents/Info.plist"
+fi
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 if [[ -f "$ICNS" ]]; then
   cp "$ICNS" "$APP/Contents/Resources/AppIcon.icns"

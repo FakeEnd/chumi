@@ -62,17 +62,34 @@ final class ServerManager: @unchecked Sendable {
     /// The server needs Node 24 or later (package.json "engines"; scripts/setup.sh checks the same).
     static let minimumNodeMajor = 24
 
-    /// Homebrew's node, then the login shell's. Versions older than `minimumNodeMajor` are skipped.
-    static func findNode() -> String? {
+    /// Versions older than `minimumNodeMajor` are skipped.
+    static func findNode(recorded: String? = Bundle.main.object(forInfoDictionaryKey: "ChumiNodePath") as? String,
+                         home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                         brewPaths: [String] = ["/opt/homebrew/bin/node", "/usr/local/bin/node"],
+                         shellOutput: () -> String? = { output(of: "/bin/zsh", ["-ilc", "command -v node"], timeout: 8) }) -> String? {
         let fm = FileManager.default
-        for candidate in ["/opt/homebrew/bin/node", "/usr/local/bin/node"]
-        where fm.isExecutableFile(atPath: candidate) && isRecentNode(candidate) {
-            return candidate
+        func usable(_ path: String) -> Bool {
+            path.hasPrefix("/") && fm.isExecutableFile(atPath: path) && isRecentNode(path)
         }
-        // Ask a login shell (picks up nvm/fnm/asdf PATH setup in ~/.zprofile / ~/.zshrc).
-        guard let out = output(of: "/bin/zsh", ["-lc", "command -v node"], timeout: 8) else { return nil }
-        let path = out.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.last { $0.hasPrefix("/") } ?? ""
-        return fm.isExecutableFile(atPath: path) && isRecentNode(path) ? path : nil
+        if let recorded, usable(recorded) { return recorded }
+        if let brew = brewPaths.first(where: usable) { return brew }
+        // Interactive login shells read both ~/.zprofile and ~/.zshrc.
+        if let out = shellOutput(), let path = out.split(separator: "\n").map({ $0.trimmingCharacters(in: .whitespaces) }).last(where: { $0.hasPrefix("/") }), usable(path) { return path }
+
+        func versions(_ directory: String, _ suffix: String) -> [String] {
+            let root = home.appendingPathComponent(directory, isDirectory: true)
+            let names = (try? fm.contentsOfDirectory(atPath: root.path)) ?? []
+            return names.sorted { $0.compare($1, options: .numeric) == .orderedDescending }.map { root.appendingPathComponent($0).appendingPathComponent(suffix).path }
+        }
+        let candidates = versions(".nvm/versions/node", "bin/node")
+            + versions(".local/share/fnm/node-versions", "installation/bin/node")
+            + versions("Library/Application Support/fnm/node-versions", "installation/bin/node")
+            + [".volta/bin/node", ".local/share/mise/shims/node", ".asdf/shims/node"].map { home.appendingPathComponent($0).path }
+        return candidates.first(where: usable)
+    }
+
+    static func serverPath(node: String, inherited: String?) -> String {
+        (node as NSString).deletingLastPathComponent + ":/opt/homebrew/bin:/usr/local/bin:" + (inherited ?? "/usr/bin:/bin:/usr/sbin:/sbin")
     }
 
     /// `node --version` prints e.g. "v24.1.0".
@@ -203,7 +220,7 @@ final class ServerManager: @unchecked Sendable {
         }
 
         guard let node = ServerManager.findNode() else {
-            return .failed("Chumi needs Node.js \(ServerManager.minimumNodeMajor) or later and did not find it (looked in /opt/homebrew/bin, /usr/local/bin and your login shell PATH; older versions are skipped).\n\nInstall a current Node.js (e.g. `brew install node`) and reopen Chumi.")
+            return .failed("Chumi needs Node.js \(ServerManager.minimumNodeMajor) or later and did not find it (looked in the recorded build path, Homebrew, your login shell PATH and common version-manager locations; older versions are skipped).\n\nInstall a current Node.js (e.g. `brew install node`) and reopen Chumi.")
         }
         guard let chosen = (ServerManager.defaultPort...ServerManager.lastPort).first(where: { !ServerManager.portBusy($0) }) else {
             return .failed("No free port between \(ServerManager.defaultPort) and \(ServerManager.lastPort) on 127.0.0.1.")
@@ -219,7 +236,7 @@ final class ServerManager: @unchecked Sendable {
         env["CHUMI_SHUTDOWN_GRACE_MS"] = String(ServerManager.shutdownGraceMilliseconds)
         env["CHUMI_AUDIO_HELPER"] = helperPath
         env["PORT"] = String(chosen)
-        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
+        env["PATH"] = ServerManager.serverPath(node: node, inherited: env["PATH"])
         p.environment = env
 
         let fd = open(logURL.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
