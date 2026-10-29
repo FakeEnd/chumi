@@ -165,6 +165,8 @@ interface Adapter {
   strip: string[];
   /** Copyable manual setup: a command, or the configuration entry to add. */
   setup(m: McpServer): string;
+  /** Why it counts as not installed, when Chumi looked for more than the command. */
+  missing?: string;
   registration(cli: string): Promise<Registration>;
   connect(cli: string, m: McpServer): Promise<void>;
   disconnect(cli: string): Promise<void>;
@@ -349,6 +351,9 @@ const ADAPTERS: Record<AgentId, Adapter> = {
   'deepseek-harness': {
     bin: 'dsh', client: 'dsh-mcp-client', strip: [],
     setup: (m) => `${dshPatchFile()}\n${dshBlock(m)}`,
+    missing: IS_WIN
+      ? 'DeepSeek Harness was not found: there is no `dsh` command, and Windows lists no DeepSeek Harness installation. If it is installed somewhere else, choose its folder.'
+      : 'DeepSeek Harness was not found: there is no `dsh` command, and no DeepSeek Harness app in Applications or in Spotlight. If it is installed somewhere else, choose the app.',
     async registration() {
       let text: string | null;
       try { text = readText(dshPatchFile()); } catch (e) { return { registered: null, detail: (e as Error).message }; }
@@ -436,7 +441,7 @@ export class AgentIntegration {
     const reads = this.store.agentReads({ client: a.client, limit: 1 });
     const verified = this.store.agentReads({ client: a.client, verifiedOnly: true, limit: 1 })[0];
     const base: AgentStatus = { agent, name: AGENT_NAMES[agent], billing: AGENT_BILLING[agent], cli, registered: null, outdated: false, outdatedReasons: [], clientHealth: 'unknown', lastRead: reads[0] ? { at: reads[0].at, tool: reads[0].tool } : null, verifiedAt: verified?.at ?? null, detail: null };
-    if (!cli) return { ...base, registered: false, detail: `${AGENT_NAMES[agent]} is not installed (the \`${a.bin}\` command was not found).` };
+    if (!cli) return { ...base, registered: false, detail: a.missing ?? `${AGENT_NAMES[agent]} is not installed (the \`${a.bin}\` command was not found).` };
     return { ...base, ...await a.registration(cli) };
   }
 

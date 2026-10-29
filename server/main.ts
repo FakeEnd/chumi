@@ -28,7 +28,7 @@ import { HandoffError, HandoffService } from './projects/handoff.ts';
 import { AgentChecks } from './agent-checks.ts';
 import { AGENTS, AgentIntegration, type AgentId } from './projects/agents.ts';
 import { AGENT_BILLING, AGENT_NAMES } from '../shared/agents.ts';
-import { chooseFolder, notify, openExternalUrl, openPrivacySettings } from './platform.ts';
+import { chooseApp, chooseFolder, IS_WIN, notify, openExternalUrl, openPrivacySettings } from './platform.ts';
 import { chumiLink, SERVER_INFO, workspaceExists } from './projects/evidence.ts';
 import { exportName, exportSession } from './export.ts';
 import { audioHelperArgs, checkPermissions, listDevices } from './audio/capture.ts';
@@ -54,6 +54,7 @@ import { finishShutdown, SHUTDOWN_GRACE_MS } from './shutdown.ts';
 import { quitCheck } from './quit-check.ts';
 import { ProjectWorkService, ProjectWorkError } from './projects/work.ts';
 import { continueInDeepSeekHarness, launchCodexDesktop } from './projects/desktop-handoff.ts';
+import { rememberDshApp } from './projects/dsh.ts';
 
 const PORT = Number(process.env.PORT || 4777);
 const HOST = '127.0.0.1';
@@ -669,6 +670,15 @@ route('GET', '/api/agents/local', () => agentChecks.local());
 route('GET', '/api/agents/:agent/status', (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); return agentChecks.status(p.agent); });
 route('POST', '/api/agents/:agent/connect', async (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); agentChecks.invalidate(p.agent); try { await agents.connect(p.agent); } catch (e) { throw new HttpError(400, (e as Error).message); } return { status: await agentChecks.status(p.agent, true) }; });
 route('POST', '/api/agents/:agent/disconnect', async (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); agentChecks.invalidate(p.agent); await agents.disconnect(p.agent); return { status: await agentChecks.status(p.agent, true) }; });
+// DeepSeek Harness is the one agent Chumi finds as a desktop app; when it is installed somewhere Chumi doesn't look, the user points to it.
+route('POST', '/api/agents/:agent/choose-app', async (_req, _res, p) => {
+  if (p.agent !== 'deepseek-harness') throw new HttpError(404, 'Unknown agent');
+  const dir = await chooseApp(IS_WIN ? 'Choose the folder DeepSeek Harness was installed to' : 'Choose DeepSeek Harness');
+  if (!dir) return { cancelled: true };
+  try { rememberDshApp(dir); } catch (e) { throw new HttpError(400, (e as Error).message); }
+  agentChecks.invalidate(p.agent);
+  return { status: await agentChecks.status(p.agent, true) };
+});
 route('GET', '/api/agents/available', async () => ({ agents: await Promise.all(AGENTS.map(async (a) => ({ agent: a, name: AGENT_NAMES[a], installed: !!await agents.cli(a) }))) }));
 route('POST', '/api/agents/:agent/verify', async (req, _res, p) => {
   if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent');

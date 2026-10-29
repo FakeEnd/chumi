@@ -61,6 +61,16 @@ export function chooseFolder(prompt: string): Promise<string | null> {
     r(p ? p.replace(/\/+$/, '') || '/' : null);
   }));
 }
+
+/** The system picker for an installed app: its .app bundle on a Mac, the folder it was installed to on Windows. Null when cancelled. */
+export function chooseApp(prompt: string): Promise<string | null> {
+  if (DESKTOP || IS_WIN) return chooseFolder(prompt);
+  const script = `POSIX path of (choose file of type {"com.apple.application-bundle"} with prompt ${JSON.stringify(prompt)} default location (path to applications folder))`;
+  return new Promise((r) => execFile('/usr/bin/osascript', ['-e', script], { timeout: 600_000 }, (e, so) => {
+    const p = e ? '' : String(so).trim();
+    r(p ? p.replace(/\/+$/, '') : null);
+  }));
+}
 const psString = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
 /**

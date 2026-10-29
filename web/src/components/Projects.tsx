@@ -95,7 +95,7 @@ export function AgentsTab() {
     for (const agent of AGENTS) void api<AgentStatus>(`/api/agents/${agent}/status`, options).then((status) => setStatuses((s) => ({ ...s, [agent]: status }))).catch((e) => { if (!controller.signal.aborted) setErrors((s) => ({ ...s, [agent]: (e as Error).message })); });
     return () => controller.abort();
   }, []);
-  const act = async (a: AgentStatus, action: 'connect' | 'disconnect' | 'verify') => {
+  const act = async (a: AgentStatus, action: 'connect' | 'disconnect' | 'verify' | 'choose-app') => {
     const agent = a.agent;
     // opencode, Qwen Code, Antigravity and DeepSeek Harness use whatever model account the user set up in them, so Chumi can't keep the check free.
     const consent = action === 'verify' && a.billing === 'unknown';
@@ -104,7 +104,7 @@ export function AgentsTab() {
     try {
       const r = await api<{ status: AgentStatus; result?: { ok: boolean; detail: string; vars?: Record<string, string | number> } }>(`/api/agents/${agent}/${action}`, { body: consent ? { consent: true } : {} });
       if (r.result) setResult((s) => ({ ...s, [agent]: r.result! }));
-      setStatuses((s) => ({ ...s, [agent]: r.status }));
+      if (r.status) setStatuses((s) => ({ ...s, [agent]: r.status })); // Absent when the app picker was cancelled.
     } catch (e) { setErrors((s) => ({ ...s, [agent]: (e as Error).message })); }
     setBusy(null);
   };
@@ -137,6 +137,11 @@ export function AgentsTab() {
                   {a.detail && <div className="muted">{t(a.detail)}</div>}
                   {result[a.agent] && <div className={result[a.agent].ok ? 'ok-text' : 'warn-text'}>{t(result[a.agent].detail, result[a.agent].vars)}</div>}
                 </div>
+                {!a.cli && a.agent === 'deepseek-harness' && (
+                  <div className="btn-row">
+                    <button className="btn small" disabled={!!busy} onClick={() => void act(a, 'choose-app')}>{busy === `${a.agent}:choose-app` ? t('Waiting for your choice…') : t('Choose DeepSeek Harness…')}</button>
+                  </div>
+                )}
                 {a.cli && (
                   <div className="btn-row">
                     <button className="btn small primary" disabled={!!busy} onClick={() => void act(a, 'connect')}>{busy === `${a.agent}:connect` ? t('Connecting…') : a.registered ? t('Reconnect') : t('Connect')}</button>

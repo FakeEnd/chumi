@@ -6,7 +6,7 @@
  * app's included, so Chumi's server goes there, as a block between two marker comments that Chumi alone writes and removes.
  */
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { DATA_DIR, which } from '../paths.ts';
@@ -138,6 +138,18 @@ function queryUninstall(hive: string): Promise<string> {
   return new Promise((resolve, reject) => execFile('cmd.exe', ['/d', '/s', '/c', `"${query}"`], { encoding: 'utf8', timeout: 10_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true, windowsVerbatimArguments: true }, (error, out) => error ? reject(error) : resolve(out)));
 }
 
+/**
+ * An asynchronous system lookup. A folder found is remembered while it is there; "not found" only for a minute, so
+ * installing the app later is noticed. refresh asks again; concurrent callers share one lookup.
+ */
+function remembered(find: () => Promise<string | null>): (refresh?: boolean) => Promise<string | null> {
+  let last: { dir: string | null; at: number } | undefined, pending: Promise<string | null> | undefined;
+  return (refresh = false) => {
+    if (!refresh && last && (last.dir ? existsSync(last.dir) : Date.now() - last.at < 60_000)) return Promise.resolve(last.dir);
+    return pending ??= find().then((dir) => { last = { dir, at: Date.now() }; return dir; }).finally(() => { pending = undefined; });
+  };
+}
+
 /** Cache misses too; only an explicit Settings refresh should scan again. Concurrent callers share a scan. */
 export function createWindowsDshLocator(dependencies: { query?: (hive: string) => Promise<string>; exists?: (path: string) => boolean; usual?: () => string } = {}) {
   const query = dependencies.query ?? queryUninstall, exists = dependencies.exists ?? existsSync;
@@ -168,19 +180,62 @@ const macApps = () => ['/Applications', join(homedir(), 'Applications')].map((d)
 
 const isFile = (p: string) => { try { return statSync(p).isFile(); } catch { return false; } };
 
+/** The dsh command inside a desktop install: an .app bundle on a Mac, the folder it was installed to on Windows. */
+export const dshCliIn = (dir: string): string => IS_WIN
+  ? join(dir, 'resources', 'runtime', 'cli', 'bin', 'dsh.cmd')
+  : join(dir, 'Contents', 'Resources', 'runtime', 'cli', 'bin', 'dsh');
+
+/**
+ * Copies of the Mac app that Spotlight found by its bundle id. Skipped: copies on another volume (such as the mounted
+ * installer disk image), in the Trash or inside another app, and anything without its dsh command.
+ */
+export function usableSpotlightApps(paths: string[]): string[] {
+  return paths.filter((p) => p.endsWith('.app') && !p.startsWith('/Volumes/') && !p.includes('/.Trash/') && !/\.app\//.test(p) && isFile(dshCliIn(p)));
+}
+
+/** The Mac app wherever it was put, from Spotlight's index (about 50 ms, without blocking the server), or null when Spotlight is off or finds none. */
+const spotlightApp = remembered(() => new Promise((resolve) => execFile('/usr/bin/mdfind', ["kMDItemCFBundleIdentifier == 'com.deepseek.dsh'"], { encoding: 'utf8', timeout: 5_000 },
+  (error, found) => resolve(error ? null : usableSpotlightApps(String(found).split('\n').filter(Boolean))[0] ?? null))));
+
+/** The desktop app the user chose in Settings → Coding agents, because Chumi could not find it. */
+const chosenFile = () => join(DATA_DIR, 'deepseek-harness-app.json');
+export function chosenDshApp(): string | null {
+  try {
+    const path = (JSON.parse(readFileSync(chosenFile(), 'utf8')) as { path?: unknown }).path;
+    return typeof path === 'string' ? path : null;
+  } catch { return null; }
+}
+/** Remembers the desktop app the user chose. Throws, remembering nothing, when its dsh command is not inside. */
+export function rememberDshApp(dir: string): void {
+  if (!isFile(dshCliIn(dir))) {
+    throw new Error(IS_WIN ? 'That folder has no DeepSeek Harness in it. Choose the folder DeepSeek Harness was installed to.' : 'That is not the DeepSeek Harness app. Choose DeepSeek Harness.app.');
+  }
+  mkdirSync(DATA_DIR, { recursive: true });
+  writeFileSync(chosenFile(), `${JSON.stringify({ path: dir })}\n`);
+}
+
+/**
+ * Where the desktop app is: the copy the user chose while it is still there, else the usual place, else wherever the
+ * system says it was installed (Windows' list of installed programs, Spotlight on a Mac).
+ */
+export async function dshAppDir(refresh = false): Promise<string | null> {
+  const chosen = chosenDshApp();
+  if (chosen && isFile(dshCliIn(chosen))) return chosen;
+  if (IS_WIN) return windowsInstallDir(refresh);
+  return macApps().find((app) => isFile(dshCliIn(app))) ?? spotlightApp(refresh);
+}
+
 /** The dsh command: on PATH (the app's "Manage dsh Command…" puts it there), else the copy inside the desktop app. */
 export async function findDsh(refresh = false): Promise<string | null> {
   const onPath = which('dsh');
   if (onPath) return onPath;
-  const inApp = IS_WIN
-    ? [await windowsInstallDir(refresh)].filter((d): d is string => !!d).map((d) => join(d, 'resources', 'runtime', 'cli', 'bin', 'dsh.cmd'))
-    : macApps().map((app) => join(app, 'Contents', 'Resources', 'runtime', 'cli', 'bin', 'dsh'));
-  return inApp.find(isFile) ?? null;
+  const dir = await dshAppDir(refresh);
+  return dir && isFile(dshCliIn(dir)) ? dshCliIn(dir) : null;
 }
 
 /** The desktop app is installed (the dsh command alone can come from npm, without it). */
 export async function dshAppInstalled(refresh = false): Promise<boolean> {
-  return IS_WIN ? (await windowsInstallDir(refresh)) !== null : macApps().some((app) => existsSync(app));
+  return (await dshAppDir(refresh)) !== null;
 }
 
 /**
