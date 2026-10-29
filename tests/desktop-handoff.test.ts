@@ -182,7 +182,7 @@ test('DeepSeek Harness: without the desktop app nothing is saved, copied or open
   const f = fixture(t);
   const steps: string[] = [];
   await assert.rejects(continueInDeepSeekHarness(f.id, f.workspace, 'Instructions.', { dataDir: f.dataDir, installed: () => false, copy: async () => { steps.push('copy'); }, open: async () => { steps.push('open'); } }),
-    /desktop app is not installed.*Copy instructions/);
+    /could not find the DeepSeek Harness desktop app.*Settings → Coding agents.*Copy instructions/);
   assert.deepEqual(steps, []);
   assert.equal(existsSync(f.dataDir), false);
 });

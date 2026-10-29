@@ -1,5 +1,16 @@
 # Verification log
 
+## Finding DeepSeek Harness outside Applications — 2026-10-28
+
+DeepSeek Harness 0.2.1-rc.3 installed in `~/DIY_APP`, not in `/Applications`, with no `dsh` on `PATH`. The Chumi build from `main` reported it as not installed.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 390 / 390 tests. New tests: a chosen folder without the `dsh` command is refused and nothing is remembered; a chosen app comes first while it is there, `dsh` on `PATH` still before it, and is skipped once moved; Spotlight results on the installer volume, in the Trash, inside another app or without `dsh` are skipped. |
+| Spotlight and LaunchServices | `mdfind "kMDItemCFBundleIdentifier == 'com.deepseek.dsh'"` returned the `~/DIY_APP` copy in about 50 ms; `NSWorkspace` named the same copy, by bundle id and as the `dsh://` handler. |
+| Sandbox server | A server from this branch (separate port and data folder) listed DeepSeek Harness as installed, with the `dsh` inside the `~/DIY_APP` app, before anything was chosen. Settings → Coding agents showed it as installed with **Connect**; with the agent's status replaced in the page by a not-found answer, the card showed the new explanation and **Choose DeepSeek Harness…**. No console errors. Connect was not clicked, so `~/.dsh` was not changed. |
+| Picker | The macOS picker's AppleScript compiles (`osacompile`). Choosing an app in the dialog was not clicked through, and the Windows folder picker for this was not run on Windows. |
+
 ## DeepSeek Harness on Windows — 2026-10-26
 
 Integrated the Mac implementation from PR #30 into the Windows desktop branch. DSH 0.2.1-rc.3 is installed in a custom folder, outside `PATH`.
