@@ -5,7 +5,7 @@ import { stripTypeScriptTypes } from 'node:module';
 import { MODEL_CATALOG } from '../server/asr/models.ts';
 import { Store } from '../server/db.ts';
 import { deepMerge } from '../server/util.ts';
-import { ASR_THREAD_LIMIT, EFFORTS, PET_TAGS, isProviderId, type Settings } from '../server/settings.ts';
+import { EFFORTS, PET_TAGS, isProviderId, type Settings } from '../server/settings.ts';
 import { validateCompatibleSettings } from '../shared/compatible-provider.ts';
 import { MODEL_MIRROR_URL, normalizeModelBaseUrl } from '../shared/model-source.ts';
 import { isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId } from '../server/asr/engines.ts';
@@ -20,13 +20,15 @@ import type { LiveStatus } from '../server/session/manager.ts';
 // It must reject before either saving configuration or restarting a service.
 const main = readFileSync(new URL('../server/main.ts', import.meta.url), 'utf8');
 const source = stripTypeScriptTypes(main.slice(main.indexOf('function applySettingsPatch('), main.indexOf('// ---------------------------------------------------------------- routes')));
+// A fixed CPU limit, so the thread checks don't depend on how many cores the test machine has (CI runners have 3).
+const THREAD_LIMIT = 16;
 class HttpError extends Error { status: number; constructor(status: number, message: string) { super(message); this.status = status; } }
 function fixture(status: LiveStatus, initial: Record<string, unknown> = {}, overrides: Record<string, unknown> = {}) {
   const store = new Store(':memory:');
   store.saveSettings(deepMerge(store.getSettings(), initial) as Settings);
   const calls: string[] = [];
   const deps = {
-    ASR_THREAD_LIMIT, MODEL_CATALOG, store, manager: { status }, deepMerge, isProviderId, validateCompatibleSettings, EFFORTS, PET_TAGS, isInstalled: () => true,
+    ASR_THREAD_LIMIT: THREAD_LIMIT, MODEL_CATALOG, store, manager: { status }, deepMerge, isProviderId, validateCompatibleSettings, EFFORTS, PET_TAGS, isInstalled: () => true,
     HttpError, isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId, normalizeModelBaseUrl,
     downloader: { discardPartials: () => calls.push('discardPartials') },
     speechEngineChanged, speechRestartRequired, speakerRuntime: () => ({ ready: true }), DEV: true,
@@ -106,7 +108,7 @@ test('changing the download source validates it without restarting speech or dis
 test('invalid thread counts never save or restart speech, and unchanged counts do not restart', () => {
   const f = fixture('idle'), before = f.store.getSettings();
   try {
-    for (const threads of [0, 1, 2.5, ASR_THREAD_LIMIT + 1, 99, '', '4', null]) {
+    for (const threads of [0, 1, 2.5, THREAD_LIMIT + 1, 99, '', '4', null]) {
       assert.throws(() => f.apply({ asr: { threads } }), (e: unknown) => e instanceof HttpError && e.status === 400);
       assert.deepEqual(f.store.getSettings(), before);
       assert.deepEqual(f.calls, []);

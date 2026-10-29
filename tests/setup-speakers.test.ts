@@ -15,7 +15,7 @@ test('speaker setup skips Python 3.13+, tries the system Python, and explains in
     for (const name of ['python3.12', 'python3.11', 'python3.10', 'python3.9', 'python3', 'system-python']) python(name, false);
     const run = (override = '') => spawnSync('/bin/bash', ['-c', `${functions.replace('/usr/bin/python3', `${bin}/system-python`)}\nchoose_speaker_python`], { env: { PATH: bin, CHUMI_SPEAKER_SETUP_PYTHON: override }, encoding: 'utf8' });
     let result = run();
-    assert.equal(result.status, 1);
+    assert.equal(result.status, 1, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
     assert.match(result.stderr, /Python 3.13.1/);
     assert.match(result.stderr, /brew install python@3.12/);
     assert.doesNotMatch(result.stderr, /Traceback|AssertionError/);
@@ -25,7 +25,7 @@ test('speaker setup skips Python 3.13+, tries the system Python, and explains in
     assert.equal(run().stdout.trim(), join(bin, 'python3.11'));
     assert.equal(run(join(bin, 'system-python')).stdout.trim(), join(bin, 'system-python'));
     result = run(join(bin, 'python3'));
-    assert.equal(result.status, 1);
+    assert.equal(result.status, 1, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
     assert.match(result.stderr, /CHUMI_SPEAKER_SETUP_PYTHON needs Python/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
