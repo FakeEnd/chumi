@@ -86,6 +86,7 @@ function OutputCard({ o, depth, open, onToggle }: { o: Output; depth: Depth; ope
           {category && <span className={`tag tag-${category}`} title={t(CATEGORY_TAG[category].tip)}>{t(CATEGORY_TAG[category].label)}</span>}
           {auto && <span className="tag">{t('Background')}</span>}
           {o.kind === 'final_summary' && <span className="tag tag-summary">{t('Summary')}</span>}
+          {(o.stale_reason === 'transcription_pending' || o.stale_reason === 'transcript_completed_late') && <span className="tag tag-warn">{t('Transcript incomplete when generated')}</span>}
           {o.stale_reason === 'speaker_labels_changed' && <span className="tag tag-warn">{t('Speaker labels changed')}</span>}
           <span className="card-title">{title(o)}</span>
         </button>
@@ -111,6 +112,8 @@ function OutputCard({ o, depth, open, onToggle }: { o: Output; depth: Depth; ope
           </div>
           <ProjectContextSources o={o} />
           {o.stale_reason === 'speaker_labels_changed' && <p className="small warn-text">{t('This answer used older speaker labels or names. Regenerate it to use the current corrections.')}</p>}
+          {o.stale_reason === 'transcription_pending' && <p className="small warn-text">{t('The summary may be missing the last part. Transcription is still pending; refresh the summary when it finishes.')}</p>}
+          {o.stale_reason === 'transcript_completed_late' && <p className="small warn-text">{t('More transcript arrived after this response was started. Refresh it to include the new lines.')}</p>}
           {auto && o.data?.why && <p className="why muted">{o.data.why}</p>}
           {o.status === 'pending' && <div className="pending"><span className="spinner" /> {t('Waiting for the AI provider…')}</div>}
           {(o.status === 'streaming' || o.status === 'done') && body && <Markdown text={body} />}
@@ -120,7 +123,7 @@ function OutputCard({ o, depth, open, onToggle }: { o: Output; depth: Depth; ope
           {invalid.length > 0 && <div className="muted small warn-text">{t(invalid.length === 1 ? msg('Note: {n} cited time ({list}) did not match any transcript line.') : msg('Note: {n} cited times ({list}) did not match any transcript line.'), { n: invalid.length, list: invalid.slice(0, 3).join(', ') })}</div>}
           <div className="card-actions">
             {(o.status === 'pending' || o.status === 'streaming') && <button className="btn small" onClick={() => cancelOutput(o.id)}>{t('Cancel')}</button>}
-            {o.status === 'done' && (o.stale_reason === 'speaker_labels_changed' || o.kind === 'catchup' || o.kind === 'final_summary') && <button className="btn small" onClick={() => refreshOutput(o.id)} title={t('Re-run up to the current moment')}>{o.stale_reason === 'speaker_labels_changed' ? t('Regenerate with current speakers') : t('Refresh')}</button>}
+            {o.status === 'done' && (o.stale_reason || o.kind === 'catchup' || o.kind === 'final_summary') && <button className="btn small" onClick={() => refreshOutput(o.id)} title={t('Re-run up to the current moment')}>{o.stale_reason === 'speaker_labels_changed' ? t('Regenerate with current speakers') : t('Refresh')}</button>}
             {auto && o.status === 'done' && (
               <>
                 <button className="btn small" onClick={() => explain(o.question ?? '', evidenceT != null ? { fromT: evidenceT, toT: evidenceT + 5000, text: o.question ?? '' } : null, depth === 'quick' ? 'standard' : depth, o.id)}>{t('Explain more')}</button>

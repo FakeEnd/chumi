@@ -37,7 +37,7 @@ function setup(t: TestContext) {
   const transcriber = (manager as unknown as { transcriber: Transcriber }).transcriber;
   const drain = Transcriber.prototype.drain.bind(transcriber);
   t.mock.method(transcriber, 'drain', (timeout = 60_000) => drain(timeout === 90_000 ? 0 : timeout));
-  t.after(async () => { if (manager.status !== 'idle') await manager.end(); store.close(); });
+  t.after(async () => { await manager.suspendForShutdown(); store.close(); });
   let id = 0;
   const speak = (startSec: number) => transcriber.pushFinal('mic', { id: ++id, startSec, endSec: startSec + 1, samples: new Int16Array(16_000), final: true });
   const texts = (sessionId: string) => store.segments(sessionId).map((s) => s.text);
@@ -94,7 +94,7 @@ test('queued finals survive the end timeout and reach their own meeting after an
   assert.equal(transcriber.backlogSec, 0);
 });
 
-test('a late request that fails is not retried or reported inside the next session', { timeout: 5000 }, async (t) => {
+test('a late failure retries in the background without delaying the next meeting', { timeout: 5000 }, async (t) => {
   const { manager, requests, notices, speak, texts } = setup(t);
   const a = await manager.start({ title: 'Lab meeting', type: 'other', source: 'mic' });
   speak(30);
@@ -103,7 +103,7 @@ test('a late request that fails is not retried or reported inside the next sessi
   requests[0].reject(new Error('engine restarted'));
   await setImmediate();
   speak(2);
-  assert.equal(requests.length, 2, 'only the new session’s audio is sent');
+  assert.equal(requests.length, 2, 'new audio starts without waiting for the old failure');
   requests[1].resolve('Hello from the one-on-one.');
   await setImmediate();
   assert.deepEqual(texts(b.id), ['Hello from the one-on-one.']);

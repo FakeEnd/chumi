@@ -73,6 +73,7 @@ export class ScreenWatcher extends EventEmitter<{ frame: [FrameRow]; notice: ['i
   private prevThumb: Buffer | null = null;
   private lastStoredWall = 0;
   private blankWarned = false;
+  private capWarned = false;
   private dir: string;
 
   constructor(store: Store, o: { sessionId: string; windowId: number; title?: string; app?: string; nowT: () => number; intervalSec: number }) {
@@ -84,10 +85,20 @@ export class ScreenWatcher extends EventEmitter<{ frame: [FrameRow]; notice: ['i
     this.frameCount = store.frames(o.sessionId).length;
   }
 
+  get capped(): boolean { return this.frameCount >= MAX_FRAMES_PER_SESSION; }
+
+  private checkCap(): void {
+    if (!this.capped || this.capWarned) return;
+    this.capWarned = true;
+    this.emit('notice', 'warning', 'screen_capped', 'The slide timeline reached its 400-capture limit. Live snapshots for questions are still available.');
+    this.emit('state');
+  }
+
   get latestPath(): string { return join(this.dir, `latest-${this.windowId}.jpg`); }
 
   start(): void {
     this.status = 'capturing';
+    this.checkCap();
     void this.tick();
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
     this.emit('state');
@@ -129,7 +140,7 @@ export class ScreenWatcher extends EventEmitter<{ frame: [FrameRow]; notice: ['i
       const vsStored = this.lastThumb ? thumbChange(this.lastThumb, thumb) : 1;
       const vsPrev = this.prevThumb ? thumbChange(this.prevThumb, thumb) : 0;
       this.prevThumb = thumb;
-      if (this.frameCount < MAX_FRAMES_PER_SESSION && (!this.lastThumb || shouldStore(vsStored, vsPrev, Date.now() - this.lastStoredWall))) {
+      if (!this.capped && (!this.lastThumb || shouldStore(vsStored, vsPrev, Date.now() - this.lastStoredWall))) {
         this.lastThumb = thumb;
         this.lastStoredWall = Date.now();
         this.storeLatest(t, 'slide', r.width ?? null, r.height ?? null);
@@ -146,6 +157,7 @@ export class ScreenWatcher extends EventEmitter<{ frame: [FrameRow]; notice: ['i
     const row = this.store.addFrame({ session_id: this.sessionId, t, path, width, height, kind, window_title: this.title, app: this.app });
     this.frameCount++;
     this.emit('frame', row);
+    this.checkCap();
     return row;
   }
 

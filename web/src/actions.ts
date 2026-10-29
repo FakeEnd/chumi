@@ -123,6 +123,7 @@ export function connectEvents(): () => void {
       if (!cur || cur.uttId > p.uttId) return {};
       const next = { ...s.partials }; delete next[p.source]; return { partials: next };
     }),
+    timeline: (entry) => { changedDuringFetch(entry.session_id); setState((s) => s.data && s.data.session.id === entry.session_id ? { data: { ...s.data, timeline: [...s.data.timeline.filter((e) => e.id !== entry.id && !entry.replaces?.includes(e.id)), entry].sort((a, b) => a.t - b.t || a.id - b.id) } } : {}); },
     segment: (seg: Segment) => { caught(seg.session_id)?.segments.push(seg); setState((s) => (s.data && s.data.session.id === seg.session_id ? { data: { ...s.data, segments: append(s.data.segments, seg) } } : {})); },
     ai: (o: Output) => {
       caught(o.session_id)?.outputs.push(o);
@@ -141,9 +142,9 @@ export function connectEvents(): () => void {
     'asr-download': (d) => setState({ asrDownload: d }),
     settings: (st: Settings) => setState({ settings: st }),
     profile: (p: Profile) => setState({ profile: p }),
-    notice: (n) => notify(n.level, n.message, n.code),
+    notice: (n) => { if (n.code === 'capture_restarted') setState((s) => ({ notices: s.notices.filter((x) => x.code !== 'capture_stopped' && x.code !== 'capture_gave_up') })); notify(n.level, n.message, n.code); },
     asr: (a) => setState((s) => ({ live: s.live ? { ...s.live, asr: { ...s.live.asr, state: a.state, message: a.message } } : s.live })),
-    'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); bumpSessions(); notify('info', t('Session saved. Preparing the final summary…'), 'ended'); },
+    'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); bumpSessions(); notify('info', t(e.transcriptionPending ? 'Session saved. Finishing transcription before the final summary…' : 'Session saved. Preparing the final summary…'), 'ended'); },
     'session-updated': (sess) => {
       changedDuringFetch(sess.id);
       setState((s) => ({ sessionsRev: s.sessionsRev + 1, projectWorkRev: s.projectWorkRev + 1, ...(s.data && s.data.session.id === sess.id ? { data: { ...s.data, session: sess } } : {}) }));

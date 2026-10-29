@@ -16,10 +16,10 @@ export interface TranscriberConfig { language: string; glossary: string[]; chine
 export interface FinalPiece { session: string | null; source: SourceName; uttId: number; startSec: number; endSec: number; text: string; lang: string | null }
 
 interface Context { lastText: Map<SourceName, string>; recentLang: Map<SourceName, Spoken> }
-interface Job { kind: 'final' | 'partial'; session: string | null; context: Context; source: SourceName; utt: Utterance; enqueued: number; depth?: number; retried?: boolean }
+interface Job { kind: 'final' | 'partial'; session: string | null; context: Context; source: SourceName; utt: Utterance; enqueued: number; depth?: number; attempts?: number; retryAt?: number; failedAt?: number }
 
 /**
- * Schedules speech requests: finals in order (never dropped), partials only when idle and only the newest per source,
+ * Schedules speech requests: finals in order with bounded retries and explicit gaps, partials only when idle and only the newest per source,
  * and none at all for paid services (each partial would bill the utterance again).
  * Partial text for an utterance is replaced by its final text, so revisions never duplicate sentences.
  */
@@ -29,11 +29,17 @@ export class Transcriber extends EventEmitter<{
   final: [pieces: FinalPiece[]];
   error: [message: string];
   idle: [];
+  settled: [];
+  retry: [];
+  gap: [session: string | null, source: SourceName, startSec: number, endSec: number, reason: string];
   stopped: [];
 }> {
   private finals: Job[] = [];
+  private retries: Job[] = [];
   private partials = new Map<SourceName, Job>();
   private busy = false;
+  private retryTimer: NodeJS.Timeout | null = null;
+  get retrying(): boolean { return this.retries.length > 0 || (this.active?.kind === 'final' && !!this.active.attempts); }
   private active: Job | null = null;
   /** Bumped on shutdown: work still in flight from before then must not touch a closed store. */
   private generation = 0;
@@ -59,7 +65,7 @@ export class Transcriber extends EventEmitter<{
     const p = this.partials.get(source);
     if (p && p.utt.id <= utt.id) this.partials.delete(source);
     this.finals.push({ kind: 'final', session: this.session, context: this.context, source, utt, enqueued: Date.now() });
-    this.backlogSec = this.finals.reduce((s, j) => s + (j.utt.endSec - j.utt.startSec), 0);
+    this.backlogSec = this.queuedFinals().reduce((s, j) => s + (j.utt.endSec - j.utt.startSec), 0);
     this.pump();
   }
 
@@ -68,31 +74,58 @@ export class Transcriber extends EventEmitter<{
    * keep their own context and finish for the session they were captured in.
    */
   reset(session: string | null = null): void {
-    this.partials.clear(); this.lastPartialAt.clear(); this.finalizedUtts.clear(); this.context = { lastText: new Map(), recentLang: new Map() }; this.backlogSec = this.finals.reduce((s, j) => s + (j.utt.endSec - j.utt.startSec), 0); this.stopped = false;
+    this.partials.clear(); this.lastPartialAt.clear(); this.finalizedUtts.clear(); this.context = { lastText: new Map(), recentLang: new Map() }; this.backlogSec = this.queuedFinals().reduce((s, j) => s + (j.utt.endSec - j.utt.startSec), 0); this.stopped = false;
     this.session = session;
   }
 
   /** Finals queued or being transcribed; an optional preview in flight does not count. */
-  get pendingFinals(): number { return this.finals.length + (this.active?.kind === 'final' ? 1 : 0); }
+  get pendingFinals(): number { return this.finals.length + this.retries.length + (this.active?.kind === 'final' ? 1 : 0); }
+
+  pendingFor(session: string): boolean { return this.queuedFinals().some((j) => j.session === session) || (this.active?.kind === 'final' && this.active.session === session); }
+
+  hasPendingFinal(session: string, source: SourceName, fromSec: number, toSec: number): boolean {
+    return [...this.queuedFinals(), ...(this.active ? [this.active] : [])].some((j) => j.kind === 'final' && j.session === session && j.source === source && j.utt.startSec <= toSec && j.utt.endSec >= fromSec);
+  }
+
+  finalEndSec(session: string): number {
+    return Math.max(0, ...this.queuedFinals().filter((j) => j.session === session).map((j) => j.utt.endSec), this.active?.kind === 'final' && this.active.session === session ? this.active.utt.endSec : 0);
+  }
+
+  /** Another meeting can start while these finals finish; its work must not delay this barrier. */
+  whenSessionDrained(session: string, timeoutMs = 20 * 60_000): Promise<boolean> {
+    if (this.stopped) return Promise.resolve(false);
+    if (!this.pendingFor(session)) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const finish = (complete: boolean) => { clearTimeout(timer); this.off('settled', check); this.off('stopped', stopped); resolve(complete); };
+      const check = () => { if (!this.pendingFor(session)) finish(true); };
+      const stopped = () => finish(false);
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      this.on('settled', check); this.on('stopped', stopped);
+    });
+  }
 
   /** Stop scheduling work on shutdown, and invalidate callbacks before their store is closed. */
   stop(): void {
     this.stopped = true; this.generation++;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    for (const job of [...this.queuedFinals(), ...(this.active?.kind === 'final' ? [this.active] : [])]) this.gap(job, 'the app closed before transcription finished');
+    this.finals = []; this.retries = []; this.active = null; this.busy = false; this.backlogSec = 0;
     this.partials.clear();
     this.emit('stopped');
   }
 
-  /** Wait for finals, not optional previews (used when ending a session). Resolves true when none are left. */
+  /** Wait for fresh finals. Failed audio keeps retrying in the background rather than holding End open. */
   drain(timeoutMs = 60000): Promise<boolean> {
     this.partials.clear();
     if (!this.pendingFinals) return Promise.resolve(true);
-    if (this.stopped) return Promise.resolve(false);
+    if (this.stopped || this.onlyRetries()) return Promise.resolve(false);
     return new Promise((resolve) => {
-      const finish = (complete: boolean) => { clearTimeout(timer); this.off('idle', onIdle); this.off('stopped', onStop); resolve(complete); };
-      const onIdle = () => { if (!this.pendingFinals) finish(true); };
+      const finish = (complete: boolean) => { clearTimeout(timer); this.off('settled', onIdle); this.off('idle', onIdle); this.off('stopped', onStop); resolve(complete); };
+      const onIdle = () => { if (!this.pendingFinals) finish(true); else if (this.onlyRetries()) finish(false); };
       const onStop = () => finish(false);
       const timer = setTimeout(() => finish(!this.pendingFinals), timeoutMs);
-      this.on('idle', onIdle);
+      this.on('settled', onIdle); this.on('idle', onIdle);
       this.on('stopped', onStop);
     });
   }
@@ -134,25 +167,62 @@ export class Transcriber extends EventEmitter<{
     return [a, b];
   }
 
+  private gap(job: Job, reason: string): void {
+    this.emit('gap', job.session, job.source, job.utt.startSec, job.utt.endSec, reason);
+  }
+
+  private queuedFinals(): Job[] { return [...this.finals, ...this.retries]; }
+
+  private onlyRetries(): boolean {
+    return !this.finals.length && this.retrying && !(this.active?.kind === 'final' && !this.active.attempts);
+  }
+
+  private limitRetries(): void {
+    // Bound only failed audio. A healthy engine can accumulate a large backlog during fast file imports.
+    let samples = this.retries.reduce((n, j) => n + j.utt.samples.length, 0);
+    while (samples > 900 * 16000 && this.retries.length) {
+      const job = this.retries.shift()!;
+      samples -= job.utt.samples.length;
+      this.gap(job, 'the failed-audio retry queue reached its limit');
+    }
+  }
+
   private pump(): void {
     if (this.busy || this.stopped) return;
+    if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
+    const expired = this.retries.filter((j) => Date.now() - j.failedAt! >= 15 * 60_000);
+    this.retries = this.retries.filter((j) => !expired.includes(j));
+    for (const job of expired) this.gap(job, 'speech recognition could not complete this audio within fifteen minutes');
+    if (expired.length) { this.backlogSec = this.queuedFinals().reduce((s, j) => s + j.utt.endSec - j.utt.startSec, 0); this.emit('retry'); this.emit('settled'); }
+    // Fresh audio always gets a turn before a previously failed clip, including audio from a new meeting.
     let job = this.finals.shift();
     if (!job) {
+      this.retries.sort((a, b) => a.retryAt! - b.retryAt!);
+      if (this.retries[0]?.retryAt! <= Date.now()) job = this.retries.shift();
+    }
+    if (!job && !this.retries.length) {
       // Newest partial across sources; skip if its utterance was already finalized.
       const cands = [...this.partials.values()].filter((p) => Date.now() - (this.lastPartialAt.get(p.source) ?? 0) >= (this.speech.partialIntervalMs ?? 0)).sort((a, b) => b.enqueued - a.enqueued);
       job = cands[0];
       if (job) this.partials.delete(job.source);
       if (job && (this.finalizedUtts.get(job.source) ?? 0) >= job.utt.id) job = undefined;
     }
-    if (!job) { this.emit('idle'); return; }
+    if (!job) {
+      if (this.retries.length) this.retryTimer = setTimeout(() => { this.retryTimer = null; this.pump(); }, Math.max(0, this.retries[0].retryAt! - Date.now()));
+      this.emit('idle');
+      return;
+    }
     if (job.kind === 'partial') this.lastPartialAt.set(job.source, Date.now());
     this.busy = true;
     this.active = job;
     const generation = this.generation;
     void this.run(job, generation).finally(() => {
       if (generation !== this.generation) return;
+      const retrying = this.retrying;
       this.busy = false; this.active = null;
-      this.backlogSec = this.finals.reduce((s, j) => s + (j.utt.endSec - j.utt.startSec), 0);
+      this.backlogSec = this.queuedFinals().reduce((s, j) => s + (j.utt.endSec - j.utt.startSec), 0);
+      if (retrying || this.retrying) this.emit('retry');
+      this.emit('settled');
       this.pump();
     });
   }
@@ -221,15 +291,14 @@ export class Transcriber extends EventEmitter<{
       if (generation !== this.generation) return;
       const msg = (e as Error).message;
       log('asr', `${job.kind} transcription failed: ${msg}`);
-      // Another session is being transcribed now: don't report into it or hold its queue up with a retry.
-      if (job.kind === 'final' && current()) {
-        this.emit('error', `Transcription failed for ${durSec.toFixed(1)} s of audio: ${msg}`);
-        // Retry once after the engine restarts; audio is kept in memory until then.
-        if (!job.retried) {
-          job.retried = true;
-          await new Promise((r) => setTimeout(r, 2000));
-          if (generation !== this.generation) return;
-          this.finals.unshift(job);
+      if (job.kind === 'final') {
+        job.failedAt ??= Date.now();
+        job.attempts = (job.attempts ?? 0) + 1;
+        if (job.attempts >= 3) this.gap(job, 'speech recognition failed three times for this audio');
+        else {
+          job.retryAt = Date.now() + (job.attempts === 1 ? 2000 : 30_000);
+          this.retries.push(job);
+          this.limitRetries();
         }
       }
     }

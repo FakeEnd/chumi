@@ -263,3 +263,22 @@ test('handoff progress merging keeps newer saves but respects hidden or reassign
     assert.equal(h.get().data?.handoff?.items[0].progress?.note, '', 'old progress belongs to the original project and task');
   }
 });
+
+test('capture recovery clears the obsolete crash banner and preserves unrelated notices', () => {
+  const f = harness({ notices: [
+    { id: 1, code: 'capture_stopped', level: 'error', message: 'Restarting', at: 0 },
+    { id: 2, code: 'other', level: 'error', message: 'Unrelated', at: 0 },
+  ] });
+  f.emit('notice', { code: 'capture_restarted', level: 'info', message: 'Audio capture restarted. Recording continues.' });
+  assert.deepEqual(f.get().notices.map((n) => n.code), ['other']);
+});
+
+
+test('merged transcription gaps replace their previous timeline entries', () => {
+  const h = harness();
+  h.emit('timeline', { id: 1, session_id: 'a', kind: 'gap', t: 0, detail: '0–1' });
+  h.emit('timeline', { id: 2, session_id: 'a', kind: 'gap', t: 2000, detail: '2–3' });
+  h.emit('timeline', { id: 1, session_id: 'a', kind: 'gap', t: 0, detail: '0–3', replaces: [1, 2] });
+  assert.equal(h.get().data?.timeline.length, 1);
+  assert.equal(h.get().data?.timeline[0].detail, '0–3');
+});

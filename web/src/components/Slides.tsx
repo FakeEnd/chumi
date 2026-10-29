@@ -22,7 +22,7 @@ export function SlideStrip() {
     <section className="slides" aria-label={t('Screen captures')}>
       <div className="slides-head">
         <button className="link-btn" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? '▾' : '▸'}</button>
-        <span className="small"><b>{t('Screen')}</b> · {plural(frames?.length ?? 0, '{n} capture', '{n} captures')}{isLive && screen ? ` · ${t('capturing {app}', { app: screenLabel(screen) })}${screen.status === 'paused' ? ` ${t('(paused)')}` : ''}` : ''}</span>
+        <span className="small"><b>{t('Screen')}</b> · {plural(frames?.length ?? 0, '{n} capture', '{n} captures')}{isLive && screen ? ` · ${screen.capped ? t('Slide limit reached; live snapshots available') : t('capturing {app}', { app: screenLabel(screen) })}${screen.status === 'paused' ? ` ${t('(paused)')}` : ''}` : ''}</span>
       </div>
       {open && !!frames?.length && (
         <div className="slides-row">

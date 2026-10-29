@@ -1,4 +1,4 @@
-import { openSync, writeSync, closeSync } from 'node:fs';
+import { openSync, writeSync, closeSync, fsyncSync, ftruncateSync } from 'node:fs';
 
 /** The 44-byte header of a 16 kHz mono 16-bit PCM WAV holding `bytes` of samples. */
 export function wavHeader(bytes: number): Buffer {
@@ -16,18 +16,28 @@ export class WavWriter {
   private closed = false;
   constructor(path: string) {
     this.fd = openSync(path, 'wx', 0o600);
-    writeSync(this.fd, Buffer.alloc(44));
+    try { if (writeSync(this.fd, wavHeader(0)) !== 44) throw new Error('Incomplete audio header write.'); }
+    catch (error) { closeSync(this.fd); this.closed = true; throw error; }
   }
   write(samples: Int16Array): void {
     if (this.closed) throw new Error('Audio writer is closed.');
     const b = Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength);
-    writeSync(this.fd, b);
-    this.bytes += b.length;
+    try {
+      if (writeSync(this.fd, b, 0, b.length, 44 + this.bytes) !== b.length) throw new Error('Incomplete audio write.');
+      this.bytes += b.length;
+    } catch (error) {
+      // The recorder only commits a span after this returns; discard a partially written block.
+      try { ftruncateSync(this.fd, 44 + this.bytes); } catch { /* Recovery clamps to the readable data. */ }
+      throw error;
+    }
   }
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    try { writeSync(this.fd, wavHeader(this.bytes), 0, 44, 0); }
+    try {
+      if (writeSync(this.fd, wavHeader(this.bytes), 0, 44, 0) !== 44) throw new Error('Incomplete audio header write.');
+      fsyncSync(this.fd);
+    }
     finally { closeSync(this.fd); }
   }
 }

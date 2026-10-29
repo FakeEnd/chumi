@@ -77,10 +77,11 @@ export interface LiveState {
   session: Session | null; source: string; nowT: number; serverTime: number;
   levels: Record<string, { rms: number; peak: number; at: number }>;
   partials: Record<string, { uttId: number; t: number; text: string }>;
+  captureHealth?: Record<string, { state: 'ok' | 'silent' | 'restarting' | 'failed'; code?: string; message?: string; vars?: Record<string, string | number> }>;
   warnings: Array<{ code: string; message: string; at: number }>;
-  asr: { state: string; message: string | null; latencyMs: number; backlogSec: number; pending: number };
+  asr: { state: string; message: string | null; latencyMs: number; backlogSec: number; pending: number; retrying?: boolean };
   file: { path: string; speed: number; posSec: number } | null;
-  screen: { windowId: number; title: string; app: string; status: string; frames: number; lastCaptureAt: number } | null;
+  screen: { windowId: number; title: string; app: string; status: string; frames: number; capped?: boolean; lastCaptureAt: number } | null;
 }
 
 export interface Frame { id: number; session_id: string; t: number; width: number | null; height: number | null; kind: string; window_title: string | null; app: string | null; created_at: number }

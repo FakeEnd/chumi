@@ -25,7 +25,7 @@ import { AGENT_BILLING, AGENT_NAMES } from '../shared/agents.ts';
 import { chooseFolder, notify, openExternalUrl, openPrivacySettings, preferredLanguage } from './platform.ts';
 import { chumiLink, SERVER_INFO, workspaceExists } from './projects/evidence.ts';
 import { exportName, exportSession } from './export.ts';
-import { checkPermissions, listDevices } from './audio/capture.ts';
+import { audioHelperArgs, checkPermissions, listDevices } from './audio/capture.ts';
 import { readKey, storeKey, deleteKey } from './ai/anthropic-api.ts';
 import { readCompatibleKey, storeCompatibleKey, deleteCompatibleKey } from './ai/compatible-credentials.ts';
 import { discoverLocalModels } from './ai/local-models.ts';
@@ -844,7 +844,7 @@ route('GET', '/api/audio/permissions', async () => checkPermissions());
 route('POST', '/api/audio/request-mic', async () => {
   const helper = findAudioHelper();
   if (!helper) throw new HttpError(400, 'Audio helper not built');
-  return new Promise((r) => execFile(helper, ['--request-mic'], { timeout: 60000, windowsHide: true }, (_e, out) => { try { r(JSON.parse(out)); } catch { r({ microphone: 'unknown' }); } }));
+  return new Promise((r) => execFile(helper, audioHelperArgs(['--request-mic']), { timeout: 60000, windowsHide: true }, (_e, out) => { try { r(JSON.parse(out)); } catch { r({ microphone: 'unknown' }); } }));
 });
 route('POST', '/api/audio/open-settings', async (req) => {
   const b = await readJson(req);

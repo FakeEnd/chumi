@@ -226,23 +226,28 @@ enum FrameWriter {
     static func flush() { queue.sync {} }
 }
 
-// MARK: - Monotonic clock (host time relative to helper start)
+// MARK: - Continuous clock (includes system sleep)
 
 enum Clock {
-    nonisolated(unsafe) static var startHost: UInt64 = 0
+    nonisolated(unsafe) static var startContinuous: UInt64 = 0
     nonisolated(unsafe) static var ticksToSeconds: Double = 1e-9
 
     static func start() {
         var tb = mach_timebase_info_data_t()
         mach_timebase_info(&tb)
         ticksToSeconds = Double(tb.numer) / Double(tb.denom) / 1e9
-        startHost = mach_absolute_time()
+        startContinuous = mach_continuous_time()
     }
 
-    /// Seconds since helper start for a mach host time.
-    @inline(__always) static func seconds(hostTime: UInt64) -> Double {
-        Double(Int64(bitPattern: hostTime &- startHost)) * ticksToSeconds
+    /// Core Audio host times stop during sleep; sample the offset for every block after waking.
+    @inline(__always) static func seconds(hostTime: UInt64, absoluteNow: UInt64 = mach_absolute_time(), continuousNow: UInt64 = mach_continuous_time()) -> Double {
+        let continuousHost = hostTime &+ (continuousNow &- absoluteNow)
+        return Double(Int64(bitPattern: continuousHost &- startContinuous)) * ticksToSeconds
     }
 
-    @inline(__always) static func now() -> Double { seconds(hostTime: mach_absolute_time()) }
+    @inline(__always) static func awakeTime() -> Double { Double(mach_absolute_time()) * ticksToSeconds }
+
+    @inline(__always) static func now() -> Double {
+        Double(Int64(bitPattern: mach_continuous_time() &- startContinuous)) * ticksToSeconds
+    }
 }

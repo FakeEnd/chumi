@@ -3,7 +3,7 @@
  * shrink to a short break, so each region maps a stretch of session time to its place in the file.
  */
 export interface PlaybackRegion { packed_ms: number; start_ms: number; end_ms: number }
-export interface PlaybackInfo { version: string; duration_ms: number; regions: PlaybackRegion[] }
+export interface PlaybackInfo { version: string; duration_ms: number; regions: PlaybackRegion[]; warning?: string }
 
 /** Session time → position in the playback file; a time between regions plays from the next one. */
 export function toPlayback(regions: PlaybackRegion[], t: number): number {

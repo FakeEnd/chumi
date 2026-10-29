@@ -5,49 +5,74 @@ import Foundation
 import CoreAudio
 import IOKit
 
+// The dispatch timer pauses during sleep. Compare both clocks before counting silence after wake.
+struct SilenceState {
+    private var lastSignal: Double
+    private var sleepOffset: Double
+    private(set) var warned = false
+
+    init(now: Double, awakeTime: Double) {
+        lastSignal = now
+        sleepOffset = now - awakeTime
+    }
+
+    mutating func signal(now: Double) -> Bool {
+        lastSignal = now
+        let cleared = warned
+        warned = false
+        return cleared
+    }
+
+    /// true warns, false clears an old warning, nil leaves the notice alone.
+    mutating func check(now: Double, awakeTime: Double, seconds: Double) -> Bool? {
+        if now - awakeTime - sleepOffset > 1 {
+            sleepOffset = now - awakeTime
+            return signal(now: now) ? false : nil
+        }
+        if !warned && now - lastSignal >= seconds {
+            warned = true
+            return true
+        }
+        return nil
+    }
+}
+
 final class SilenceWatch {
     private let pipeline: SourcePipeline
     private let threshold: Float
     private let seconds: Double
     private let code: String
     private let message: () -> String
-    private var lastSignal: Double = 0
-    private var warned = false
+    private let vars: () -> [(String, JSONValue)]
+    private var state = SilenceState(now: Clock.now(), awakeTime: Clock.awakeTime())
     private var timer: DispatchSourceTimer?
 
     /// `threshold`: a block counts as silent if max |sample| <= threshold.
-    init(pipeline: SourcePipeline, threshold: Float, seconds: Double, code: String, message: @escaping () -> String) {
+    init(pipeline: SourcePipeline, threshold: Float, seconds: Double, code: String, vars: @escaping () -> [(String, JSONValue)] = { [] }, message: @escaping () -> String) {
         self.pipeline = pipeline
         self.threshold = threshold
         self.seconds = seconds
         self.code = code
         self.message = message
+        self.vars = vars
     }
 
     func start() {
         let q = pipeline.queue
         q.async {
-            self.lastSignal = Clock.now()
+            self.state = SilenceState(now: Clock.now(), awakeTime: Clock.awakeTime())
             self.pipeline.onInputBlock = { [weak self] maxAbs, _ in
                 guard let self else { return }
-                if maxAbs > self.threshold {
-                    self.lastSignal = Clock.now()
-                    if self.warned {
-                        self.warned = false
-                        EventLog.emit(["type": "info", "code": .string(self.code + "_cleared"),
-                                       "source": .string(self.pipeline.source.name), "message": "Audio signal detected again."])
-                    }
-                }
+                if maxAbs > self.threshold && self.state.signal(now: Clock.now()) { self.clearNotice() }
             }
         }
         let t = DispatchSource.makeTimerSource(queue: q)
         t.schedule(deadline: .now() + 1, repeating: 1)
         t.setEventHandler { [weak self] in
-            guard let self, !self.warned else { return }
-            if Clock.now() - self.lastSignal >= self.seconds {
-                self.warned = true
-                EventLog.warning(self.code, self.message())
-            }
+            guard let self, let warning = self.state.check(now: Clock.now(), awakeTime: Clock.awakeTime(), seconds: self.seconds) else { return }
+            if warning {
+                EventLog.emit(["type": "warning", "code": .string(self.code), "message": .string(self.message()), "vars": .object(self.vars())])
+            } else { self.clearNotice() }
         }
         t.resume()
         timer = t
@@ -56,9 +81,14 @@ final class SilenceWatch {
     /// Restart the silence clock (e.g. after a device change).
     func rearm() {
         pipeline.queue.async {
-            self.lastSignal = Clock.now()
-            self.warned = false
+            if self.state.warned { self.clearNotice() }
+            self.state = SilenceState(now: Clock.now(), awakeTime: Clock.awakeTime())
         }
+    }
+
+    private func clearNotice() {
+        EventLog.emit(["type": "info", "code": .string(code + "_cleared"),
+                       "source": .string(pipeline.source.name), "message": "Audio signal detected again."])
     }
 
     func stop() {

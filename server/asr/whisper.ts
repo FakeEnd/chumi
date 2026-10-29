@@ -56,6 +56,7 @@ export class WhisperServer extends EventEmitter<{ state: [AsrState, string | nul
   private restarts = 0;
   private wanted = false;
   private startPromise: Promise<void> | null = null;
+  private discarding: Promise<void> | null = null;
   lastLatencyMs = 0;
 
   private opts: { model: string; threads: number };
@@ -78,6 +79,7 @@ export class WhisperServer extends EventEmitter<{ state: [AsrState, string | nul
 
   ensure(): Promise<void> {
     this.wanted = true;
+    if (this.discarding) return this.discarding.then(() => this.ensure());
     if (this.state === 'ready' && this.proc) return Promise.resolve();
     this.startPromise ??= this.start().finally(() => { this.startPromise = null; });
     return this.startPromise;
@@ -123,18 +125,23 @@ export class WhisperServer extends EventEmitter<{ state: [AsrState, string | nul
       await new Promise((r) => setTimeout(r, 300));
     }
     // Stop it, or the next attempt would start a second server next to this one.
-    this.discard(proc);
+    await this.discard(proc);
     this.setState('error', 'Speech engine did not start within 2 minutes.');
     throw new Error(this.message!);
   }
 
   /** Stop a process this server no longer tracks; SIGKILL if it ignores SIGTERM. */
-  private discard(proc: ChildProcess): void {
+  private discard(proc: ChildProcess): Promise<void> {
     if (this.proc === proc) this.proc = null;
-    if (proc.exitCode !== null || proc.signalCode !== null) return;
-    const kill = setTimeout(() => { try { proc.kill('SIGKILL'); } catch { /* already gone */ } }, 3000);
-    proc.once('exit', () => clearTimeout(kill));
-    try { proc.kill('SIGTERM'); } catch { /* already gone */ }
+    if (proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve();
+    const pending = new Promise<void>((resolve) => {
+      const kill = setTimeout(() => { try { proc.kill('SIGKILL'); } catch { /* already gone */ } resolve(); }, 3000);
+      proc.once('exit', () => { clearTimeout(kill); resolve(); });
+      try { proc.kill('SIGTERM'); } catch { clearTimeout(kill); resolve(); }
+    });
+    this.discarding = pending;
+    void pending.finally(() => { if (this.discarding === pending) this.discarding = null; });
+    return pending;
   }
 
   async stop(): Promise<void> {
@@ -158,12 +165,24 @@ export class WhisperServer extends EventEmitter<{ state: [AsrState, string | nul
     form.append('language', o.language);
     if (o.prompt) form.append('prompt', o.prompt);
     const t0 = Date.now();
-    const r = await fetch(`http://127.0.0.1:${this.port}/inference`, { method: 'POST', body: form, signal: AbortSignal.timeout(o.timeoutMs ?? 60000) });
-    if (!r.ok) throw new Error(`whisper-server HTTP ${r.status}`);
-    const j = await r.json() as { text?: string; language?: string; detected_language?: string; language_probabilities?: Record<string, number>; segments?: WhisperSegment[]; error?: string };
-    if (j.error) throw new Error(`whisper-server: ${j.error}`);
-    this.lastLatencyMs = Date.now() - t0;
-    const lang = j.detected_language || j.language || null;
-    return { text: (j.text || '').trim(), language: lang, langProbs: j.language_probabilities ?? {}, segments: j.segments ?? [], ms: this.lastLatencyMs };
+    const proc = this.proc;
+    const timeoutMs = o.timeoutMs ?? 60000;
+    const signal = AbortSignal.timeout(timeoutMs);
+    try {
+      const r = await fetch(`http://127.0.0.1:${this.port}/inference`, { method: 'POST', body: form, signal });
+      if (!r.ok) throw new Error(`whisper-server HTTP ${r.status}`);
+      const j = await r.json() as { text?: string; language?: string; detected_language?: string; language_probabilities?: Record<string, number>; segments?: WhisperSegment[]; error?: string };
+      if (j.error) throw new Error(`whisper-server: ${j.error}`);
+      this.lastLatencyMs = Date.now() - t0;
+      const lang = j.detected_language || j.language || null;
+      return { text: (j.text || '').trim(), language: lang, langProbs: j.language_probabilities ?? {}, segments: j.segments ?? [], ms: this.lastLatencyMs };
+    } catch (error) {
+      // Short previews can miss their deadline on a healthy engine. A final timeout must release its serial queue.
+      if (signal.aborted && timeoutMs >= 60000 && proc && this.proc === proc) {
+        this.setState('error', 'Speech recognition timed out. Restarting the local speech engine…');
+        await this.discard(proc);
+      }
+      throw error;
+    }
   }
 }

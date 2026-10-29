@@ -143,8 +143,8 @@ export function TranscriptionTab() {
       )}
 
       <h3>{t('Accuracy and performance')}</h3>
-      <label className="field"><span>{t('Vocabulary hints (comma separated): improves spelling of technical terms and names')}</span>
-        <textarea rows={3} value={glossary} onChange={(e) => setGlossary(e.target.value)} onBlur={() => S({ asr: { glossary: glossary.split(/[,，\n]+/).map((x) => x.trim()).filter(Boolean) } })} />
+      <label className="field"><span>{t('Vocabulary hints (commas, 、, or semicolons): improves spelling of technical terms and names')}</span>
+        <textarea rows={3} value={glossary} onChange={(e) => setGlossary(e.target.value)} onBlur={() => S({ asr: { glossary: glossary.split(/[,，、;；\n]+/).map((x) => x.trim()).filter(Boolean) } })} />
       </label>
       {settings.asr.engine === 'sensevoice' && <p className="muted small">{t('SenseVoice does not support vocabulary hints. The glossary has no effect on this engine.')}</p>}
       <label className="field"><span>{t('CPU threads (more is faster up to the number of performance cores; {n} cores on this computer)', { n: hw?.cores ?? '?' })}</span><input type="number" min={2} max={16} value={settings.asr.threads} disabled={busySession} title={busySession ? t('Wait until recording and transcription finish before changing speech recognition settings.') : ''} onChange={(e) => S({ asr: { threads: Number(e.target.value) } })} /></label>

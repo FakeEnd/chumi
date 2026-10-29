@@ -666,6 +666,17 @@ export class Store {
     const r = this.db.prepare('INSERT INTO timeline(session_id, t, kind, wall, detail) VALUES (?, ?, ?, ?, ?)').run(sessionId, Math.round(t), kind, now(), d);
     return { id: Number(r.lastInsertRowid), session_id: sessionId, t: Math.round(t), kind, wall: now(), detail: d };
   }
+  /** Extend adjacent capture/transcription gaps without filling the timeline with one entry per chunk. */
+  mergeTimeline(ids: number[], t: number, detail: string): TimelineRow {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('UPDATE timeline SET t = ?, detail = ? WHERE id = ?').run(Math.round(t), detail, ids[0]);
+      for (const id of ids.slice(1)) this.db.prepare('DELETE FROM timeline WHERE id = ?').run(id);
+      this.db.prepare('UPDATE sessions SET revision = revision + 1 WHERE id = (SELECT session_id FROM timeline WHERE id = ?)').run(ids[0]);
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    return this.db.prepare('SELECT * FROM timeline WHERE id = ?').get(ids[0]) as unknown as TimelineRow;
+  }
   timeline(sessionId: string): TimelineRow[] {
     return this.db.prepare('SELECT * FROM timeline WHERE session_id = ? ORDER BY t, id').all(sessionId) as unknown as TimelineRow[];
   }
