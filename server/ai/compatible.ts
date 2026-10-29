@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { COMPATIBLE_PRESETS, validateCompatibleSettings, type CompatiblePreset, type CompatibleProfile, type CompatibleSettings } from '../../shared/compatible-provider.ts';
 import { readCompatibleKey } from './compatible-credentials.ts';
-import { ProviderError, parseJsonLoose, type AIProvider, type CompletionRequest, type CompletionResult, type ProviderStatus } from './provider.ts';
+import { ProviderError, parseJsonLoose, type AIProvider, type CompletionRequest, type CompletionResult, type ProviderStatus, type InputBudget } from './provider.ts';
 
 interface Config { preset: CompatiblePreset; profile: CompatibleProfile; local: boolean; fingerprint: string }
-interface Dependencies { fetch?: typeof fetch; readKey?: typeof readCompatibleKey; timeoutMs?: number }
-interface Waiter { signal: AbortSignal; resolve: (release: () => void) => void; reject: (error: Error) => void; abort: () => void }
+interface Dependencies { fetch?: typeof fetch; readKey?: typeof readCompatibleKey; timeoutMs?: number; firstByteMs?: number; statusMs?: number }
+interface Waiter { priority: number; signal: AbortSignal; resolve: (release: () => void) => void; reject: (error: Error) => void; abort: () => void }
 type Json = Record<string, unknown>;
 const object = (value: unknown): value is Json => !!value && typeof value === 'object' && !Array.isArray(value);
 const cloudModel = (model: string): boolean => /(?:^|[-:])cloud(?:$|[-:])/i.test(model);
@@ -14,6 +14,13 @@ const cancelled = () => new ProviderError('aborted', 'Request cancelled.');
 const badResponse = (message: string) => new ProviderError('bad_response', message);
 /** Over the whole answer, in case a server streams very slowly but steadily. */
 const OVERALL_CAP_MS = 15 * 60_000;
+
+/** Approximate text tokens, with headroom for templates and tokenizer differences. */
+export function estimateContextTokens(text: string): number {
+  let latin = 0, other = 0;
+  for (const char of text) { if (char.codePointAt(0)! < 128) latin++; else other++; }
+  return Math.ceil((latin / 4 + other / 1.3) * 1.15) + 256;
+}
 
 /** The answer without a leading <think>…</think> block (local reasoning models may put one in the text). */
 export function visibleAnswer(text: string): string {
@@ -33,11 +40,42 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-function httpError(status: number): ProviderError {
+function httpError(status: number, fields: string[] = [], preset?: CompatiblePreset): ProviderError {
+  // GLM uses numeric business codes inside HTTP 400/429 responses.
+  const glmCodes: Record<string, string> = { '1113': 'insufficient_balance', '1211': 'model_not_found', '1261': 'input_too_long' };
+  const codes = fields.map((field) => preset === 'glm' ? glmCodes[field] ?? field.toLowerCase() : field.toLowerCase());
+  if (codes.some((code) => ['insufficient_quota', 'insufficient_balance', 'arrearage', 'quota_exceeded', 'credit_balance_too_low'].includes(code))) return new ProviderError('quota', 'The model API has no available credit or quota. Check its billing console before retrying.');
+  if (codes.some((code) => ['model_not_found', 'invalid_model', 'model_not_exist', 'modelnotfound'].includes(code))) return new ProviderError('bad_response', 'The model server could not find the selected model. Check the model ID and your account’s access to it.');
+  if (codes.some((code) => ['context_length_exceeded', 'context_window_exceeded', 'input_too_long'].includes(code))) return new ProviderError('bad_response', 'The request exceeds the model’s context length. Choose a shorter time range or raise the model server’s context limit.');
+  if (codes.includes('max_tokens_exceeded')) return new ProviderError('bad_response', 'The model’s output limit is lower than the requested answer allowance. Reduce Max output tokens in Other model settings.');
   if (status === 401 || status === 403) return new ProviderError('auth', 'The model server rejected authentication. Check the key saved for this server URL.');
   if (status === 402) return new ProviderError('quota', 'The model API requires available credit. Check its billing console.');
   if (status === 429) return new ProviderError('rate_limit', 'The model server rate limit was reached.');
   return new ProviderError(status >= 500 ? 'unavailable' : 'bad_response', `The model server returned HTTP ${status}. No retry was sent.`);
+}
+
+/** Read only bounded structured codes. Never display free server text, which may echo credentials. */
+async function responseError(response: Response, signal: AbortSignal, preset: CompatiblePreset): Promise<ProviderError> {
+  const reader = response.body?.getReader();
+  if (!reader) return httpError(response.status);
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    const bounded = AbortSignal.any([signal, AbortSignal.timeout(2000)]);
+    while (size < 4096) {
+      const chunk = await abortable(reader.read(), bounded);
+      if (chunk.done) {
+        const payload: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (!object(payload)) break;
+        const error = object(payload.error) ? payload.error : payload;
+        return httpError(response.status, [error.code, error.type, error.param].filter((value) => typeof value === 'string' || typeof value === 'number').map(String), preset);
+      }
+      if (size + chunk.value.length > 4096) break;
+      chunks.push(chunk.value); size += chunk.value.length;
+    }
+  } catch { /* Malformed or stalled errors still have a useful HTTP status. */ }
+  finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
+  return httpError(response.status);
 }
 
 /** One adapter, one explicitly selected endpoint. No provider fallback, retries, or reasoning extensions. */
@@ -47,8 +85,11 @@ export class CompatibleProvider implements AIProvider {
   private fetcher: typeof fetch;
   private readKey: typeof readCompatibleKey;
   private timeoutMs: number;
+  private firstByteMs: number;
+  private statusMs: number;
   private controllers = new Set<AbortController>();
   private localBusy = false;
+  private localRequests = new Map<AbortController, CompletionRequest>();
   private waiters: Waiter[] = [];
   private lastTest: { identity: string; at: number; error?: string } | null = null;
 
@@ -57,6 +98,8 @@ export class CompatibleProvider implements AIProvider {
     this.fetcher = deps.fetch ?? fetch;
     this.readKey = deps.readKey ?? readCompatibleKey;
     this.timeoutMs = deps.timeoutMs ?? 120_000;
+    this.statusMs = deps.statusMs ?? 5000;
+    this.firstByteMs = deps.firstByteMs ?? 10 * 60_000;
   }
 
   get label(): string {
@@ -107,9 +150,10 @@ export class CompatibleProvider implements AIProvider {
       const test = this.lastTest?.identity === this.identity(c, key) ? this.lastTest : null;
       const result: ProviderStatus = { ...base, message: test ? 'Connection test succeeded. No meeting content was sent.' : 'Configured; the connection has not been tested. Use Test connection to verify it.' };
       if (refresh && c.local) {
-        const response = await this.fetcher(`${c.profile.baseUrl}/models`, { headers: key ? { authorization: `Bearer ${key}` } : {}, signal: AbortSignal.timeout(5000), redirect: 'error' });
-        if (!response.ok) throw httpError(response.status);
-        const body: unknown = await response.json();
+        const probe = AbortSignal.timeout(this.statusMs);
+        const response = await this.fetchResponse(c, `${c.profile.baseUrl}/models`, { headers: key ? { authorization: `Bearer ${key}` } : {}, redirect: 'error' }, probe);
+        if (!response.ok) throw await responseError(response, probe, c.preset);
+        const body: unknown = await abortable(response.json(), probe).catch((error) => { if (probe.aborted) throw new ProviderError('unavailable', 'Could not check the model server: it took too long to respond. Check the local service and try again.'); throw error; });
         // Ollama answers {"data": null} when no model is downloaded yet; treat that as an empty list.
         if (!object(body) || !(Array.isArray(body.data) || body.data == null)) throw badResponse('The model server returned an invalid model list.');
         const listed = Array.isArray(body.data) ? body.data : [];
@@ -157,20 +201,41 @@ export class CompatibleProvider implements AIProvider {
 
   async complete(req: CompletionRequest): Promise<CompletionResult> { return this.run(req, this.config()); }
 
-  private acquireLocal(signal: AbortSignal): Promise<() => void> {
+  private system(req: Pick<CompletionRequest, 'instructions' | 'jsonSchema'>): string {
+    return req.instructions + (req.jsonSchema ? `\n\nReturn ONLY a JSON object (no prose, no code fences) matching this JSON Schema:\n${JSON.stringify(req.jsonSchema)}` : '');
+  }
+
+  private outputTokens(c: Config): number { return c.local ? Math.min(c.profile.maxOutputTokens, Math.floor(c.profile.contextTokens / 4)) : c.profile.maxOutputTokens; }
+
+  inputBudget(req: Pick<CompletionRequest, 'instructions' | 'jsonSchema' | 'images'>): InputBudget | null {
+    const c = this.config();
+    if (!c.local) return null;
+    return { tokens: c.profile.contextTokens - this.outputTokens(c) - (req.images?.length ?? 0) * 4096 - estimateContextTokens(this.system(req) + '\n'), estimate: (text) => estimateContextTokens(text) - 256 };
+  }
+
+  prioritize(priority: number): void {
+    if (priority < 8) return;
+    for (const [controller, req] of this.localRequests) if (this.priority(req) < 8) { const error = cancelled(); error.preempted = true; controller.abort(error); }
+  }
+
+  private priority(req: CompletionRequest): number { return req.priority ?? (['overview', 'auto_explain'].includes(req.task) ? 2 : 10); }
+
+  private acquireLocal(signal: AbortSignal, priority: () => number): Promise<() => void> {
     if (signal.aborted) return Promise.reject(cancelled());
     if (!this.localBusy) { this.localBusy = true; return Promise.resolve(() => this.releaseLocal()); }
     return new Promise((resolve, reject) => {
-      const waiter: Waiter = { signal, resolve, reject, abort: () => {
+      const waiter: Waiter = { get priority() { return priority(); }, signal, resolve, reject, abort: () => {
         this.waiters = this.waiters.filter((w) => w !== waiter);
         reject(cancelled());
       } };
       this.waiters.push(waiter);
+      this.waiters.sort((a, b) => b.priority - a.priority);
       signal.addEventListener('abort', waiter.abort, { once: true });
     });
   }
 
   private releaseLocal(): void {
+    this.waiters.sort((a, b) => b.priority - a.priority);
     const waiter = this.waiters.shift();
     if (!waiter) { this.localBusy = false; return; }
     waiter.signal.removeEventListener('abort', waiter.abort);
@@ -182,11 +247,27 @@ export class CompatibleProvider implements AIProvider {
     if (this.config().fingerprint !== c.fingerprint) throw new ProviderError('disabled', 'Model settings changed while this request was waiting. Submit it again with the selected settings.');
   }
 
+  private async fetchResponse(c: Config, url: string, init: RequestInit, signal: AbortSignal): Promise<Response> {
+    try { return await abortable(this.fetcher(url, { ...init, signal }), signal); }
+    catch (error) {
+      if (signal.aborted) {
+        if (signal.reason?.name === 'TimeoutError') throw new ProviderError('unavailable', 'Could not check the model server: it took too long to respond. Check the local service and try again.');
+        throw error;
+      }
+      if (!c.local) throw error;
+      const refused = (value: unknown): boolean => object(value) && (value.code === 'ECONNREFUSED' || refused(value.cause) || Array.isArray(value.errors) && value.errors.some(refused));
+      if (!refused(error)) throw new ProviderError('unavailable', 'The local model connection failed before it could answer. Check the model server for a crash, loading error, or connection problem, then try again.');
+      throw new ProviderError('unavailable', c.preset === 'ollama'
+        ? 'Ollama is not responding. Open the Ollama app or run ollama serve, check the server URL in Other model settings, then try again.'
+        : 'LM Studio is not responding. Open LM Studio → Developer and turn on Start server, check the server URL in Other model settings, then try again.');
+    }
+  }
+
   private async checkOllama(c: Config, signal: AbortSignal, key: string | null): Promise<void> {
     const root = c.profile.baseUrl.replace(/\/v1$/, '');
-    const response = await abortable(this.fetcher(`${root}/api/show`, {
+    const response = await this.fetchResponse(c, `${root}/api/show`, {
       method: 'POST', headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) }, body: JSON.stringify({ model: c.profile.model }), signal, redirect: 'error',
-    }), signal);
+    }, signal);
     if (response.status === 404) throw new ProviderError('unavailable', `The model "${c.profile.model}" is not downloaded in Ollama. In Terminal run: ollama pull ${c.profile.model}`);
     if (!response.ok) throw new ProviderError('unavailable', 'Could not verify that this Ollama model is installed locally. Check the model ID and local server.');
     const body: unknown = await abortable(response.json(), signal);
@@ -200,43 +281,59 @@ export class CompatibleProvider implements AIProvider {
     this.check(c);
     if (req.signal?.aborted) throw cancelled();
     if (req.images?.length && !c.profile.supportsImages) throw new ProviderError('disabled', 'The selected model profile does not support screen captures.');
+    const system = this.system(req);
+    const budget = this.inputBudget(req);
+    if (budget && budget.estimate(req.input) > budget.tokens) {
+      throw new ProviderError('unavailable', 'This request still exceeds the local context limit after allowing room for the answer. Increase Context length in Other model settings, or reduce attached images or custom instructions. In LM Studio, also raise the loaded model’s context length.');
+    }
+    const outputTokens = this.outputTokens(c);
     const controller = new AbortController();
     const abort = () => controller.abort();
     req.signal?.addEventListener('abort', abort, { once: true });
     this.controllers.add(controller);
-    let timedOut = false;
+    let timedOut: 'first' | 'idle' | 'overall' | null = null;
     let idle: NodeJS.Timeout | undefined, cap: NodeJS.Timeout | undefined;
-    const expire = () => { timedOut = true; controller.abort(); };
-    // Time spent waiting for another local request does not count; then the server must keep sending.
-    const alive = () => { clearTimeout(idle); idle = setTimeout(expire, this.timeoutMs); };
+    const expire = (phase: 'first' | 'idle' | 'overall') => { timedOut ??= phase; controller.abort(); };
+    // Local loading and prefill get a separate deadline; queue time does not count.
+    const alive = () => { clearTimeout(idle); idle = setTimeout(() => expire('idle'), this.timeoutMs); };
     let release: (() => void) | undefined;
     const signal = controller.signal;
     try {
-      if (c.local) release = await this.acquireLocal(signal);
-      alive();
-      cap = setTimeout(expire, Math.max(this.timeoutMs, OVERALL_CAP_MS));
+      if (c.local) {
+        const priority = () => this.priority(req);
+        this.prioritize(priority());
+        this.localRequests.set(controller, req);
+        release = await this.acquireLocal(signal, priority);
+      }
+      idle = setTimeout(() => expire(c.local ? 'first' : 'idle'), c.local ? this.firstByteMs : this.timeoutMs);
+      cap = setTimeout(() => expire('overall'), OVERALL_CAP_MS);
       this.ensureUnchanged(c);
       const key = await abortable(this.readKey(c.preset, c.profile.baseUrl), signal);
       if (!c.local && !key) throw new ProviderError('auth', 'No API key saved for this profile and server URL.');
       if (c.preset === 'ollama') await this.checkOllama(c, signal, key);
-      const system = req.instructions + (req.jsonSchema ? `\n\nReturn ONLY a JSON object (no prose, no code fences) matching this JSON Schema:\n${JSON.stringify(req.jsonSchema)}` : '');
-      const images = await Promise.all((req.images ?? []).map(async (im) => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${(await readFile(im.path, { signal })).toString('base64')}` } })));
-      const body: Json = {
-        model: c.profile.model, stream: true, max_tokens: c.profile.maxOutputTokens,
+      const imageData = await Promise.all((req.images ?? []).map(async (im) => (await readFile(im.path, { signal })).toString('base64')));
+      const images = imageData.map((data) => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${data}` } }));
+      const ollama = c.preset === 'ollama';
+      const body: Json = ollama ? {
+        model: c.profile.model, stream: true, options: { ...(c.profile.contextExplicit ? { num_ctx: c.profile.contextTokens } : {}), num_predict: outputTokens },
+        messages: [{ role: 'system', content: system }, { role: 'user', content: req.input, ...(imageData.length ? { images: imageData } : {}) }],
+        ...(req.jsonSchema && c.profile.structuredOutput !== 'prompt' ? { format: c.profile.structuredOutput === 'json_schema' ? req.jsonSchema : 'json' } : {}),
+      } : {
+        model: c.profile.model, stream: true, max_tokens: outputTokens,
         messages: [{ role: 'system', content: system }, { role: 'user', content: images.length ? [...images, { type: 'text', text: req.input }] : req.input }],
       };
       // MiniMax documents this extension to keep private reasoning out of visible/structured answers.
       if (c.preset === 'minimax') body.reasoning_split = true;
-      if (req.jsonSchema && c.profile.structuredOutput === 'json_object') body.response_format = { type: 'json_object' };
-      if (req.jsonSchema && c.profile.structuredOutput === 'json_schema') body.response_format = { type: 'json_schema', json_schema: { name: 'chumi_response', strict: true, schema: req.jsonSchema } };
+      if (!ollama && req.jsonSchema && c.profile.structuredOutput === 'json_object') body.response_format = { type: 'json_object' };
+      if (!ollama && req.jsonSchema && c.profile.structuredOutput === 'json_schema') body.response_format = { type: 'json_schema', json_schema: { name: 'chumi_response', strict: true, schema: req.jsonSchema } };
       this.ensureUnchanged(c);
       if (signal.aborted) throw cancelled();
-      const response = await abortable(this.fetcher(`${c.profile.baseUrl}/chat/completions`, {
+      const response = await this.fetchResponse(c, ollama ? `${c.profile.baseUrl.replace(/\/v1$/, '')}/api/chat` : `${c.profile.baseUrl}/chat/completions`, {
         method: 'POST', headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
         body: JSON.stringify(body), signal, redirect: 'error',
-      }), signal);
-      if (!response.ok) { void response.body?.cancel().catch(() => {}); throw httpError(response.status); }
-      let text = await this.readResponse(response, req.onDelta, signal, alive);
+      }, signal);
+      if (!response.ok) throw await responseError(response, signal, c.preset);
+      let text = await this.readResponse(response, req.onDelta, signal, alive, ollama);
       if (req.jsonSchema) {
         // Small local models often wrap JSON in code fences or a sentence; the callers parse it the same way.
         const parsed = parseJsonLoose(text);
@@ -246,25 +343,33 @@ export class CompatibleProvider implements AIProvider {
       if (this.lastTest?.error && this.lastTest.identity === this.identity(c, key)) this.lastTest = null;
       return { text, provider: this.id, model: c.profile.model, billing: c.local ? 'none' : 'api', effort: null };
     } catch (error) {
-      if (timedOut) throw new ProviderError('unavailable', 'The model request timed out (the server stopped sending) and was cancelled. No retry was sent.');
-      if (signal.aborted) throw cancelled();
+      if (timedOut) throw new ProviderError('unavailable', timedOut === 'first'
+        ? 'The local model did not start answering in time. It may still be loading or reading a long request. Try a smaller model or shorter time range.'
+        : timedOut === 'overall' ? 'The model request reached its overall time limit and was cancelled. Try a shorter request.'
+          : 'The model request timed out (the server stopped sending) and was cancelled. No retry was sent.');
+      if (signal.aborted) throw signal.reason instanceof ProviderError ? signal.reason : cancelled();
       if (error instanceof ProviderError) throw error;
       throw new ProviderError('network', 'The model request could not be completed. Check the server connection. No retry was sent.');
     } finally {
       clearTimeout(idle); clearTimeout(cap);
       req.signal?.removeEventListener('abort', abort);
       this.controllers.delete(controller);
+      this.localRequests.delete(controller);
       release?.();
     }
   }
 
-  private async readResponse(response: Response, onDelta: CompletionRequest['onDelta'], signal: AbortSignal, alive: () => void = () => {}): Promise<string> {
+  private async readResponse(response: Response, onDelta: CompletionRequest['onDelta'], signal: AbortSignal, alive: () => void = () => {}, ollama = false): Promise<string> {
     let text = '';
     let shown = 0;
     let finished = false;
     const consume = (payload: unknown, streaming: boolean) => {
       if (!object(payload) || payload.error) throw badResponse('The model server returned an error or invalid response.');
-      if (!Array.isArray(payload.choices)) throw badResponse('The model response has no choices.');
+      if (ollama) {
+        if (typeof payload.done !== 'boolean' || !object(payload.message)) throw badResponse('The model response has no message.');
+        payload = { choices: [{ index: 0, [streaming ? 'delta' : 'message']: payload.message, finish_reason: payload.done ? payload.done_reason ?? 'stop' : null }] };
+      }
+      if (!object(payload) || !Array.isArray(payload.choices)) throw badResponse('The model response has no choices.');
       if (payload.choices.length === 0 && streaming && payload.usage) return;
       if (payload.choices.length !== 1 || !object(payload.choices[0])) throw badResponse('The model response has invalid choices.');
       const choice = payload.choices[0];
@@ -286,7 +391,7 @@ export class CompatibleProvider implements AIProvider {
         finished = true;
       }
     };
-    if (!response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')) {
+    if (!ollama && !response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')) {
       let payload: unknown;
       try { payload = await abortable(response.json(), signal); } catch (error) { if (signal.aborted) throw cancelled(); throw badResponse('The model server returned invalid JSON.'); }
       consume(payload, false);
@@ -300,6 +405,14 @@ export class CompatibleProvider implements AIProvider {
       let done = false;
       const line = (raw: string) => {
         const value = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+        if (ollama) {
+          if (!value.trim()) return;
+          let payload: unknown;
+          try { payload = JSON.parse(value); } catch { throw badResponse('The model stream contained invalid JSON.'); }
+          consume(payload, true);
+          done = finished;
+          return;
+        }
         if (!value) {
           if (event === 'error') throw badResponse('The model server returned an error event.');
           if (data.length) {

@@ -9,6 +9,8 @@ import { Dialog } from './Dialog.tsx';
 import { TranscriptionTab } from './TranscriptionTab.tsx';
 import { AgentsTab, ProjectsTab } from './Projects.tsx';
 import { MybotServerSettings } from './ProjectContext.tsx';
+import { AnthropicKeySettings } from './AnthropicKeySettings.tsx';
+import { ClaudeResume } from './ClaudeResume.tsx';
 import { CompatibleProviderSettings } from './CompatibleProviderSettings.tsx';
 import { speechPrivacy } from '../speechSettings.ts';
 import type { ProviderStatus } from '../types.ts';
@@ -60,7 +62,6 @@ export function SettingsDialog() {
   const compatibleProfile = settings.ai.compatible.profiles[settings.ai.compatible.preset];
   const [devices, setDevices] = useState<Array<{ uid: string; name: string; isDefault: boolean }>>([]);
   const [perm, setPerm] = useState<Record<string, string>>({});
-  const [apiKey, setApiKey] = useState('');
   const [mybot, setMybot] = useState<{ enabled: boolean; dir: string; files: number; shareWithTeam: boolean } | null>(null);
   const [exportDir, setExportDir] = useState(settings.integrations.mybot.exportDir);
   const loadMybot = () => void api('/api/integrations/mybot').then(setMybot).catch(() => {});
@@ -253,6 +254,7 @@ export function SettingsDialog() {
           <p className="muted small">{t("Higher effort makes the model think longer before answering. Answers usually get better on hard questions, but they take longer and use more of your plan's limit. If the model doesn't support a level, Chumi uses the closest lower one it does support. Claude Haiku has no effort setting.")}</p>
           </>}
           {provider && <><h3>{t('Status: {name}', { name: t(provider.label) })} <button className="btn small" onClick={() => void refreshProvider()}>{t('Refresh')}</button></h3><QuotaView p={provider} /></>}
+          {settings.ai.provider === 'claude-cli' && provider?.id === 'claude-cli' && provider.state === 'quota_blocked' && provider.overageBlocked && <ClaudeResume />}
           {windows && settings.ai.provider === 'codex' && provider?.state === 'signed_out' && <div className="btn-row">
             <button className="btn primary" onClick={() => void api('/api/provider/codex/login', { body: {} })}>{t('Sign in with ChatGPT')}</button>
             <span className="muted small">{t('Sign-in opens in your browser. Return here when it is complete.')}</span>
@@ -278,13 +280,7 @@ export function SettingsDialog() {
           )}
           <h3>{t('Paid API access (optional)')}</h3>
           <label className="field check"><input type="checkbox" checked={settings.ai.anthropicApi.enabled} onChange={(e) => { if (!e.target.checked || confirm(t('Enable paid Anthropic API access? Requests made with this provider are billed per token to your API account.'))) void S({ ai: { anthropicApi: { enabled: e.target.checked }, ...(e.target.checked ? {} : { provider: settings.ai.provider === 'anthropic-api' ? 'codex' : settings.ai.provider }) } }); }} /> {t('Enable the Anthropic API key provider (billed per request)')}</label>
-          {settings.ai.anthropicApi.enabled && (
-            <div className="field-row">
-              <input type="password" placeholder={windows ? t('sk-ant-… (encrypted for your Windows account)') : t('sk-ant-… (stored in macOS Keychain)')} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
-              <button className="btn small" onClick={() => void api('/api/provider/anthropic-key', { body: { key: apiKey } }).then(() => setApiKey(''))}>{t('Save key')}</button>
-              <button className="btn small" onClick={() => void api('/api/provider/anthropic-key', { method: 'DELETE' })}>{t('Remove key')}</button>
-            </div>
-          )}
+          {settings.ai.anthropicApi.enabled && <AnthropicKeySettings />}
         </section>
       )}
 

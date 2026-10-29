@@ -1,5 +1,48 @@
 import type { OutputRow, SegmentRow, Store } from '../db.ts';
 import { fmtT } from '../util.ts';
+import type { InputBudget } from './provider.ts';
+
+export function limitText(text: string, budget: InputBudget): string {
+  if (budget.estimate(text) <= budget.tokens) return text;
+  const chars = Array.from(text), marker = '\n[… details omitted …]';
+  let lo = 0, hi = chars.length;
+  while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (budget.estimate(chars.slice(0, mid).join('') + marker) <= budget.tokens) lo = mid; else hi = mid - 1; }
+  return lo ? chars.slice(0, lo).join('') + marker : '';
+}
+
+/** Trim the oldest verbatim lines first, keeping summaries and the user's question. */
+export function fitInput(text: string, budget: InputBudget | null | undefined): string {
+  if (!budget || budget.estimate(text) <= budget.tokens) return text;
+  const lines = text.split('\n');
+  for (const pattern of [/^\[\d+:\d+(?::\d+)?\] /, /^\[\d+:\d+(?::\d+)?[–—-]/]) {
+    for (let i = 0; i < lines.length && budget.estimate(lines.join('\n')) > budget.tokens; i++) {
+      if (pattern.test(lines[i])) lines[i] = '';
+    }
+  }
+  return lines.filter((line, i) => line || lines[i - 1]).join('\n');
+}
+
+/** Split oversized lines as well as groups; never mark text covered before all parts were sent. */
+export function splitSegments(segs: SegmentRow[], budget: InputBudget, wrap: (text: string) => string): SegmentRow[][] {
+  const chunks: SegmentRow[][] = [];
+  let chunk: SegmentRow[] = [];
+  const fits = (rows: SegmentRow[]) => budget.estimate(wrap(rows.map((s) => formatSeg(s)).join('\n'))) <= budget.tokens;
+  for (const seg of segs) {
+    if (fits([...chunk, seg])) { chunk.push(seg); continue; }
+    if (chunk.length) { chunks.push(chunk); chunk = []; }
+    if (fits([seg])) { chunk.push(seg); continue; }
+    let rest = Array.from(seg.text);
+    while (rest.length) {
+      let lo = 0, hi = rest.length;
+      while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (fits([{ ...seg, text: rest.slice(0, mid).join('') }])) lo = mid; else hi = mid - 1; }
+      // The provider reports an actionable error if even the fixed instructions cannot fit.
+      if (!lo) { chunks.push([{ ...seg, text: rest.join('') }]); break; }
+      chunks.push([{ ...seg, text: rest.slice(0, lo).join('') }]); rest = rest.slice(lo);
+    }
+  }
+  if (chunk.length) chunks.push(chunk);
+  return chunks;
+}
 
 export const TOTAL_RAW_BUDGET = 40_000;   // chars of raw transcript we are willing to send in one request (~10k tokens)
 export const RECENT_WINDOW_MS = 10 * 60_000;

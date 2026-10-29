@@ -46,3 +46,16 @@ test('translation lookup and placeholders', async () => {
   assert.equal(resolveLang('auto', 'zh'), 'zh');
   assert.equal(resolveLang('auto', 'en'), 'en');
 });
+
+
+test('provider errors stay translated when the assistant appends its recording reassurance', async () => {
+  const { t, setLang } = await import('../web/src/i18n.ts');
+  const message = 'The model API has no available credit or quota. Check its billing console before retrying.';
+  const suffix = ' Transcription continues and nothing captured is lost.';
+  try {
+    setLang('zh');
+    assert.equal(t(message + suffix), t(message) + ' 转写仍在继续，已采集的内容不会丢失。');
+    setLang('en');
+    assert.equal(t(message + suffix), message + suffix);
+  } finally { setLang('en'); }
+});

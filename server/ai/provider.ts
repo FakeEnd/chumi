@@ -23,6 +23,7 @@ export interface ProviderStatus {
   model?: string | null;
   models?: Array<{ id: string; name: string }>;
   quota: QuotaInfo;
+  overageBlocked?: boolean;
   message?: string;
   setupHint?: string;
   checkedAt: number;
@@ -31,6 +32,8 @@ export interface ProviderStatus {
 export interface CompletionRequest {
   /** Short task label for logs (catchup, ask, overview, …). */
   task: string;
+  /** Higher values run first; background work is below 8. */
+  priority?: number;
   /** System-level instructions. */
   instructions: string;
   /** User content: transcript context + question. */
@@ -51,6 +54,8 @@ export type ProviderErrorKind = 'auth' | 'quota' | 'quota_gate' | 'rate_limit' |
 export class ProviderError extends Error {
   kind: ProviderErrorKind;
   retryable: boolean;
+  /** Background work yielded to an interactive request. */
+  preempted = false;
   constructor(kind: ProviderErrorKind, message: string, retryable = false) {
     super(message);
     this.kind = kind;
@@ -58,12 +63,18 @@ export class ProviderError extends Error {
   }
 }
 
+export interface InputBudget { tokens: number; estimate: (text: string) => number }
+
 export interface AIProvider {
   readonly id: string;
   readonly label: string;
   /** Whether screen-capture images can be sent with requests. */
   readonly supportsImages: boolean;
   status(refresh?: boolean): Promise<ProviderStatus>;
+  /** Let interactive work release local resources before it enters the assistant queue. */
+  prioritize?(priority: number): void;
+  /** Remaining text budget after instructions, schema, images and answer space. */
+  inputBudget?(req: Pick<CompletionRequest, 'instructions' | 'jsonSchema' | 'images'>): InputBudget | null;
   complete(req: CompletionRequest): Promise<CompletionResult>;
   shutdown(): Promise<void>;
 }

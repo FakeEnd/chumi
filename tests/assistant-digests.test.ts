@@ -133,3 +133,17 @@ test('a waiting caller with a later cutoff also digests the newly eligible earli
   assert.equal(digests(store, 'meeting').filter((d) => d.segmentIds.includes(added.id)).length, 1);
   assert.equal(undigestedChunks(store, 'meeting', 30 * 60_000).length, 0);
 });
+
+test('a manual caller promotes the shared background digest, including its running request', async (t) => {
+  const { assistant, calls, handoff, status, finish } = setup(t);
+  const background = assistant.overview('meeting');
+  await until(() => calls.length === 1);
+  assert.equal(calls[0].request.task, 'digest');
+  assert.equal(calls[0].request.priority, 2);
+  const draft = handoff();
+  assert.equal(calls[0].request.priority, 10, 'promotion happens before local preemption');
+  assistant.cancel(background);
+  await until(() => status(background) === 'cancelled');
+  await finish([draft]);
+  assert.ok(calls.filter((c) => c.request.task === 'digest').every((c) => c.request.priority === 10));
+});

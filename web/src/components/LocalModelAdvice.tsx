@@ -17,18 +17,17 @@ function MemoryRange({ row }: { row: ModelAssessment }) {
   return <>{memory(row.memory.lowBytes)} – {memory(row.memory.highBytes)}</>;
 }
 
-export function LocalModelAdvice({ preset, baseUrl, serviceReady, installedIds, onDownloaded }: {
-  preset: LocalModelPreset; baseUrl: string; serviceReady: boolean; installedIds: string[]; onDownloaded: () => void;
+export function LocalModelAdvice({ preset, baseUrl, serviceReady, installedIds, onDownloaded, context, onContextChange }: {
+  preset: LocalModelPreset; baseUrl: string; serviceReady: boolean; installedIds: string[]; onDownloaded: () => void; context: number; onContextChange: (tokens: number) => void;
 }) {
   const speechModel = useStore((state) => state.settings!.asr.model);
   const [attempt, setAttempt] = useState(0);
   const [report, setReport] = useState<{ identity: string; hardware?: LocalHardware; error?: boolean } | null>(null);
-  const [chosenContext, setChosenContext] = useState<number | null>(null);
   const identity = JSON.stringify([speechModel, attempt]);
   const current = report?.identity === identity ? report : null;
   const hw = current?.hardware;
-  const context = chosenContext ?? (hw && hw.memoryBytes <= 8 * GiB ? 4096 : 8192);
-  const rows = hw ? assessLocalModels(hw, preset, context) : [];
+  const supportedContext = ESTIMATE_CONTEXTS.some((tokens) => tokens === context);
+  const rows = hw && supportedContext ? assessLocalModels(hw, preset, context) : [];
   const recommended = rows.find((row) => row.recommended);
 
   useEffect(() => {
@@ -52,12 +51,14 @@ export function LocalModelAdvice({ preset, baseUrl, serviceReady, installedIds, 
       {runtimeUnsupported(hw, preset) && <p className="warn-text small" role="alert">{preset === 'lmstudio'
         ? t('LM Studio requires Apple Silicon and macOS 14 or later on Mac.')
         : t('Ollama requires macOS 14 or later. Update macOS before downloading a model.')}</p>}
-      <label className="field advice-context"><span>{t('Context length used for this estimate')}</span>
-        <select value={context} onChange={(event) => setChosenContext(Number(event.target.value))}>
+      <label className="field advice-context"><span>{t('Context length')}</span>
+        <select value={Number.isFinite(context) ? context : ''} onChange={(event) => onContextChange(Number(event.target.value))}>
+          {!supportedContext && <option value={Number.isFinite(context) ? context : ''}>{Number.isFinite(context) ? context : t('Choose a context length…')}</option>}
           {ESTIMATE_CONTEXTS.map((tokens) => <option value={tokens} key={tokens}>{t('{n}K tokens', { n: tokens / 1024 })}</option>)}
         </select>
       </label>
-      <p className="small muted">{t('This only changes the estimate. Set the same context length in Ollama or LM Studio; longer contexts need more memory.')}</p>
+      <p className="small muted">{t('Save model settings to use this context length for requests and memory estimates. Chumi sets it in Ollama; in LM Studio, set the same length when loading the model. Longer contexts need more memory.')}</p>
+      {!supportedContext && <p className="small muted">{t('Memory estimates and recommended downloads are available for 4K, 8K, 16K and 32K contexts. A custom request limit can still be saved in Advanced model options.')}</p>}
       {recommended ? <div className="model-recommendation">
         <div className="model-name"><strong>{recommended.model.name}</strong><span className="tag tag-ok">{t('Recommended starting point')}</span></div>
         <span className="small muted">{recommended.download.quantization} · {t('Text model')}</span>

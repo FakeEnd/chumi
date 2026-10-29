@@ -26,9 +26,11 @@ export function runCommand(bin: string, args: string[], o: { timeoutMs?: number;
     const finish = (code: number) => { if (done) return; done = true; clearTimeout(timer); resolve({ code, out, err }); };
     let child: ChildProcess;
     try { child = spawnCommand(bin, args, { cwd: o.cwd, env: o.env ?? process.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }); } catch (e) { err = (e as Error).message; finish(1); return; }
-    const cap = (s: string, d: Buffer) => (s.length < 4 * 1024 * 1024 ? s + d.toString('utf8') : s);
-    child.stdout!.on('data', (d: Buffer) => { out = cap(out, d); });
-    child.stderr!.on('data', (d: Buffer) => { err = cap(err, d); });
+    const cap = (s: string, d: string) => (s.length < 4 * 1024 * 1024 ? s + d : s);
+    child.stdout!.setEncoding('utf8');
+    child.stderr!.setEncoding('utf8');
+    child.stdout!.on('data', (d: string) => { out = cap(out, d); });
+    child.stderr!.on('data', (d: string) => { err = cap(err, d); });
     child.on('error', (e) => { err += e.message; finish(1); });
     child.on('close', (code) => finish(code ?? 1));
     const timer = setTimeout(() => { stopProcess(child, 'SIGKILL'); finish(1); }, o.timeoutMs ?? 30_000);

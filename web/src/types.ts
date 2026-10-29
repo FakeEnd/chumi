@@ -46,6 +46,7 @@ export interface QuotaWindow { label: string; usedPercent: number; resetsAt: num
 export interface ProviderStatus {
   id: string; label: string; billing: 'subscription' | 'credits' | 'api' | 'none'; billingLabel: string;
   state: 'ready' | 'checking' | 'signed_out' | 'quota_blocked' | 'not_installed' | 'disabled' | 'error'; ready: boolean;
+  overageBlocked?: boolean;
   account?: string | null; plan?: string | null; model?: string | null; models?: Array<{ id: string; name: string }>;
   quota: { known: boolean; summary: string; windows?: QuotaWindow[]; exhausted?: boolean; credits?: { hasCredits: boolean; balance: string | null; willUse: boolean } | null; note?: string };
   message?: string; setupHint?: string; checkedAt: number;

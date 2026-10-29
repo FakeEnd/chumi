@@ -2,7 +2,7 @@ import type { FrameRow, OutputRow, SegmentRow, Store } from '../db.ts';
 import type { Depth, Effort } from '../settings.ts';
 import { AsyncQueue, fmtT, log, parseT, termKey, uid } from '../util.ts';
 import {
-  digests, keywords, latestOverview, renderDigests, renderOverview, renderSegments, retrieve, totalChars, undigestedChunks,
+  fitInput, limitText, splitSegments, digests, keywords, latestOverview, renderDigests, renderOverview, renderSegments, retrieve, totalChars, undigestedChunks,
   RECENT_WINDOW_MS, TOTAL_RAW_BUDGET, type OverviewData,
 } from './context.ts';
 import {
@@ -20,7 +20,7 @@ export type CatchupScope = '2m' | '5m' | 'all';
 export interface Selection { fromT: number; toT: number; text: string }
 interface DigestProgress { stage: 'digests'; completed: number; total: number }
 type ReportProgress = (progress: DigestProgress) => void;
-interface DigestWork { speakerRevision: number; settled: boolean; promise: Promise<void>; controller: AbortController; listeners: Set<ReportProgress>; progress: DigestProgress }
+interface DigestWork { priority: number; speakerRevision: number; settled: boolean; promise: Promise<void>; controller: AbortController; listeners: Set<ReportProgress>; progress: DigestProgress }
 
 interface Built {
   instructions: string; input: string; coveredFrom: number | null; coveredTo: number | null;
@@ -142,6 +142,10 @@ export class Assistant {
     this.broadcast('ai', publicOutput(row));
     const controller = new AbortController();
     this.controllers.set(id, { controller, sessionId: o.sessionId });
+    const digest = this.digestInflight.get(o.sessionId);
+    const joinsDigest = ['final_summary', 'handoff', 'overview'].includes(o.kind) || o.kind === 'catchup' && o.scope === 'all';
+    if (digest && joinsDigest) digest.priority = Math.max(digest.priority, o.prio);
+    this.registry.active.prioritize?.(o.prio);
     this.queue.push(async () => {
       let pendingDelta = '';
       let flushTimer: NodeJS.Timeout | null = null;
@@ -163,8 +167,8 @@ export class Assistant {
         let meta = { provider: 'local', model: null as string | null, billing: 'none', effort: null as string | null };
         if (built.direct !== undefined) text = built.direct;
         else {
-          const r = await this.registry.complete({
-            task: o.kind, instructions: built.instructions, input: built.input, jsonSchema: built.schema, effort: built.effort, signal: controller.signal, images: built.images,
+          const r = await this.complete({
+            task: o.kind, priority: o.prio, instructions: built.instructions, input: built.input, jsonSchema: built.schema, effort: built.effort, signal: controller.signal, images: built.images,
             onDelta: built.schema ? undefined : (d) => { if (!controller.signal.aborted) { pendingDelta += d; flushTimer ??= setTimeout(flush, 120); } },
           });
           text = r.text; meta = { provider: r.provider, model: r.model, billing: r.billing, effort: r.effort !== undefined ? r.effort : built.effort ?? null };
@@ -185,7 +189,7 @@ export class Assistant {
       } catch (e) {
         if (flushTimer) clearTimeout(flushTimer);
         const err = e as ProviderError;
-        const cancelled = controller.signal.aborted;
+        const cancelled = controller.signal.aborted || err instanceof ProviderError && err.preempted;
         const kind = cancelled ? 'aborted' : err instanceof ProviderError ? err.kind : 'bad_response';
         const message = cancelled ? 'Cancelled.' : `${err.message}${['quota', 'quota_gate', 'auth', 'network', 'unavailable'].includes(kind) ? ' Transcription continues and nothing captured is lost.' : ''}`;
         if (['quota', 'quota_gate', 'auth', 'unavailable', 'network'].includes(kind)) this.backoffUntil = Date.now() + 120_000;
@@ -222,7 +226,10 @@ export class Assistant {
     this.lastOverviewWall.delete(sessionId);
   }
 
-  private complete(req: CompletionRequest) { return this.registry.complete(req); }
+  private complete(req: CompletionRequest) {
+    req.input = fitInput(req.input, this.registry.active.inputBudget?.(req));
+    return this.registry.complete(req);
+  }
 
   private speakerRevision(sessionId: string): number {
     return (this.store.db.prepare("SELECT COALESCE(MAX(id), 0) AS revision FROM timeline WHERE session_id = ? AND kind = 'speaker_labels_changed'").get(sessionId) as { revision: number }).revision;
@@ -230,7 +237,7 @@ export class Assistant {
 
   // ------------------------------------------------------------------ digests (rolling memory for long sessions)
   /** Summarise transcript chunks that have no digest yet, so long sessions never send the full transcript. */
-  private async ensureDigests(sessionId: string, upTo: number, signal: AbortSignal, progress: ReportProgress): Promise<void> {
+  private async ensureDigests(sessionId: string, upTo: number, { signal, progress, priority }: { signal: AbortSignal; progress: ReportProgress; priority: number }): Promise<void> {
     while (true) {
       if (signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
       const speakerRevision = this.speakerRevision(sessionId);
@@ -238,16 +245,17 @@ export class Assistant {
       if (!work || work.speakerRevision !== speakerRevision) {
         const chunks = undigestedChunks(this.store, sessionId, upTo);
         if (!chunks.length) return;
-        const job: DigestWork = { speakerRevision, settled: false, promise: Promise.resolve(), controller: new AbortController(), listeners: new Set(), progress: { stage: 'digests', completed: 0, total: chunks.length } };
+        const job: DigestWork = { priority, speakerRevision, settled: false, promise: Promise.resolve(), controller: new AbortController(), listeners: new Set(), progress: { stage: 'digests', completed: 0, total: chunks.length } };
         this.digestInflight.set(sessionId, job);
         // Start after the first listener attaches; each caller can cancel without cancelling the others.
-        job.promise = Promise.resolve().then(() => this.buildDigests(sessionId, chunks, speakerRevision, job.controller.signal, (value) => {
+        job.promise = Promise.resolve().then(() => this.buildDigests(sessionId, chunks, speakerRevision, job, (value) => {
           job.progress = value;
           for (const report of job.listeners) report(value);
         })).finally(() => { job.settled = true; if (this.digestInflight.get(sessionId) === job) this.digestInflight.delete(sessionId); });
         work = job;
       }
       const job = work;
+      job.priority = Math.max(job.priority, priority);
       const report: ReportProgress = (value) => progress(value);
       job.listeners.add(report);
       report(job.progress);
@@ -272,17 +280,28 @@ export class Assistant {
     }
   }
 
-  private async buildDigests(sessionId: string, chunks: SegmentRow[][], speakerRevision: number, signal: AbortSignal, progress: ReportProgress): Promise<void> {
+  private async buildDigests(sessionId: string, chunks: SegmentRow[][], speakerRevision: number, job: DigestWork, progress: ReportProgress): Promise<void> {
+    const signal = job.controller.signal;
     let completed = 0;
     for (const chunk of chunks) {
       if (signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
       if (speakerRevision !== this.speakerRevision(sessionId)) throw new ProviderError('aborted', 'Speaker labels changed. Regenerate the response to use the updated names.');
-      const r = renderSegments(chunk, Math.max(16_000, totalChars(chunk)));
-      const res = await this.complete({ task: 'digest', instructions: this.system(sessionId, digestInstructions()), input: `${this.header(sessionId)}\n\nTRANSCRIPT CHUNK:\n${r.text}`, effort: this.effort('background'), signal });
-      if (signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
-      if (speakerRevision !== this.speakerRevision(sessionId)) throw new ProviderError('aborted', 'Speaker labels changed. Regenerate the response to use the updated names.');
-      if (!res.text.trim()) throw new ProviderError('bad_response', 'The model returned empty notes for the transcript chunk. Try again.');
-      this.store.insertOutput({ id: uid('o_'), session_id: sessionId, kind: 'digest', status: 'done', content: res.text.trim(), covered_from: chunk[0].t_start, covered_to: Math.max(...chunk.map((s) => s.t_end)), data_json: JSON.stringify({ segmentIds: r.segmentIds }), provider: res.provider, model: res.model, billing: res.billing, completed_at: Date.now() });
+      const instructions = this.system(sessionId, digestInstructions());
+      const wrap = (text: string) => `${this.header(sessionId)}\n\nTRANSCRIPT CHUNK:\n${text}`;
+      const budget = this.registry.active.inputBudget?.({ instructions });
+      const parts = budget ? splitSegments(chunk, budget, wrap) : [chunk];
+      const results = [];
+      for (const part of parts) {
+        const r = renderSegments(part, Math.max(16_000, totalChars(part)));
+        // Digest parts must be sent whole; fitting is done before assigning their coverage.
+        const res = await this.registry.complete({ task: 'digest', get priority() { return job.priority; }, instructions, input: wrap(r.text), effort: this.effort('background'), signal });
+        if (signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
+        if (speakerRevision !== this.speakerRevision(sessionId)) throw new ProviderError('aborted', 'Speaker labels changed. Regenerate the response to use the updated names.');
+        if (!res.text.trim()) throw new ProviderError('bad_response', 'The model returned empty notes for the transcript chunk. Try again.');
+        results.push(res);
+      }
+      const res = results[results.length - 1];
+      this.store.insertOutput({ id: uid('o_'), session_id: sessionId, kind: 'digest', status: 'done', content: results.map((r) => r.text.trim()).join('\n'), covered_from: chunk[0].t_start, covered_to: Math.max(...chunk.map((s) => s.t_end)), data_json: JSON.stringify({ segmentIds: chunk.map((s) => s.id) }), provider: res.provider, model: res.model, billing: res.billing, completed_at: Date.now() });
       progress({ stage: 'digests', completed: ++completed, total: chunks.length });
     }
   }
@@ -330,6 +349,33 @@ export class Assistant {
     return overview + (ds ? heading + ds : '');
   }
 
+  private async localContext(sessionId: string, segs: SegmentRow[], req: Pick<CompletionRequest, 'instructions' | 'jsonSchema' | 'images'>, options: { signal: AbortSignal; progress: ReportProgress; priority: number }, extra = '') {
+    const budget = this.registry.active.inputBudget?.(req);
+    if (!budget) return null;
+    const prev = latestOverview(this.store, sessionId);
+    const overview = limitText(renderOverview(prev?.data), { ...budget, tokens: Math.max(0, budget.tokens * 0.15) });
+    const prefix = `${this.header(sessionId)}\n${extra}\n\nPREVIOUS OVERVIEW:\n${overview}`;
+    const wrap = (notes: string, raw: string) => `${prefix}\n\nNOTES ON EARLIER PARTS (AI-generated digests with times):\n${notes || '(none)'}\n\nMOST RECENT TRANSCRIPT:\n${raw || '(see notes above)'}`;
+    const full = renderSegments(segs, totalChars(segs));
+    if (budget.estimate(wrap('', full.text)) <= budget.tokens) return { input: wrap('', full.text), segmentIds: full.segmentIds, usedDigests: false };
+    const room = Math.max(0, budget.tokens - budget.estimate(wrap('', '')) - 32);
+    let recent = segs.length;
+    while (recent > 0 && budget.estimate(renderSegments(segs.slice(recent - 1), totalChars(segs.slice(recent - 1))).text) <= room * 0.4) recent--;
+    const omitted = segs.slice(0, recent);
+    if (omitted.length) await this.ensureDigests(sessionId, Math.max(...omitted.map((s) => s.t_end)), options);
+    let raw = renderSegments(segs.slice(recent), totalChars(segs.slice(recent)));
+    if (!raw.segmentIds.length && segs.length) {
+      // A single long line was digested above; retain a bounded excerpt of the latest discussion too.
+      const last = renderSegments(segs.slice(-1), totalChars(segs.slice(-1)));
+      raw = { ...raw, text: limitText(last.text, { ...budget, tokens: room * 0.4 }) };
+    }
+    const notes = renderDigests(digests(this.store, sessionId));
+    // Keep memory before spending the rest on verbatim lines. Bound notes too for very long meetings.
+    const memory = limitText(notes, { ...budget, tokens: Math.max(0, room - budget.estimate(raw.text)) });
+    const input = fitInput(wrap(memory, raw.text), budget);
+    return { input, segmentIds: raw.segmentIds, usedDigests: true };
+  }
+
   private liveEnd(sessionId: string): number {
     return this.store.lastSegment(sessionId)?.t_end ?? 0;
   }
@@ -346,12 +392,14 @@ export class Assistant {
         if (!all.length) return { instructions: '', input: '', coveredFrom: null, coveredTo: null, effort: 'low', direct: 'Nothing has been transcribed yet.' };
         if (scope === 'all') {
           const vis = await this.pickImages(sessionId, { kind: 'range', fromT: end - 300_000, toT: end });
+          const local = await this.localContext(sessionId, all, { instructions: this.system(sessionId, catchupInstructions()), images: vis.images }, { signal, progress, priority: PRIO.manual }, `Scope: the whole session so far.\n${vis.text}`);
+          if (local) return { instructions: this.system(sessionId, catchupInstructions()), input: local.input, coveredFrom: all[0].t_start, coveredTo: end, effort: eff(), images: vis.images, extra: { usedDigests: local.usedDigests, images: vis.used } };
           if (totalChars(all) <= TOTAL_RAW_BUDGET) {
             const r = renderSegments(all, TOTAL_RAW_BUDGET);
             return { instructions: this.system(sessionId, catchupInstructions()), input: `${this.header(sessionId)}\nScope: the whole session so far.${vis.text ? `\n\n${vis.text}` : ''}\n\nTRANSCRIPT [${fmtT(r.from!)}–${fmtT(r.to!)}]:\n${r.text}`, coveredFrom: all[0].t_start, coveredTo: end, effort: eff(), images: vis.images, extra: { images: vis.used } };
           }
           const recentFrom = end - RECENT_WINDOW_MS;
-          await this.ensureDigests(sessionId, recentFrom, signal, progress);
+          await this.ensureDigests(sessionId, recentFrom, { signal, progress, priority: PRIO.manual });
           const recent = renderSegments(this.store.segments(sessionId, recentFrom, end), 14_000);
           return {
             instructions: this.system(sessionId, catchupInstructions()),
@@ -472,16 +520,22 @@ export class Assistant {
           return { instructions: '', input: '', coveredFrom: null, coveredTo: null, effort: 'low', direct: 'Nothing has been transcribed yet.', extra: { current_topic: '', overview: [], topics: [], open_question: '' } };
         }
         const lastSegmentId = Math.max(...fresh.map((s) => s.id));
+        const local = await this.localContext(sessionId, fresh, { instructions: this.system(sessionId, overviewInstructions()), jsonSchema: OVERVIEW_SCHEMA as unknown as Record<string, unknown> }, { signal, progress, priority: manual ? PRIO.manual : PRIO.overview });
+        if (local) return {
+          instructions: this.system(sessionId, overviewInstructions()), input: local.input,
+          coveredFrom: this.store.firstSegment(sessionId)!.t_start, coveredTo: Math.max(prev?.covered_to ?? 0, ...fresh.map((s) => s.t_end)), schema: OVERVIEW_SCHEMA as unknown as Record<string, unknown>, effort: this.effort('background'),
+          extra: { chunkFrom: fresh[0].t_start, chunkTo: Math.max(...fresh.map((s) => s.t_end)), segmentIds: local.segmentIds, lastSegmentId, speakerRevision: this.speakerRevision(sessionId) },
+        };
         if (totalChars(fresh) > 16_000) {
           // Too much new text (e.g. overview was off): digest the older part first.
           const cut = fresh[fresh.length - 1].t_end - 5 * 60_000;
-          await this.ensureDigests(sessionId, cut, signal, progress);
+          await this.ensureDigests(sessionId, cut, { signal, progress, priority: manual ? PRIO.manual : PRIO.overview });
           fresh = fresh.filter((s) => s.t_end > cut);
         }
         const r = renderSegments(fresh, Math.max(16_000, totalChars(fresh.slice(-1))));
         if (r.truncated) {
           const kept = new Set(r.segmentIds);
-          await this.ensureDigests(sessionId, Math.max(...fresh.filter((s) => !kept.has(s.id)).map((s) => s.t_end)), signal, progress);
+          await this.ensureDigests(sessionId, Math.max(...fresh.filter((s) => !kept.has(s.id)).map((s) => s.t_end)), { signal, progress, priority: manual ? PRIO.manual : PRIO.overview });
           fresh = fresh.filter((s) => kept.has(s.id));
         }
         const first = this.store.firstSegment(sessionId)!;
@@ -497,7 +551,7 @@ export class Assistant {
         const d = parseJsonLoose<OverviewData>(text);
         if (!d || typeof d.current_topic !== 'string' || !Array.isArray(d.overview)) throw new ProviderError('bad_response', 'The model returned an overview in an unexpected format.', true);
         const md = `**${d.current_topic}**\n\n${d.overview.map((b) => `- ${b}`).join('\n')}${d.open_question ? `\n\n*Open question:* ${d.open_question}` : ''}`;
-        if (d.digest && built.extra?.chunkFrom != null && built.extra.speakerRevision === this.speakerRevision(sessionId)) {
+        if (d.digest && (built.extra?.segmentIds as number[] | undefined)?.length && built.extra?.chunkFrom != null && built.extra.speakerRevision === this.speakerRevision(sessionId)) {
           this.store.insertOutput({ id: uid('o_'), session_id: sessionId, kind: 'digest', status: 'done', content: d.digest, covered_from: built.extra.chunkFrom as number, covered_to: built.extra.chunkTo as number, data_json: JSON.stringify({ segmentIds: built.extra.segmentIds }), completed_at: Date.now() });
         }
         return { content: md, data: { ...d, lastSegmentId: built.extra?.lastSegmentId } };
@@ -582,7 +636,7 @@ export class Assistant {
         const r = renderSegments(this.store.segments(sessionId, ctxFrom, end), 7000);
         const ov = latestOverview(this.store, sessionId);
         const res = await this.complete({
-          task: 'auto_explain', instructions: this.system(sessionId, autoExplainInstructions(maxCards)), effort: this.effort('background'), signal: controller.signal,
+          task: 'auto_explain', priority: PRIO.auto, instructions: this.system(sessionId, autoExplainInstructions(maxCards)), effort: this.effort('background'), signal: controller.signal,
           jsonSchema: AUTO_EXPLAIN_SCHEMA as unknown as Record<string, unknown>,
           input: `${this.header(sessionId)}\nCurrent topic: ${ov?.data.current_topic ?? 'unknown'}\n\nALREADY EXPLAINED OR KNOWN (skip these and synonyms): ${known.join('; ') || '(none)'}\n\nNEW TRANSCRIPT [${fmtT(r.from ?? ctxFrom)}–${fmtT(end)}]:\n${r.text}`,
         });
@@ -633,17 +687,20 @@ export class Assistant {
         const end = all[all.length - 1].t_end;
         const gaps = this.store.timeline(sessionId).filter((e) => ['pause', 'gap', 'interrupted'].includes(e.kind))
           .map((e) => `- ${e.kind} at [${fmtT(e.t)}]${e.detail ? ` (${e.detail})` : ''}`).join('\n');
+        const vis = await this.pickImages(sessionId, { kind: 'spread', max: 6 });
+        const instructions = this.system(sessionId, summaryInstructions(sessionStyle(this.settings().sessionTypes, s.type)));
+        const local = await this.localContext(sessionId, all, { instructions, images: vis.images }, { signal, progress, priority: PRIO.summary }, `${gaps ? `RECORDING GAPS / PAUSES:\n${gaps}\n` : ''}${vis.text}`);
+        if (local) return { instructions, input: local.input, coveredFrom: all[0].t_start, coveredTo: end, effort: this.effort('summary', null, effortOverride), images: vis.images, extra: { usedDigests: local.usedDigests, images: vis.used } };
         let body: string;
         let usedDigests = false;
         if (totalChars(all) <= 60_000) {
           body = `FULL TRANSCRIPT [${fmtT(all[0].t_start)}–${fmtT(end)}]:\n${renderSegments(all, 62_000).text}`;
         } else {
           const recentFrom = end - RECENT_WINDOW_MS;
-          await this.ensureDigests(sessionId, recentFrom, signal, progress);
+          await this.ensureDigests(sessionId, recentFrom, { signal, progress, priority: PRIO.summary });
           usedDigests = true;
           body = `NOTES ON THE SESSION (AI-generated digests of the transcript, with times):\n${renderDigests(digests(this.store, sessionId), recentFrom)}\n\nFINAL ${RECENT_WINDOW_MS / 60000} MINUTES (verbatim):\n${renderSegments(this.store.segments(sessionId, recentFrom, end), 16_000).text}`;
         }
-        const vis = await this.pickImages(sessionId, { kind: 'spread', max: 6 });
         return {
           instructions: this.system(sessionId, summaryInstructions(sessionStyle(this.settings().sessionTypes, s.type))),
           input: `${this.header(sessionId)}\n${gaps ? `RECORDING GAPS / PAUSES:\n${gaps}\n` : ''}${vis.text ? `\n${vis.text}\n` : ''}\n${body}`,
@@ -671,15 +728,19 @@ export class Assistant {
         source = { revision: session.revision, segmentMax: this.store.maxSegmentId(sessionId), projectId: session.project_id, capturedAt: Date.now() };
         const project = source.projectId ? this.store.getProject(source.projectId) : null;
         const end = all[all.length - 1].t_end;
+        const vis = await this.pickImages(sessionId, { kind: 'spread', max: 4 });
+        captures = vis.used;
+        const instructions = this.system(sessionId, handoffInstructions(project?.name ?? null));
+        const schema = HANDOFF_SCHEMA as unknown as Record<string, unknown>;
+        const local = await this.localContext(sessionId, all, { instructions, jsonSchema: schema, images: vis.images }, { signal, progress, priority: PRIO.manual }, vis.text);
+        if (local) return { instructions, input: local.input, coveredFrom: all[0].t_start, coveredTo: end, schema, effort: this.effort('summary'), images: vis.images, extra: { images: vis.used, handoffSource: source } };
         let body: string;
         if (totalChars(all) <= 60_000) body = `FULL TRANSCRIPT [${fmtT(all[0].t_start)}–${fmtT(end)}]:\n${renderSegments(all, 62_000).text}`;
         else {
           const recentFrom = end - RECENT_WINDOW_MS;
-          await this.ensureDigests(sessionId, recentFrom, signal, progress);
+          await this.ensureDigests(sessionId, recentFrom, { signal, progress, priority: PRIO.manual });
           body = `NOTES ON THE SESSION (AI-generated digests of the transcript, with times):\n${renderDigests(digests(this.store, sessionId), recentFrom)}\n\nFINAL ${RECENT_WINDOW_MS / 60000} MINUTES (verbatim):\n${renderSegments(all.filter((s) => s.t_end >= recentFrom), 16_000).text}`;
         }
-        const vis = await this.pickImages(sessionId, { kind: 'spread', max: 4 });
-        captures = vis.used;
         return {
           instructions: this.system(sessionId, handoffInstructions(project?.name ?? null)),
           input: `${this.header(sessionId)}\n${vis.text ? `\n${vis.text}\n` : ''}\n${body}`,

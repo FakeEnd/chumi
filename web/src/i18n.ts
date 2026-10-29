@@ -23,7 +23,13 @@ export const getLang = (): UiLang => lang;
 
 /** Translate a string; {name} placeholders are filled from vars. */
 export function t(en: string, vars?: Record<string, string | number>): string {
-  const s = lang === 'zh' ? ZH[en] ?? en : en;
+  let s = lang === 'zh' ? ZH[en] ?? en : en;
+  // Assistant adds this reassurance to provider errors; translate each known part.
+  const suffix = ' Transcription continues and nothing captured is lost.';
+  if (lang === 'zh' && !ZH[en] && en.endsWith(suffix)) {
+    const message = en.slice(0, -suffix.length);
+    s = `${ZH[message] ?? message} ${ZH[suffix.trim()] ?? suffix.trim()}`;
+  }
   return vars ? s.replace(/\{(\w+)\}/g, (m: string, k: string) => (k in vars ? String(vars[k]) : m)) : s;
 }
 

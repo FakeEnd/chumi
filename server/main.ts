@@ -26,7 +26,7 @@ import { chooseFolder, notify, openExternalUrl, openPrivacySettings, preferredLa
 import { chumiLink, SERVER_INFO, workspaceExists } from './projects/evidence.ts';
 import { exportName, exportSession } from './export.ts';
 import { checkPermissions, listDevices } from './audio/capture.ts';
-import { storeKey, deleteKey } from './ai/anthropic-api.ts';
+import { readKey, storeKey, deleteKey } from './ai/anthropic-api.ts';
 import { readCompatibleKey, storeCompatibleKey, deleteCompatibleKey } from './ai/compatible-credentials.ts';
 import { discoverLocalModels } from './ai/local-models.ts';
 import { localHardware } from './ai/local-hardware.ts';
@@ -774,6 +774,7 @@ route('POST', '/api/provider/codex/login', async () => {
   await openExternalUrl(result.authUrl);
   return { started: true };
 });
+route('GET', '/api/provider/anthropic-key', async () => ({ stored: !!(await readKey()) }));
 route('POST', '/api/provider/anthropic-key', async (req) => { const b = await readJson(req); await storeKey(String(b.key ?? '').trim()); return registry.status(true); });
 route('DELETE', '/api/provider/anthropic-key', async () => { await deleteKey(); return registry.status(true); });
 route('POST', '/api/provider/claude/clear-overage', async () => { (registry.providers['claude-cli'] as ClaudeCliProvider).clearOverageBlock(); return registry.status(true); });
