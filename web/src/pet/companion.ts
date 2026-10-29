@@ -15,8 +15,8 @@ import { cardTitle, focusOf, listed, preview, recent, tagCounts, when } from './
 import { TAGS, tagOf, type Tag } from './tags.ts';
 
 export interface CompanionHost {
-  /** Speak through the pet (errors, hints). */
-  say(text: string, tone?: 'info' | 'warn'): void;
+  /** Speak through the pet (errors, hints). Important replies bypass the bubble filter. */
+  say(text: string, tone?: 'info' | 'warn', important?: boolean): void;
   /** Bring Chumi's window forward, optionally at a meeting and a transcript time. */
   open(where?: { session: string; t?: number; t2?: number; dialog?: 'handoff' }): void;
   /** The ask box wants the keyboard (the panel normally never takes focus). */
@@ -39,6 +39,7 @@ const svg = (body: string, extra = '') => `<svg viewBox="0 0 24 24" fill="none" 
 const ICON = {
   wave: svg('<path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/>'),
   play: svg('<path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/>'),
+  done: svg('<path d="M5 12l4 4L19 6"/>'),
   spark: svg('<path d="M12 3c.6 4.6 2.4 6.4 7 7-4.6.6-6.4 2.4-7 7-.6-4.6-2.4-6.4-7-7 4.6-.6 6.4-2.4 7-7z"/><path d="M19 15.5c.25 1.6.9 2.25 2.5 2.5-1.6.25-2.25.9-2.5 2.5-.25-1.6-.9-2.25-2.5-2.5 1.6-.25 2.25-.9 2.5-2.5z"/>'),
   pencil: svg('<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
   stop: svg('<rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor"/>'),
@@ -59,20 +60,23 @@ export class Companion {
   /** The shown meeting's handoff: once confirmed, the toolbar continues it in a coding agent. */
   private handoff: Handoff | null = null;
   private continuing = false;
+  private catchupRequest: { session: string; id?: string } | null = null;
   private revealed: string | null = null;
   private expanded = new Set<string>();
   private toolbar = true;
+  private lowKey = false;
   private cardsMode: Cards = 'latest';
   private tags: Tag[] = [...TAGS];
   /** No meeting is on: cards are hidden unless the user asked to see the last meeting's (⌄, a bubble, a question). */
   private peek = false;
   /** Page px from the top of the page to the bottom of the screen (the app reports it); cards stop before it. */
   private room = 10_000;
-  private get list(): boolean { return this.revealed !== null || this.cardsMode === 'recent' || (this.peek && !this.live()); }
-  private get showing(): boolean { return this.cardsMode !== 'none' && (this.live() || this.peek); }
+  private get list(): boolean { return this.revealed !== null || this.cardsMode === 'recent' || (this.peek && (!this.live() || this.lowKey)); }
+  private get showing(): boolean { return this.cardsMode !== 'none' && ((this.live() && !this.lowKey) || this.peek); }
   private asking = false;
   private confirmEnd = 0;
   private hovered: HTMLElement | null = null;
+  private pointer: { x: number; y: number } | null = null;
   private tick = 0;
   /** A click on an open card's text folds it after the double-click time, unless a second click selects a word. */
   private foldTimer = 0;
@@ -114,7 +118,8 @@ export class Companion {
   setLive(live: { status?: string; session?: { id?: string } | null; nowT?: number } | null | undefined): void {
     const was = this.live();
     this.status = live?.status ?? 'idle';
-    if (was !== this.live()) this.peek = false;
+    if (!this.lowKey && was !== this.live()) this.peek = false;
+    if (this.lowKey && !this.live()) this.confirmEnd = 0;
     this.clock = { nowT: Number(live?.nowT) || 0, at: Date.now() };
     const id = live?.session?.id;
     if (id && id !== this.sessionId) void this.load(id);
@@ -175,10 +180,10 @@ export class Companion {
   }
 
   /** What Settings → Desktop pet shows under the pet. */
-  configure(o: { toolbar: boolean; cards: Cards; tags: Tag[] }): void {
-    if (o.toolbar === this.toolbar && o.cards === this.cardsMode && o.tags.join() === this.tags.join()) return;
+  configure(o: { toolbar: boolean; cards: Cards; tags: Tag[]; lowKey: boolean }): void {
+    if (o.toolbar === this.toolbar && o.cards === this.cardsMode && o.tags.join() === this.tags.join() && o.lowKey === this.lowKey) return;
     if (o.cards !== this.cardsMode) this.revealed = null;
-    this.toolbar = o.toolbar; this.cardsMode = o.cards; this.tags = [...o.tags];
+    this.toolbar = o.toolbar; this.cardsMode = o.cards; this.tags = [...o.tags]; this.lowKey = o.lowKey;
     if (!o.toolbar) this.closeAsk();
     this.render();
   }
@@ -186,14 +191,16 @@ export class Companion {
   /** The app: how far the screen reaches below the top of the page. */
   setRoom(px: number): void { if (px > 0 && px !== this.room) { this.room = px; this.render(); } }
 
-  has(id: string): boolean { const o = this.cards.get(id); return this.cardsMode !== 'none' && !!o && listed(o); }
+  private availableCards(): Card[] { return [...this.cards.values()].filter((o) => !this.lowKey || o.kind !== 'auto_explain'); }
+
+  has(id: string): boolean { const o = this.cards.get(id); return this.cardsMode !== 'none' && !!o && listed(o) && (!this.lowKey || o.kind !== 'auto_explain'); }
 
   /** Open a card (the pet's bubble points at it). */
   expand(id: string): void {
     if (!this.has(id)) return;
     this.expanded.add(id);
-    this.revealed = recent(this.cards.values(), 1, this.tags, (o) => this.expanded.has(o.id))[0]?.id === id ? null : id;
-    if (!this.live()) this.peek = true;
+    this.revealed = recent(this.availableCards(), 1, this.tags, (o) => this.expanded.has(o.id))[0]?.id === id ? null : id;
+    if (!this.live() || this.lowKey) this.peek = true;
     this.render();
     this.listEl.querySelector(`[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' });
   }
@@ -203,13 +210,34 @@ export class Companion {
 
   private async act(a: string): Promise<void> {
     const fail = (e: unknown) => this.host.say((e as Error).message || t('Something went wrong'), 'warn');
+    if (this.lowKey) {
+      if (a === 'toggle') {
+        if (this.status === 'starting' || this.status === 'ending') return;
+        a = this.status === 'recording' ? 'pause' : this.status === 'paused' ? 'resume' : 'start';
+      }
+      if ((a === 'catchup' || a === 'end') && !this.live()) {
+        if (this.status === 'idle') this.host.say(t('Start a meeting first'), 'info', true);
+        return;
+      }
+      if ((a === 'ask' || a === 'list' || a === 'catchup' || a === 'end') && !this.sessionId) { this.host.say(t('Start a meeting first'), 'info', true); return; }
+    }
     switch (a) {
       case 'start': this.status = 'starting'; this.render(); await api('/api/session/quick-start', { body: {} }).catch((e) => { this.status = 'idle'; this.render(); fail(e); }); break;
       case 'pause': case 'resume': await api(`/api/session/${a}`, { body: {} }).catch(fail); break;
       case 'end':
         if (Date.now() < this.confirmEnd) { this.confirmEnd = 0; await api('/api/session/end', { body: {} }).catch(fail); break; }
         this.confirmEnd = Date.now() + 3000; this.render(); setTimeout(() => this.render(), 3100); break;
-      case 'catchup': if (this.sessionId) await api('/api/ai/catchup', { body: { sessionId: this.sessionId, scope: '2m' } }).catch(fail); break;
+      case 'catchup': {
+        if (!this.sessionId) break;
+        if (!this.lowKey) { await api('/api/ai/catchup', { body: { sessionId: this.sessionId, scope: '2m' } }).catch(fail); break; }
+        if (this.catchupRequest?.session === this.sessionId && !this.catchupRequest.id) break;
+        const request: { session: string; id?: string } = { session: this.sessionId };
+        this.catchupRequest = request; this.render();
+        try { request.id = (await api<{ id: string }>('/api/ai/catchup', { body: { sessionId: request.session, scope: '2m' } })).id; }
+        catch (e) { fail(e); }
+        finally { if (!request.id && this.catchupRequest === request) this.catchupRequest = null; this.render(); }
+        break;
+      }
       case 'ask': if (this.asking) this.closeAsk(); else this.openAsk(); break;
       case 'continue': {
         let h = this.handoff;
@@ -238,7 +266,7 @@ export class Companion {
         break;
       }
       case 'list':
-        if (!this.live()) this.peek = !this.peek;
+        if (!this.live() || this.lowKey) this.peek = !this.peek;
         else { this.cardsMode = this.list ? 'latest' : 'recent'; this.host.setCards(this.cardsMode); }
         this.revealed = null;
         this.render(); break;
@@ -263,7 +291,7 @@ export class Companion {
     try {
       const { id } = await api<{ id: string }>('/api/ai/ask', { body: { sessionId: this.sessionId, question, projectContext: projectContextOn(this.sessionId) && !!this.projectId } });
       this.expanded.add(id);
-      if (!this.live()) this.peek = true;
+      if (!this.live() || this.lowKey) this.peek = true;
       this.input.value = '';
       this.closeAsk();
     } catch (e) { this.host.say((e as Error).message, 'warn'); }
@@ -301,6 +329,7 @@ export class Companion {
 
   /** Tooltips follow the app's cursor reports: the panel is never focused, so the page gets no hover of its own. */
   hover(x: number, y: number): void {
+    this.pointer = { x, y };
     const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-tip]') ?? null;
     if (el === this.hovered) return;
     this.hovered?.classList.remove('hov');
@@ -319,7 +348,13 @@ export class Companion {
     return fmtT(this.clock.nowT + (this.status === 'recording' ? Date.now() - this.clock.at : 0));
   }
 
-  private updateClock(): void { const c = this.bar.querySelector('.clock'); if (c) c.textContent = this.meetingTime(); }
+  private updateClock(): void {
+    const c = this.bar.querySelector('.clock'); if (c) c.textContent = this.meetingTime();
+    if (this.lowKey && this.status === 'recording') {
+      const b = this.bar.querySelector<HTMLButtonElement>('[data-act="toggle"]');
+      if (b) { b.dataset.tip = `${t('Pause')} · ${this.meetingTime()}`; if (this.hovered === b) this.tip.textContent = b.dataset.tip; }
+    }
+  }
 
   /** Coalesce tokens without replacing the cards someone may be selecting text in. */
   private draw(id?: string): void {
@@ -361,42 +396,52 @@ export class Companion {
       `<button type="button" data-act="${act}" data-tip="${tip}" class="${cls}"${disabled ? ' disabled' : ''}>${html}</button>`;
     const parts: string[] = [];
     const s = this.status;
-    if (s === 'idle') parts.push(b('start', ICON.wave, t('Quick start')));
+    if (this.lowKey) {
+      const label = s === 'recording' ? t('Pause') : s === 'paused' ? t('Resume') : s === 'ending' ? t('Ending…') : t('Starting…');
+      parts.push(b('toggle', ICON.wave, s === 'idle' ? t('Quick start') : `${label} · ${this.meetingTime()}`));
+    } else if (s === 'idle') parts.push(b('start', ICON.wave, t('Quick start')));
     else if (s === 'recording') parts.push(b('pause', `<i class="dot"></i><span class="clock">${this.meetingTime()}</span>`, t('Pause'), 'rec'));
     else if (s === 'paused') parts.push(b('resume', `${ICON.play}<span class="clock">${this.meetingTime()}</span>`, t('Resume'), 'paused'));
     else parts.push(b('', ICON.spin, s === 'ending' ? t('Ending…') : t('Starting…'), '', true));
-    if (this.live()) parts.push(b('catchup', ICON.spark, t('Catch me up')));
-    parts.push(b('ask', ICON.pencil, t('Ask'), this.asking ? 'on' : '', !this.sessionId));
-    if (!this.live() && this.handoff?.status === 'confirmed' && (this.handoff.freshness.stale || canContinue(this.handoff))) {
+    const request = this.catchupRequest;
+    const catchingUp = this.lowKey && ((request?.session === this.sessionId && (!request.id || !this.cards.has(request.id)))
+      || [...this.cards.values()].some((o) => o.kind === 'catchup' && (o.status === 'pending' || o.status === 'streaming')));
+    if (this.live() || this.lowKey) parts.push(b('catchup', ICON.spark, catchingUp ? t('Catching up…') : t('Catch me up')));
+    parts.push(b('ask', ICON.pencil, t('Ask'), this.asking ? 'on' : '', !this.lowKey && !this.sessionId));
+    if (!this.live() && !this.lowKey && this.handoff?.status === 'confirmed' && (this.handoff.freshness.stale || canContinue(this.handoff))) {
       const place = loadHandoffDestination();
       const stale = this.handoff!.freshness.stale;
       const tip = stale ? t('The meeting changed. Review the handoff in Chumi before continuing.') : place === 'copy' ? t('Open the handoff in Chumi') : t('Continue the handoff in {place}', { place: t(placeName(place)) });
       parts.push(b('continue', `${this.continuing ? ICON.spin : ICON.go}<span>${t(stale ? 'Handoff' : placeLabel(place))}${stale ? ' !' : ''}</span>`, tip, 'go', this.continuing));
     }
-    if (this.live()) {
-      const sure = Date.now() < this.confirmEnd;
-      parts.push(b('end', sure ? `<span>${t('End meeting?')}</span>` : ICON.stop, sure ? t('Click again to end') : t('End meeting'), sure ? 'confirm' : ''));
+    if (this.live() || this.lowKey) {
+      const sure = this.live() && Date.now() < this.confirmEnd;
+      parts.push(b('end', this.lowKey ? ICON.done : sure ? `<span>${t('End meeting?')}</span>` : ICON.stop, sure ? t('Click again to end') : t('End meeting'), sure ? (this.lowKey ? 'quiet-confirm' : 'confirm') : ''));
     }
-    const listTip = this.live() ? (this.list ? t('Show less') : t('Recent answers')) : (this.peek ? t('Hide answers') : t('Last meeting’s answers'));
-    if (this.cardsMode !== 'none') parts.push(b('list', ICON.chevron, listTip, (this.live() ? this.list : this.peek) ? 'flip' : '', !this.sessionId));
+    const listTip = this.lowKey ? (this.peek ? t('Hide answers') : t('Recent answers')) : this.live() ? (this.list ? t('Show less') : t('Recent answers')) : (this.peek ? t('Hide answers') : t('Last meeting’s answers'));
+    if (this.cardsMode !== 'none') parts.push(b('list', ICON.chevron, listTip, (this.live() && !this.lowKey ? this.list : this.peek) ? 'flip' : '', !this.lowKey && !this.sessionId));
     const html = parts.join('<span class="sep"></span>');
-    if (this.bar.innerHTML !== html) { this.bar.innerHTML = html; this.hovered = null; this.tip.classList.remove('on'); }
+    if (this.bar.innerHTML !== html) {
+      const act = this.hovered?.dataset.act;
+      this.bar.innerHTML = html; this.hovered = null; this.tip.classList.remove('on');
+      if (act && this.pointer && document.elementFromPoint(this.pointer.x, this.pointer.y)?.closest<HTMLElement>('[data-act]')?.dataset.act === act) this.hover(this.pointer.x, this.pointer.y);
+    }
   }
 
   private renderCards(): void {
     // Rebuilding resets the scroll of open cards; keep it.
     const inner = new Map([...this.listEl.querySelectorAll<HTMLElement>('.card')].map((c) => [c.dataset.id!, c.querySelector('.md')?.scrollTop ?? 0]));
-    const items = this.showing ? recent(this.cards.values(), this.list ? 6 : 1, this.tags, (o) => this.expanded.has(o.id)) : [];
+    const cards = this.availableCards(), counts = tagCounts(cards);
+    const items = this.showing ? recent(cards, this.list ? 6 : 1, this.tags, (o) => this.expanded.has(o.id)) : [];
     const revealed = this.revealed && this.cards.get(this.revealed);
-    if (this.showing && revealed && listed(revealed) && !items.some((o) => o.id === revealed.id)) { if (items.length >= 6) items.pop(); items.push(revealed); }
+    if (this.showing && revealed && this.has(revealed.id) && !items.some((o) => o.id === revealed.id)) { if (items.length >= 6) items.pop(); items.push(revealed); }
     const nodes: HTMLElement[] = [];
-    if (this.showing && this.list) {
+    if (this.showing && this.list && (!this.lowKey || counts.size)) {
       // Tag chips with counts, as above the cards in Chumi's window.
       const head = document.createElement('div');
       head.className = 'list-head';
       const chips = document.createElement('div');
       chips.className = 'chips';
-      const counts = tagCounts(this.cards.values());
       for (const k of TAGS) {
         if (!counts.has(k)) continue;
         const c = document.createElement('button');
@@ -408,7 +453,7 @@ export class Companion {
       head.append(chips);
       if (this.sessionId) { const open = document.createElement('button'); open.className = 'open'; open.textContent = t('Open in Chumi'); head.append(open); }
       nodes.push(head);
-      if (!items.length) { const empty = document.createElement('div'); empty.className = 'card empty'; empty.textContent = t('Catch-ups, answers and explanations from the meeting appear here.'); nodes.push(empty); }
+      if (!items.length && !this.lowKey) { const empty = document.createElement('div'); empty.className = 'card empty'; empty.textContent = t('Catch-ups, answers and explanations from the meeting appear here.'); nodes.push(empty); }
     }
     this.cardNodes.clear();
     for (const o of items) { const node = this.card(o); this.cardNodes.set(o.id, node); nodes.push(node); }

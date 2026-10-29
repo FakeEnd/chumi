@@ -112,7 +112,7 @@ test('the page animates idle and sleep at lower rates, eases transitions, and st
   let draw!: (t: number) => number, time = 10, wakes = 0, stops = 0;
   const motion = { matches: false, addEventListener: (_: string, fn: () => void) => { events.motion = fn; } };
   const events: Record<string, () => void> = {};
-  const brain = new PetBrain(), pet = { enabled: true }, document = { hidden: false, addEventListener: (name: string, fn: () => void) => { events[name] = fn; } };
+  const brain = new PetBrain(), pet = { enabled: true, lowKey: false }, document = { hidden: false, addEventListener: (name: string, fn: () => void) => { events[name] = fn; } };
   const still: boolean[] = [], view = { saying: null as any, hasBubble: false,
     rig: { level: 0, petting: 0, current: 'idle', setMood(mood: string) { this.current = mood; } }, hush() { this.saying = null; },
     draw(_t: number, rigStill: boolean, reduced: boolean) { still.push(rigStill); if (reduced) this.hasBubble = !!this.saying; },
@@ -120,7 +120,7 @@ test('the page animates idle and sleep at lower rates, eases transitions, and st
   // The page's frame policy itself is TypeScript-free after stripping its function annotation.
   const code = source.replace('function wake(seconds = 0): void', 'function wake(seconds = 0)');
   const deps = { window: { matchMedia: () => motion }, document, pet, brain, view, clock: () => time, dragging: false, samples: [],
-    loudness: () => 0, updatePetting() {}, bubbleUntil: 115, report() {},
+    loudness: () => 0.8, updatePetting() {}, bubbleUntil: 115, report() {},
     PetLoop: class { constructor(fn: typeof draw) { draw = fn; } wake() { wakes++; } stop() { stops++; } },
   };
   new Function(...Object.keys(deps), code)(...Object.values(deps));
@@ -136,6 +136,14 @@ test('the page animates idle and sleep at lower rates, eases transitions, and st
   assert.equal(draw(94.4), 1 / 12);
   brain.live({ status: 'recording' }, 100);
   assert.equal(draw(102), 1 / 30); assert.equal(still.at(-1), false);
+  assert.equal(view.rig.level, 0.8);
+  pet.lowKey = true; brain.lowKey = true;
+  assert.equal(draw(102.1), 1 / 30, 'ease into hush');
+  assert.equal(draw(102.5), 1 / 12, 'hush uses the idle frame rate');
+  assert.equal(view.rig.level, 0, 'audio does not feed the rig');
+  pet.lowKey = false; brain.lowKey = false;
+  assert.equal(draw(102.6), 1 / 30);
+  assert.equal(view.rig.level, 0.8);
   motion.matches = true; events.motion();
   assert.equal(draw(103), Infinity); assert.equal(still.at(-1), true);
   view.saying = { text: 'Answer ready' }; view.hasBubble = true;
@@ -145,4 +153,70 @@ test('the page animates idle and sleep at lower rates, eases transitions, and st
   assert.equal(draw(116), Infinity);
   document.hidden = false; events.visibilitychange(); assert.ok(wakes > 1);
   pet.enabled = false; assert.equal(draw(time), Infinity);
+});
+
+test('hush keeps the idle rig with only a soft four-second star glow, including a still cue', async () => {
+  const document = { createElement: () => new Element(), createElementNS: () => new Element() };
+  const PetRig = await loadClass('rig.ts', 'PetRig', { document });
+  const idle = new PetRig(), hush = new PetRig();
+  hush.setMood('hush', 0); hush.level = 1;
+  const glow = new Map<number, number>();
+  for (let i = 12; i <= 108; i++) {
+    const t = i / 12;
+    hush.note(t); idle.draw(t); hush.draw(t);
+    for (const key of Object.keys(idle.n)) if (key !== 'glow') {
+      assert.deepEqual(hush.n[key].attrs, idle.n[key].attrs, `${key} at ${t}`);
+    }
+    const opacity = Number(hush.n.glow.attrs.get('opacity'));
+    assert.ok(opacity >= 0.12 && opacity <= 0.24);
+    if (t >= 5) assert.equal(opacity, glow.get(i - 48), 'the glow repeats every four seconds');
+    glow.set(i, opacity);
+    assert.equal(hush.n.glow.attrs.get('transform'), 'scale(0.90)', 'no faster glow pulse leaks through');
+  }
+  idle.look = hush.look = { x: 0.8, y: -0.6 };
+  idle.draw(10, true); hush.draw(10, true);
+  assert.deepEqual(hush.n.face.attrs, idle.n.face.attrs, 'hush follows the cursor like idle');
+  assert.ok(Number(hush.n.glow.attrs.get('opacity')) > 0, 'reduced motion retains a static cue');
+});
+
+test('low-key skips level wakes and notes, but still updates answer cards', () => {
+  const source = readFileSync(new URL('../web/src/pet/main.ts', import.meta.url), 'utf8');
+  const code = source.slice(source.indexOf('subscribe({'), source.indexOf('// ------------------------------------------------------------------ pointer'));
+  let events: any, wakes = 0, notes = 0, cards = 0;
+  const brain = new PetBrain(), pet = { lowKey: true }, motion = { matches: false };
+  brain.lowKey = true; brain.live({ status: 'recording' }, 0);
+  const lines: any[] = [];
+  const deps = { subscribe: (handlers: any) => { events = handlers; }, brain, pet, motion, clock: () => 10,
+    levels: new Map(), clamp: (v: number) => Math.max(0, Math.min(1, v)), wake: () => wakes++,
+    view: { rig: { note: () => notes++ } }, companion: { ai: () => cards++ }, say: (line: any) => lines.push(line),
+  };
+  new Function(...Object.keys(deps), code)(...Object.values(deps));
+  events.level({ source: 'mic', rms: -20 }); events.segment();
+  assert.equal(wakes, 0); assert.equal(notes, 0);
+  events.ai({ id: 'auto', kind: 'auto_explain', status: 'done', question: 'A term' });
+  assert.equal(cards, 1); assert.deepEqual(lines, [null]);
+  pet.lowKey = false; brain.lowKey = false;
+  events.level({ source: 'mic', rms: -20 }); events.segment();
+  assert.equal(wakes, 2); assert.equal(notes, 1);
+  motion.matches = true; events.level({ source: 'mic', rms: -20 });
+  assert.equal(wakes, 2, 'reduced motion still ignores level wakes');
+});
+
+test('applying pet settings updates the brain and toolbar immediately and hides an old announcement', async () => {
+  const source = readFileSync(new URL('../web/src/pet/main.ts', import.meta.url), 'utf8');
+  const raw = source.slice(source.indexOf('type PetSettings ='), source.indexOf('const savePet ='));
+  const { code } = await transformWithOxc(raw, 'settings.ts');
+  const brain = new PetBrain(); brain.live({ status: 'recording' }, 0);
+  let hushed = 0, wakes = 0;
+  const configs: any[] = [], said = { important: false };
+  const deps = { brain, said, app: { hidden: false }, view: { hush: () => hushed++ }, clock: () => 0,
+    TAGS: [], TOPICS: [], companion: { configure: (o: any) => configs.push(o) }, wake: () => wakes++, report() {},
+  };
+  const apply = new Function(...Object.keys(deps), `${code}\nreturn applyPet;`)(...Object.values(deps));
+  apply({ lowKey: true });
+  assert.equal(brain.mood(0.1), 'hush'); assert.equal(hushed, 1); assert.equal(configs.at(-1).lowKey, true);
+  apply({ lowKey: false });
+  assert.equal(brain.mood(1), 'listen'); assert.equal(configs.at(-1).lowKey, false);
+  said.important = true; apply({ lowKey: true });
+  assert.equal(hushed, 1, 'errors are not dismissed by low-key'); assert.equal(wakes, 3);
 });

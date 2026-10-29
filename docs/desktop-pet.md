@@ -15,6 +15,7 @@ Turn it on or off in **Settings → Desktop pet**, or with Window → Desktop Pe
 | Show under the pet | The toolbar; the cards (the latest answer, the recent answers, or none); and which cards, by tag |
 | Speech bubbles | What it talks about, by tag: 会议内容, 发散提问, 背景, 总结, and 闲聊 (greetings and reactions). It always tells you when something fails |
 | Show the pet in screen shares and recordings | Off by default (see below) |
+| Low-key while recording | Off by default: an idle-looking pet with a soft star glow; plain toolbar icons, details on hover |
 | Move it back to the corner | If you lost it on another display |
 
 The tags are the same as the filter chips above the cards in Chumi's window. The pet's own controls change the same
@@ -84,6 +85,16 @@ Window → Desktop Pet.
 - **Screen sharing:** by default the pet is left out of screen shares and recordings, so a shared screen in a lab
   meeting does not show *Here's what you missed!*. macOS honours this for most capture tools, but some newer ones may
   still capture it. To record the pet on purpose, turn on *Show the pet in screen shares and recordings*.
+- **Low-key while recording:** the pet looks idle throughout a live meeting, including pauses, with a slow, soft
+  star glow so you can tell it is listening. No listening pose, sound bars, note-taking or meeting announcements;
+  late answers and the final summary stay quiet too, with a neutral *Ready* bubble. The toolbar keeps the same
+  neutral icons and layout before, during and after a meeting, with details on hover and two clicks to end.
+  Catch-up progress appears only in its tooltip. Continue handoffs from Chumi's window in this mode.
+  Cards appear only when you open them with ⌄, a bubble or a question; automatic explanations and the empty card
+  stay hidden. While the pet is shown, start/pause/resume shortcut notifications are skipped; errors and busy
+  notices still show. You can switch this on or off during a meeting. Chumi still records and transcribes as usual;
+  its window, the system microphone indicator and screen-share settings do not change. Recording people still
+  needs their consent.
 
 On Windows, capture visibility uses Electron's [content protection](https://www.electronjs.org/docs/latest/api/browser-window#winsetcontentprotectionenable) (`WDA_EXCLUDEFROMCAPTURE`). Ordinary interaction leaves the foreground window focused; opening Ask temporarily enables keyboard focus. Position is remembered and restored to the primary display if its previous display is removed.
 

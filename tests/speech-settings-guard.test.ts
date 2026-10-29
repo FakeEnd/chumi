@@ -41,6 +41,38 @@ function fixture(status: LiveStatus, initial: Record<string, unknown> = {}, over
   return { store, calls, apply };
 }
 
+test('pet lowKey defaults off, persists in every live phase and broadcasts without restarting speech', () => {
+  for (const status of ['idle', 'starting', 'recording', 'paused', 'ending'] as const) {
+    const f = fixture(status);
+    try {
+      assert.equal(f.store.getSettings().pet.lowKey, false);
+      for (const lowKey of [true, false]) {
+        assert.equal(f.apply({ pet: { lowKey } }).pet.lowKey, lowKey);
+        assert.equal(f.store.getSettings().pet.lowKey, lowKey);
+        assert.equal(f.store.getKV<any>('settings', {}).pet.lowKey, lowKey, 'stored JSON retains the field');
+      }
+      assert.deepEqual(f.calls, ['settings', 'settings']);
+    } finally { f.store.close(); }
+  }
+});
+
+test('pet lowKey rejects non-booleans without saving and supplies the default for legacy settings', () => {
+  const f = fixture('recording');
+  try {
+    const before = f.store.getSettings();
+    for (const lowKey of ['yes', 'false', 0, 1, null, {}, []]) {
+      assert.throws(() => f.apply({ pet: { lowKey } }), (e: unknown) => e instanceof HttpError && e.status === 400);
+      assert.deepEqual(f.store.getSettings(), before); assert.deepEqual(f.calls, []);
+    }
+    const legacy: any = structuredClone(before); delete legacy.pet.lowKey;
+    f.store.setKV('settings', legacy);
+    assert.equal(f.store.getSettings().pet.lowKey, false);
+    f.apply({ pet: { toolbar: false } });
+    assert.equal(f.store.getKV<any>('settings', {}).pet.lowKey, false);
+    assert.deepEqual(f.calls, ['settings']);
+  } finally { f.store.close(); }
+});
+
 test('all active lifecycle phases reject changes that restart speech before touching settings or services', () => {
   for (const status of ['starting', 'recording', 'paused', 'ending'] as const) {
     const f = fixture(status), before = f.store.getSettings();

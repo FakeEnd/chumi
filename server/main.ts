@@ -149,9 +149,9 @@ const hotkey = new HotkeyAgent();
 hotkey.on('state', () => broadcast('hotkey', hotkeyState()));
 const hotkeyState = () => ({ state: hotkey.state, shortcut: hotkey.shortcut, message: hotkey.message });
 
-function macNotify(key: string, vars?: MessageVars): void {
+function macNotify(key: string, vars?: MessageVars, important = false): void {
   const settings = store.getSettings();
-  if (settings.quickStart.notify) notify(localize(settings.ui.language, key, vars));
+  if (settings.quickStart.notify && (!(settings.pet.enabled && settings.pet.lowKey) || important)) notify(localize(settings.ui.language, key, vars));
 }
 
 async function quickStart(): Promise<void> {
@@ -166,7 +166,7 @@ async function onShortcut(): Promise<void> {
   try {
     if (manager.status === 'starting' || manager.status === 'ending') {
       const message = manager.status === 'starting' ? 'Chumi is still starting speech recognition. Please wait a moment.' : 'Chumi is still saving the previous meeting. Try again in a moment.';
-      macNotify(message);
+      macNotify(message, undefined, true);
       broadcast('notice', { level: 'info', code: 'quick_start_busy', message });
     } else if (manager.status === 'idle') {
       await quickStart();
@@ -181,7 +181,7 @@ async function onShortcut(): Promise<void> {
       macNotify('Listening again.');
     }
   } catch (e) {
-    macNotify('Could not start. Open Chumi for details.');
+    macNotify('Could not start. Open Chumi for details.', undefined, true);
     broadcast('notice', { level: 'error', code: 'quick_start_failed', message: 'Quick start failed: {error}', vars: { error: (e as Error).message } });
   }
 }
@@ -292,10 +292,10 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   if (!['auto', 'en', 'zh'].includes(next.ui.language)) throw new HttpError(400, 'Unknown interface language');
   if (typeof next.ui.setupDismissed !== 'boolean') throw new HttpError(400, 'Invalid setup checklist setting');
   const pet = next.pet, inList = (list: unknown, allowed: readonly string[]) => Array.isArray(list) && list.every((v) => allowed.includes(v));
-  if (![pet.enabled, pet.toolbar, pet.inRecordings].every((v) => typeof v === 'boolean') || !(Number.isFinite(pet.size) && pet.size >= 0.5 && pet.size <= 2)
+  if (![pet.enabled, pet.toolbar, pet.inRecordings, pet.lowKey].every((v) => typeof v === 'boolean') || !(Number.isFinite(pet.size) && pet.size >= 0.5 && pet.size <= 2)
     || !['none', 'latest', 'recent'].includes(pet.cards) || !inList(pet.tags, PET_TAGS) || !inList(pet.say, [...PET_TAGS, 'chatter'])) throw new HttpError(400, 'Invalid desktop pet setting');
   // Only the current fields, rounded to 5 %, so a field from an earlier version doesn't linger.
-  next.pet = { enabled: pet.enabled, size: Math.round(pet.size * 20) / 20, toolbar: pet.toolbar, cards: pet.cards, tags: pet.tags, say: pet.say, inRecordings: pet.inRecordings };
+  next.pet = { enabled: pet.enabled, size: Math.round(pet.size * 20) / 20, toolbar: pet.toolbar, cards: pet.cards, tags: pet.tags, say: pet.say, inRecordings: pet.inRecordings, lowKey: pet.lowKey };
   if (!/^https?:\/\/[^\s/]+(\/\S*)?$/.test(String(next.integrations.mybot.serverUrl))) throw new HttpError(400, 'The mybot address must start with http:// (for example http://127.0.0.1:8788).');
   if (!['simplified', 'original'].includes(next.asr.chineseScript)) throw new HttpError(400, 'Unknown Chinese script option');
   if (!isSpeechEngine(next.asr.engine)) throw new HttpError(400, 'Unknown speech recognition engine.');

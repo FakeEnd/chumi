@@ -176,6 +176,20 @@ test('Windows automatically restarts a crashed server and reloads the pet withou
   assert.match(h.notices.at(-1).body, /interrupted meeting/);
 });
 
+test('Windows recovery uses a neutral toast only when the fetched settings show a low-key pet', async () => {
+  for (const locale of ['en-US', 'zh-CN']) for (const lowKey of [false, true]) for (const enabled of [false, true]) {
+    const h = harness(locale);
+    await h.run('launchServer()');
+    h.run('setRecording(true)'); h.crash();
+    h.context.fetch = async () => ({ ok: true, json: async () => ({ ui: { language: 'auto' }, pet: { lowKey, enabled } }) });
+    await h.fire(1000);
+    const key = lowKey && enabled ? 'Chumi is ready again.' : 'Chumi restarted. Open your interrupted meeting to continue recording.';
+    assert.equal(h.notices.at(-1).body, h.run(`t(${JSON.stringify(key)})`));
+    assert.equal(h.run('recording'), false);
+    assert.equal(h.run('windowReady'), true);
+  }
+});
+
 test('Windows crash recovery backs off, stops after two attempts, and can retry from the startup page', async () => {
   const h = harness();
   await h.run('launchServer()');

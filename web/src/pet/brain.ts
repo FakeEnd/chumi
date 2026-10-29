@@ -32,6 +32,7 @@ export const PET_LINES = {
   recap: { en: 'Recap is up to date', zh: '概要更新好啦' },
   summary: { en: 'The meeting summary is ready!', zh: '会议总结写好啦！' },
   handoff: { en: 'The handoff draft is ready', zh: '交接草稿写好啦' },
+  ready: { en: 'Ready', zh: '好了' },
   failed: { en: "Hmm, that didn't work", zh: '呜，这次没成功…' },
   problem: { en: 'Something went wrong', zh: '好像出了点问题' },
   noMeeting: { en: 'Start a meeting first', zh: '先开始一场会议吧' },
@@ -56,25 +57,40 @@ const BUSY_MAX = 15 * 60;
 
 export class PetBrain {
   lang: Lang = 'en';
+  private lowKeyOn = false;
   status = 'idle';
   sessionId: string | null = null;
   /** The last status other than 'starting', which a resume also passes through. */
   private settled = 'idle';
   private busy = new Map<string, { session?: string; since: number }>();
+  /** Keep late answers and summary work quiet after a low-key meeting ends. */
+  private quietSessions = new Set<string>();
   private announced = new Set<string>();
-  private transient: { mood: Mood; until: number } | null = null;
+  private transient: { mood: Mood; until: number; meeting: boolean } | null = null;
   private activeAt = 0;
   private taps = 0;
   private pettedAt = -99;
   private noticeAt = -99;
 
   private s(key: keyof typeof PET_LINES, term?: string): string { return PET_LINES[key][this.lang].replace('{term}', term ?? ''); }
-  private feel(mood: Mood, t: number, secs: number): void { this.transient = { mood, until: t + secs }; }
+  private feel(mood: Mood, t: number, secs: number, meeting = false): void { this.transient = { mood, until: t + secs, meeting }; }
+
+  get lowKey(): boolean { return this.lowKeyOn; }
+  set lowKey(on: boolean) {
+    const changed = on !== this.lowKeyOn;
+    this.lowKeyOn = on;
+    if (this.quiet && this.sessionId) this.quietSessions.add(this.sessionId);
+    if (on && changed && this.transient?.meeting) this.transient = null;
+  }
+
+  get quiet(): boolean { return this.lowKey && ['starting', 'recording', 'paused', 'ending'].includes(this.status); }
+  private quietWork(session?: string): boolean { return this.quiet || (this.lowKey && !!session && this.quietSessions.has(session)); }
 
   mood(t: number): Mood {
     if (this.transient && t < this.transient.until) return this.transient.mood;
+    if (this.quiet) return 'hush';
     for (const [id, b] of this.busy) if (t - b.since > BUSY_MAX) this.busy.delete(id);
-    if (this.busy.size) return 'think';
+    if ([...this.busy.values()].some((b) => !this.quietWork(b.session))) return 'think';
     switch (this.status) {
       case 'recording': return 'listen';
       case 'paused': return 'paused';
@@ -106,40 +122,48 @@ export class PetBrain {
     const next = state?.status ?? 'idle', prev = this.settled;
     const changed = next !== this.status;
     this.status = next; this.sessionId = state?.session?.id ?? null;
+    if (this.quiet && this.sessionId) this.quietSessions.add(this.sessionId);
     if (next !== 'starting') this.settled = next;
     if (!changed || next === 'starting' || next === prev) return null;
     this.activeAt = t;
+    if (this.quiet) return null;
     if (next === 'recording' && prev === 'paused') return { text: this.s('resumed'), hold: 2.6 };
-    if (next === 'recording') { this.feel('surprised', t, 0.9); return { text: this.s('listening'), hold: 3 }; }
+    if (next === 'recording') { this.feel('surprised', t, 0.9, true); return { text: this.s('listening'), hold: 3 }; }
     if (next === 'paused') return { text: this.s('paused'), hold: 3 };
     return null;
   }
 
   /** `summarizing`: the summary has started. An empty meeting gets none (and one waiting for speaker labels starts later). */
-  ended(t: number, summarizing: boolean): Line {
-    this.activeAt = t; this.feel('wave', t, 2.6);
+  ended(t: number, summarizing: boolean): Line | null {
+    this.activeAt = t;
+    if (this.lowKey) return null;
+    this.feel('wave', t, 2.6, true);
     return { text: this.s(summarizing ? 'ended' : 'endedQuiet'), hold: summarizing ? 4.5 : 3, tag: summarizing ? 'summary' : 'chatter' };
   }
 
   /** A deleted meeting's work is cancelled without a final update, so stop waiting for it. */
   deleted(sessionId: string): void {
     for (const [id, b] of this.busy) if (b.session === sessionId) this.busy.delete(id);
+    this.quietSessions.delete(sessionId);
   }
 
   ai(o: PetOutput, t: number): Line | null {
-    if (o.status === 'pending' || o.status === 'streaming') { if (isManual(o) && !this.busy.has(o.id)) this.busy.set(o.id, { session: o.session_id, since: t }); return null; }
+    if (o.status === 'pending' || o.status === 'streaming') { if (isManual(o) && !this.busy.has(o.id)) this.busy.set(o.id, { session: o.session_id ?? this.sessionId ?? undefined, since: t }); return null; }
     this.busy.delete(o.id);
     if (this.announced.has(o.id)) return null;
     if (o.status === 'done') {
       if (o.kind === 'auto_explain') {
-        this.announced.add(o.id); this.activeAt = t; this.feel('surprised', t, 1.1);
+        this.announced.add(o.id);
+        if (this.lowKey) return null;
+        this.activeAt = t; this.feel('surprised', t, 1.1, true);
         return { text: this.s('autoExplain', o.question ?? ''), action: this.s('look'), hold: 8, open: true, output: o.id, session: o.session_id, tag: 'background' };
       }
       if (!isManual(o)) return null;
       this.announced.add(o.id); this.activeAt = t;
       const final = o.kind === 'final_summary';
-      this.feel(final ? 'celebrate' : 'happy', t, final ? 3.6 : 2.2);
-      const key = o.kind === 'catchup' ? 'catchup' : o.kind === 'answer' ? 'answer' : o.kind === 'explain' ? 'explain' : final ? 'summary' : o.kind === 'handoff' ? 'handoff' : 'recap';
+      const quiet = this.quietWork(o.session_id) || (this.lowKey && final);
+      if (!quiet) this.feel(final ? 'celebrate' : 'happy', t, final ? 3.6 : 2.2, true);
+      const key = quiet ? 'ready' : o.kind === 'catchup' ? 'catchup' : o.kind === 'answer' ? 'answer' : o.kind === 'explain' ? 'explain' : final ? 'summary' : o.kind === 'handoff' ? 'handoff' : 'recap';
       return { text: this.s(key, o.question ?? ''), action: this.s('look'), hold: final ? 12 : 10, open: true, output: o.id, session: o.session_id, dialog: o.kind === 'handoff' ? 'handoff' : undefined, tag: tagOf(o) ?? 'meeting' };
     }
     if (o.status === 'error' && isManual(o)) {
@@ -160,7 +184,7 @@ export class PetBrain {
     this.activeAt = t; this.feel('happy', t, 1.2);
     const n = this.taps++;
     if (n % 2) return null;
-    const lines = this.status === 'recording' && n % 4 === 2 ? TAPS_LIVE[this.lang] : TAPS[this.lang];
+    const lines = this.status === 'recording' && !this.lowKey && n % 4 === 2 ? TAPS_LIVE[this.lang] : TAPS[this.lang];
     return { text: lines[Math.floor(n / 2) % lines.length], hold: 1.8 };
   }
 

@@ -27,3 +27,33 @@ for (const status of ['starting', 'ending', 'idle', 'recording', 'paused']) {
     } else assert.deepEqual(actions, [status === 'idle' ? 'start' : status === 'recording' ? 'pause' : 'resume']);
   });
 }
+
+test('low-key skips status banners only while the pet is shown, keeping busy replies, errors and the notify preference', async () => {
+  const notifySource = stripTypeScriptTypes(main.slice(main.indexOf('function macNotify('), main.indexOf('async function quickStart(')));
+  for (const language of ['en', 'zh']) for (const lowKey of [false, true]) for (const petEnabled of [false, true]) for (const enabled of [false, true]) {
+    for (const status of ['idle', 'starting', 'recording', 'paused', 'ending', 'failure']) {
+      const messages: string[] = [], actions: string[] = [], notices: any[] = [];
+      const fail = async () => { throw new Error('Synthetic failure'); };
+      const deps = {
+        store: { getSettings: () => ({ ui: { language }, pet: { lowKey, enabled: petEnabled }, quickStart: { notify: enabled } }) },
+        manager: { status: status === 'failure' ? 'idle' : status, source: 'mic', pause: async () => actions.push('pause'), resume: async () => actions.push('resume') },
+        hotkey: { shortcut: 'Ctrl+Alt+L' }, SOURCE_NAMES, localize, notify: (text: string) => messages.push(text),
+        quickStart: status === 'failure' ? fail : async () => actions.push('start'), broadcast: (_: string, notice: any) => notices.push(notice),
+      };
+      const press = new Function(...Object.keys(deps), `${notifySource}\n${source}\nreturn onShortcut;`)(...Object.values(deps));
+      await press();
+      const important = ['starting', 'ending', 'failure'].includes(status);
+      assert.equal(messages.length, enabled && (!(lowKey && petEnabled) || important) ? 1 : 0, `${language}, lowKey=${lowKey}, pet=${petEnabled}, notify=${enabled}, ${status}`);
+      if (status === 'failure') {
+        assert.equal(notices[0].code, 'quick_start_failed');
+        if (enabled) assert.equal(messages[0], localize(language, 'Could not start. Open Chumi for details.'));
+      } else if (['idle', 'recording', 'paused'].includes(status)) {
+        assert.deepEqual(actions, [status === 'idle' ? 'start' : status === 'recording' ? 'pause' : 'resume']);
+      } else {
+        assert.deepEqual(actions, []);
+        assert.equal(notices[0].code, 'quick_start_busy');
+        if (enabled) assert.equal(messages[0], localize(language, notices[0].message));
+      }
+    }
+  }
+});

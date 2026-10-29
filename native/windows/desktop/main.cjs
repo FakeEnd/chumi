@@ -215,7 +215,7 @@ async function launchServer(recovery = false) {
     if (quitting) return;
     if (hasExited(server)) throw new Error(t('Chumi could not start. Details are in the server log.'));
     windowReady = true; readyAt = Date.now();
-    if (recovery) new Notification({ title: 'Chumi', body: interruptedRecording
+    if (recovery) new Notification({ title: 'Chumi', body: interruptedRecording && !(settings?.pet?.enabled && settings?.pet?.lowKey)
       ? t('Chumi restarted. Open your interrupted meeting to continue recording.') : t('Chumi is ready again.') }).show();
     interruptedRecording = false;
   } catch (e) {

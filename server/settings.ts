@@ -106,6 +106,8 @@ export interface Settings {
     say: Array<PetTag | 'chatter'>;
     /** Visible in screen shares and recordings. Off by default, so a shared screen doesn't show what you asked. */
     inRecordings: boolean;
+    /** Idle-looking and quiet during meetings, with a soft star glow. Off by default. */
+    lowKey: boolean;
   };
   devMode: boolean;
 }
@@ -147,7 +149,7 @@ export const DEFAULT_SETTINGS: Settings = {
   integrations: { mybot: { enabled: false, exportDir: '~/Library/Application Support/Chumi/exports/mybot', shareWithTeam: false, serverUrl: 'http://127.0.0.1:8788' } },
   screen: { sendImagesToAI: true, intervalSec: 3 },
   ui: { language: 'auto', setupDismissed: false },
-  pet: { enabled: true, size: 1, toolbar: true, cards: 'latest', tags: [...PET_TAGS], say: [...PET_TAGS, 'chatter'], inRecordings: false },
+  pet: { enabled: true, size: 1, toolbar: true, cards: 'latest', tags: [...PET_TAGS], say: [...PET_TAGS, 'chatter'], inRecordings: false, lowKey: false },
   devMode: false,
 };
 

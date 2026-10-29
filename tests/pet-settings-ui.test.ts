@@ -107,6 +107,52 @@ test('pet size number edits survive pauses and settings events, committing on bl
   ui.unmount();
 });
 
+test('low-key checkbox saves its setting, follows pet enablement and has Chinese copy', async () => {
+  const pet = { ...DEFAULT_SETTINGS.pet }, saved: any[] = [];
+  const render = await component('PetSettings.tsx', 'PetSettings', { TAGS, TOPICS,
+    useStore: (sel: any) => sel({ platform: 'darwin', appMode: true, settings: { pet } }), saveSettings: (patch: any) => saved.push(patch),
+  });
+  const input = () => all(all(render()).find((e) => e.type === 'label' && words(e).includes(t('Low-key while recording')))).find((e) => e.type === 'input')!;
+  try {
+    setLang('en');
+    assert.equal(input().props.checked, false); assert.equal(input().props.disabled, false);
+    input().props.onChange({ target: { checked: true } });
+    assert.deepEqual(saved, [{ pet: { lowKey: true } }]);
+    pet.lowKey = true; assert.equal(input().props.checked, true);
+    pet.enabled = false; assert.equal(input().props.disabled, true);
+    assert.match(words(render()), /system microphone indicator/); assert.match(words(render()), /consent/);
+    assert.match(words(render()), /While the pet is shown/); assert.match(words(render()), /Recording, transcription/);
+    assert.match(words(render()), /continue handoffs from Chumi’s window/);
+    setLang('zh');
+    assert.match(words(render()), /录音时保持低调/); assert.match(words(render()), /星星轻轻发光/);
+    assert.match(words(render()), /不做记笔记的动作/); assert.match(words(render()), /录音和转写照常进行/);
+    assert.match(words(render()), /系统通知不再弹出/); assert.match(words(render()), /征得在场者的同意/);
+    assert.match(words(render()), /交接请到 Chumi 窗口中继续/);
+  } finally { setLang('en'); }
+});
+
+test('Quick start explains notification suppression only while the low-key pet is shown', async () => {
+  const state = { platform: 'darwin', settingsTab: 'quick', settings: structuredClone(DEFAULT_SETTINGS) }, saved: any[] = [];
+  const render = await component('SettingsDialog.tsx', 'SettingsDialog', {
+    useStore: (sel: any) => sel(state), setState() {}, saveSettings: (patch: any) => saved.push(patch),
+    Dialog: 'dialog', SessionTypeSelect: 'session-type', sourceLabel: (source: string) => source,
+  });
+  try {
+    for (const lang of ['en', 'zh'] as const) for (const enabled of [false, true]) for (const lowKey of [false, true]) {
+      setLang(lang); Object.assign(state.settings.pet, { enabled, lowKey });
+      const note = all(render()).find((e) => e.type === 'p' && words(e) === t('Skipped while the desktop pet is low-key.'));
+      assert.equal(!!note, enabled && lowKey);
+      if (note) assert.equal(note.props.className, 'small muted');
+    }
+    setLang('en');
+    const label = all(render()).find((e) => e.type === 'label' && words(e).includes('Show a system notification when the shortcut'));
+    const input = all(label).find((e) => e.type === 'input')!;
+    assert.equal(input.props.checked, true);
+    input.props.onChange({ target: { checked: false } });
+    assert.deepEqual(saved, [{ quickStart: { notify: false } }]);
+  } finally { setLang('en'); }
+});
+
 test('closing pet settings without blur saves the number draft or pending slider once', async () => {
   for (const mode of ['number', 'range', 'blur', 'empty', 'unchanged', 'number-after-slider']) {
     const pet = { size: 1, enabled: true, cards: 'latest', tags: TAGS, say: TOPICS }, saved: any[] = [];

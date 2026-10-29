@@ -28,7 +28,7 @@ const REST: Pose = {
 };
 const NUMS = (Object.keys(REST) as Array<keyof Pose>).filter((k): k is Num => typeof REST[k] === 'number');
 /** Moods that keep following the cursor with their eyes. */
-const LOOKS: Partial<Record<Mood, number>> = { idle: 1, listen: 0.7, paused: 0.8, happy: 0.5, wave: 0.4, worried: 0.3 };
+const LOOKS: Partial<Record<Mood, number>> = { idle: 1, hush: 1, listen: 0.7, paused: 0.8, happy: 0.5, wave: 0.4, worried: 0.3 };
 
 const TAU = Math.PI * 2;
 const clamp = (v: number, a = 0, b = 1) => Math.min(b, Math.max(a, v));
@@ -69,6 +69,7 @@ function pose(mood: Mood, t: number, u: number, s: RigState): Pose {
 
   switch (mood) {
     case 'idle': break;
+    case 'hush': p.glow = 0.18 + 0.06 * Math.sin(TAU * t / 4); break;
     case 'sleep': {
       const b = Math.sin(TAU * t / 4.6);
       p.sy = 1 + 0.035 * b; p.sx = 1 - 0.022 * b; p.y = 2; p.rot = 3;
@@ -317,7 +318,7 @@ export class PetRig {
     const headTop = 179 - 99 * p.sy + p.y;
     set(n.star, 'transform', `translate(${f(100 + p.x + p.rot * 0.9)} ${f(headTop - 27 + p.starY)})`);
     set(n.spark, 'transform', `rotate(${f(p.starRot)}) scale(${f(p.starS)})`);
-    show(n.spark, p.starA); if (show(n.glow, p.glow)) set(n.glow, 'transform', `scale(${f(0.85 + 0.15 * Math.sin(t * 6))})`);
+    show(n.spark, p.starA); if (show(n.glow, p.glow)) set(n.glow, 'transform', `scale(${f(this.mood === 'hush' ? 0.9 : 0.85 + 0.15 * Math.sin(t * 6))})`);
 
     // Listening bubble: the logo's speech bubble, its bars following the room's audio level.
     if (show(n.bubble, Math.max(p.bars, p.pause))) set(n.bubble, 'transform', `translate(${f(p.x * 0.6)} ${f(p.y * 0.5 + 2 * Math.sin(t * 2.2))})`);

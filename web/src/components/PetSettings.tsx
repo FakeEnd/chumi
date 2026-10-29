@@ -115,6 +115,9 @@ export function PetSettings() {
       <label className="field check"><input type="checkbox" checked={pet.inRecordings} disabled={!pet.enabled} onChange={(e) => S({ inRecordings: e.target.checked })} /> {t('Show the pet in screen shares and recordings')}</label>
       <p className="small muted">{t('Off by default, so a screen you share in a meeting does not show what you asked Chumi. Some newer capture tools may still show it.')}</p>
 
+      <label className="field check"><input type="checkbox" checked={pet.lowKey} disabled={!pet.enabled} onChange={(e) => S({ lowKey: e.target.checked })} /> {t('Low-key while recording')}</label>
+      <p className="small muted">{t('During recording, only the pet’s look changes: idle pose with a soft star glow to show it’s listening, no sound bars, note-taking animation or announcements, and plain icons (hover for details). While the pet is shown, start/pause/resume notifications are skipped; continue handoffs from Chumi’s window. Recording, transcription and the system microphone indicator stay unchanged; recording people still needs their consent.')}</p>
+
       {app && <p><button type="button" className="btn small" disabled={!pet.enabled} onClick={() => setMoved(petShell('pet-reset'))}>{t('Move it back to the corner')}</button>{moved && <span className="small muted"> {t('Done.')}</span>}</p>}
       <ul className="small muted">
         <li>{windows ? t('Press Alt to show the menu bar, then choose 窗口 → 桌宠.') : t('Also in the menu bar: Window → Desktop Pet.')}</li>
