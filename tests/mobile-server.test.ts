@@ -98,7 +98,66 @@ test('mobile snapshots cannot address desktop sessions, replace finalized text, 
   } finally { store.close(); }
 });
 
-test('mobile session lifecycle and explicit project assignment retain phone ownership', () => {
+test('mobile metadata merges phone changes without undoing Mac edits across retries and restart', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'chumi-mobile-metadata-'));
+  let store = new Store(join(dir, 'data.sqlite'));
+  try {
+    store.createProject({ id: 'p1', name: 'Thesis', workspace: '/project' });
+    let mobile = new MobileSessions(store);
+    const initial = snapshot();
+    const { sessionId } = mobile.ingest(initial);
+    store.updateSession(sessionId, { title: 'Renamed on Mac', type: 'advisor' });
+    store.assignSession(sessionId, 'p1');
+    const expected = { title: 'Renamed on Mac', type: 'advisor', projectId: 'p1' };
+    assert.deepEqual(mobile.ingest(initial).metadata, expected, 'even a retry returns current Mac metadata');
+    store.close();
+    store = new Store(join(dir, 'data.sqlite'));
+    mobile = new MobileSessions(store);
+    const next = { ...initial, revision: 2, segments: [...initial.segments, { id: 'note', tStart: 3000, tEnd: 4000, text: 'One more note.', lang: null }] };
+    assert.deepEqual(mobile.ingest(next).metadata, expected);
+    assert.equal(store.getSession(sessionId)!.title, expected.title);
+    assert.equal(store.getSession(sessionId)!.type, expected.type);
+    assert.equal(store.getSession(sessionId)!.project_id, expected.projectId);
+    assert.equal((store.db.prepare('SELECT COUNT(*) AS n FROM session_project_log WHERE session_id = ?').get(sessionId) as { n: number }).n, 1);
+    assert.deepEqual(mobile.ingest({ ...next, revision: 3, title: 'Renamed on phone' }).metadata, { ...expected, title: 'Renamed on phone' });
+    assert.deepEqual(mobile.ingest({ ...next, revision: 4, title: 'Renamed on phone', type: 'lecture', projectId: 'p1' }).metadata,
+      { title: 'Renamed on phone', type: 'lecture', projectId: 'p1' });
+    assert.equal(mobile.ingest({ ...next, revision: 5, title: 'Renamed on phone', type: 'lecture' }).metadata.projectId, null, 'explicit phone unassignment still works');
+  } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('old mobile ledgers preserve Mac metadata while establishing the first phone baseline', () => {
+  for (const retryFirst of [false, true]) {
+    const store = new Store(':memory:');
+    try {
+      let mobile = new MobileSessions(store);
+      const initial = snapshot();
+      const { sessionId } = mobile.ingest(initial);
+      store.db.exec('ALTER TABLE mobile_sessions DROP COLUMN phone_metadata');
+      store.updateSession(sessionId, { title: 'Mac title', type: 'advisor' });
+      mobile = new MobileSessions(store);
+      if (retryFirst) assert.equal(mobile.ingest(initial).metadata.title, 'Mac title');
+      assert.equal(mobile.ingest({ ...initial, revision: 2 }).metadata.title, 'Mac title');
+      assert.equal(mobile.ingest({ ...initial, revision: 3, title: 'New phone title' }).metadata.title, 'New phone title');
+      assert.equal(store.getSession(sessionId)!.type, 'advisor');
+    } finally { store.close(); }
+  }
+});
+
+test('unchanged phone project does not restore a project removed on the Mac', () => {
+  const store = new Store(':memory:');
+  try {
+    store.createProject({ id: 'p1', name: 'Research', workspace: '/project' });
+    const mobile = new MobileSessions(store);
+    const initial = snapshot({ projectId: 'p1' });
+    const { sessionId } = mobile.ingest(initial);
+    store.assignSession(sessionId, null);
+    store.updateProject('p1', { archived_at: Date.now() });
+    assert.equal(mobile.ingest({ ...initial, revision: 2 }).metadata.projectId, null);
+  } finally { store.close(); }
+});
+
+test('mobile session lifecycle and explicit phone project changes are synced', () => {
   const store = new Store(':memory:');
   try {
     store.createProject({ id: 'p1', name: 'Research', workspace: '/project' });
@@ -128,6 +187,72 @@ test('mobile listener requires TLS for non-loopback and rejects weak pairing tok
     await assert.rejects(startMobileServer({ store, assistant, host: 'localhost', port: 0, token: 'x'.repeat(40) }), /requires TLS/);
     await assert.rejects(startMobileServer({ store, assistant, port: 0, token: 'short' }), /token/);
   } finally { store.close(); }
+});
+
+test('revision recovery keeps old evidence and a new client ID preserves both conflicting copies', () => {
+  const store = new Store(':memory:');
+  try {
+    const mobile = new MobileSessions(store);
+    const original = snapshot({ revision: 8 });
+    const { sessionId } = mobile.ingest(original);
+    const restored = { ...original, revision: 2, segments: [...original.segments, { id: 'note', tStart: 3000, tEnd: 4000, text: 'Restored note.', lang: null }] };
+    assert.throws(() => mobile.ingest(restored), (e: unknown) => e instanceof MobileError && e.code === 'stale_revision' && e.details.revision === 8);
+    assert.equal(mobile.ingest({ ...restored, revision: 9 }).sessionId, sessionId);
+    const conflict = { ...restored, revision: 10, segments: [{ ...original.segments[0], text: 'Text from an older backup.' }] };
+    expectError(() => mobile.ingest(conflict), 'segment_conflict');
+    const copy = mobile.ingest({ ...conflict, clientId: randomUUID() });
+    assert.notEqual(copy.sessionId, sessionId);
+    assert.deepEqual(mobile.detail(sessionId).segments, restored.segments);
+    assert.deepEqual(mobile.detail(copy.sessionId).segments, conflict.segments);
+    assert.equal(store.listSessions().length, 2);
+  } finally { store.close(); }
+});
+
+test('mobile HTTP revision conflicts keep the current revision at the top level', async () => {
+  const store = new Store(':memory:');
+  const { assistant } = fakeAssistant(store);
+  const token = 'test-token-'.repeat(5);
+  const mobile = await startMobileServer({ store, assistant, token, port: 0 });
+  const sync = (body: MobileSnapshot) => fetch(mobile.url + '/mobile/v1/sessions', {
+    method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body),
+  });
+  try {
+    const initial = snapshot({ revision: 8 });
+    assert.equal((await sync(initial)).status, 200);
+    const stale = await sync({ ...initial, revision: 2 });
+    assert.equal(stale.status, 409);
+    assert.deepEqual(await stale.json(), { error: 'A newer snapshot is already stored.', code: 'stale_revision', revision: 8 });
+    const conflict = await sync({ ...initial, title: 'Changed at the same revision' });
+    assert.equal(conflict.status, 409);
+    assert.deepEqual(await conflict.json(), { error: 'This revision was already used for different content.', code: 'revision_conflict', revision: 8 });
+  } finally { await mobile.close(); store.close(); }
+});
+
+test('an AI request for a deleted Mac copy can recover by syncing and using the new session ID', async () => {
+  const store = new Store(':memory:');
+  const { assistant, calls } = fakeAssistant(store);
+  const token = 'test-token-'.repeat(5);
+  const mobile = await startMobileServer({ store, assistant, token, port: 0 });
+  const post = (path: string, body: unknown) => fetch(mobile.url + '/mobile/v1' + path, {
+    method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body),
+  });
+  try {
+    const initial = snapshot();
+    const saved = await (await post('/sessions', initial)).json() as { sessionId: string };
+    store.deleteSession(saved.sessionId);
+    const missing = await post(`/sessions/${saved.sessionId}/summary`, {});
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { error: 'Mobile session not found.', code: 'not_found' });
+    const detail = await fetch(mobile.url + `/mobile/v1/sessions/${saved.sessionId}`, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal(detail.status, 404);
+    assert.deepEqual(await detail.json(), { error: 'Mobile session not found.', code: 'not_found' });
+    assert.equal(calls.length, 0);
+    const restored = await (await post('/sessions', initial)).json() as { sessionId: string };
+    assert.notEqual(restored.sessionId, saved.sessionId);
+    assert.equal((await post(`/sessions/${restored.sessionId}/summary`, {})).status, 202);
+    assert.equal(calls[0].sessionId, restored.sessionId);
+    assert.deepEqual(new MobileSessions(store).detail(restored.sessionId).segments, initial.segments);
+  } finally { await mobile.close(); store.close(); }
 });
 
 test('mobile HTTPS listener serves authenticated requests with the generated pairing certificate', async () => {

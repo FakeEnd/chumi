@@ -1,16 +1,17 @@
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { DATA_DIR } from '../server/paths.ts';
 import { pairingCode, setupMobileConfiguration } from '../server/mobile-config.ts';
 
 const args = process.argv.slice(2);
 if (args.includes('--help')) {
-  console.log('Usage: npm run mobile:setup -- [--address My-Mac.local] [--port 4778] [--rotate]\n\nCreates a private TLS certificate and phone pairing token. Does not start a server.\nExisting pairing is reused; --rotate revokes it after restarting the mobile server.');
+  console.log('Usage: npm run mobile:setup -- [--address My-Mac.local] [--port 4778] [--rotate]\n\nCreates a private TLS certificate and phone pairing token. Does not start a server.\nExisting pairing is reused; changing its address or port requires --rotate and pairing again.');
   process.exit(0);
 }
 let address: string | undefined;
-let port = 4778;
+let port: number | undefined;
 let rotate = false;
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
@@ -19,7 +20,7 @@ for (let i = 0; i < args.length; i++) {
   else if (arg === '--port' && args[i + 1]) port = Number(args[++i]);
   else throw new Error(`Unknown or incomplete option: ${arg}. Use --help.`);
 }
-if (!address) {
+if (!address && (rotate || !existsSync(join(DATA_DIR, 'mobile', 'companion.json')))) {
   try { address = `${execFileSync('/usr/sbin/scutil', ['--get', 'LocalHostName'], { encoding: 'utf8' }).trim()}.local`; }
   catch { const name = hostname(); address = name.includes('.') ? name : `${name}.local`; }
 }

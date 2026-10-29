@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { DEFAULT_SESSION_TYPES, SESSION_STYLES, availableSessionTypes, sessionStyle, validateSessionTypes, type SessionStyle, type SessionTypeOption } from '../../../shared/session-types.ts';
 import { saveSettings } from '../actions.ts';
-import { setState, useStore } from '../store.ts';
+import { getState, setState, useStore } from '../store.ts';
 import { msg, t } from '../i18n.ts';
 import { typeLabel } from '../util.ts';
 import { onEnter } from '../keys.ts';
@@ -9,7 +9,7 @@ import { onEnter } from '../keys.ts';
 export function SessionTypeSelect({ value, onChange, className, manage = false }: { value: string; onChange: (id: string) => void; className?: string; manage?: boolean }) {
   const options = useStore((s) => s.settings?.sessionTypes) ?? DEFAULT_SESSION_TYPES;
   return <select className={className} value={value} aria-label={t('Session type')} title={typeLabel(value)}
-    onChange={(e) => e.target.value === '__manage' ? setState({ dialog: 'settings', settingsTab: 'session-types' }) : onChange(e.target.value)}>
+    onChange={(e) => e.target.value === '__manage' ? setState({ dialog: 'settings', settingsTab: 'session-types', dialogReturnTo: getState().dialog }) : onChange(e.target.value)}>
     {availableSessionTypes(options, value).map((o) => <option key={o.id} value={o.id}>{typeLabel(o.id)}{o.archived ? ` ${t('(removed)')}` : ''}</option>)}
     {manage && <option value="__manage">{t('Edit session types…')}</option>}
   </select>;

@@ -11,11 +11,23 @@ export type Depth = 'quick' | 'standard' | 'deep';
 export type Effort = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type SessionType = string;
 
+export interface StartDraft {
+  title: string;
+  type: string;
+  source: string;
+  file: string;
+  speed: number;
+  capture: boolean;
+  win: WindowInfo | null;
+  projectId: string | null;
+  record: boolean;
+}
+
 export interface Settings {
   audio: { source: 'mic' | 'system' | 'both'; micDeviceUid: string | null; aec: boolean; saveRawAudio: boolean };
   asr: {
     engine: SpeechEngineId; qwenCloud: { baseUrl: string; model: string }; qwenLocal: { baseUrl: string; model: string };
-    model: string; language: 'auto' | 'en' | 'zh'; threads: number; glossary: string[]; chineseScript: 'simplified' | 'original'; diarization: boolean;
+    model: string; modelBaseUrl: string; language: 'auto' | 'en' | 'zh'; threads: number; glossary: string[]; chineseScript: 'simplified' | 'original'; diarization: boolean;
   };
   ai: {
     provider: 'codex' | 'claude-cli' | 'anthropic-api' | 'compatible' | 'mock';
@@ -46,6 +58,7 @@ export interface QuotaWindow { label: string; usedPercent: number; resetsAt: num
 export interface ProviderStatus {
   id: string; label: string; billing: 'subscription' | 'credits' | 'api' | 'none'; billingLabel: string;
   state: 'ready' | 'checking' | 'signed_out' | 'quota_blocked' | 'not_installed' | 'disabled' | 'error'; ready: boolean;
+  overageBlocked?: boolean;
   account?: string | null; plan?: string | null; model?: string | null; models?: Array<{ id: string; name: string }>;
   quota: { known: boolean; summary: string; windows?: QuotaWindow[]; exhausted?: boolean; credits?: { hasCredits: boolean; balance: string | null; willUse: boolean } | null; note?: string };
   message?: string; setupHint?: string; checkedAt: number;
@@ -76,10 +89,11 @@ export interface LiveState {
   session: Session | null; source: string; nowT: number; serverTime: number;
   levels: Record<string, { rms: number; peak: number; at: number }>;
   partials: Record<string, { uttId: number; t: number; text: string }>;
+  captureHealth?: Record<string, { state: 'ok' | 'silent' | 'restarting' | 'failed'; code?: string; message?: string; vars?: Record<string, string | number> }>;
   warnings: Array<{ code: string; message: string; at: number }>;
-  asr: { state: string; message: string | null; latencyMs: number; backlogSec: number; pending: number };
+  asr: { state: string; message: string | null; latencyMs: number; backlogSec: number; pending: number; retrying?: boolean };
   file: { path: string; speed: number; posSec: number } | null;
-  screen: { windowId: number; title: string; app: string; status: string; frames: number; lastCaptureAt: number } | null;
+  screen: { windowId: number; title: string; app: string; status: string; frames: number; capped?: boolean; lastCaptureAt: number } | null;
 }
 
 export interface Frame { id: number; session_id: string; t: number; width: number | null; height: number | null; kind: string; window_title: string | null; app: string | null; created_at: number }
@@ -101,6 +115,7 @@ export interface HandoffItem {
   progress?: import('../../shared/project-work.ts').ActionProgress | null;
 }
 export interface Handoff {
+  output_id?: string | null;
   id: string; session_id: string; project_id: string | null; status: 'generating' | 'draft' | 'confirmed' | 'error';
   source_revision: number | null; confirmed_revision: number | null; confirmed_at: number | null;
   delivered_at: number | null; delivered_via: string | null; error: string | null; created_at: number; updated_at: number;
@@ -110,7 +125,9 @@ export interface Handoff {
   last_agent_read: { at: number; client: string | null; revision: number | null } | null;
 }
 export interface AgentStatus {
-  agent: AgentId; name: string; billing: 'plan' | 'unknown'; cli: string | null; registered: boolean | null; outdated: boolean;
+  agent: AgentId; name: string; billing: 'plan' | 'unknown'; cli: string | null; registered: boolean | null; outdated: boolean; outdatedReasons: string[];
   clientHealth: 'connected' | 'failed' | 'unknown'; lastRead: { at: number; tool: string } | null; verifiedAt: number | null; detail: string | null;
+  /** DeepSeek Harness only: its desktop app was found (the dsh command alone can come from npm). */
+  appFound?: boolean;
 }
-export interface Notice { id: number; level: 'info' | 'warning' | 'error'; code: string; message: string; at: number }
+export interface Notice { id: number; level: 'info' | 'warning' | 'error'; code: string; message: string; vars?: Record<string, string | number>; at: number }

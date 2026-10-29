@@ -70,6 +70,7 @@ export function AudioPlayer({ sessionId }: { sessionId: string }) {
   const toggle = () => { const el = audio.current; if (el) { if (el.paused) void el.play().catch(() => {}); else el.pause(); } };
   return (
     <div className="audio-player" role="group" aria-label={t('Recorded audio')}>
+      {info.warning && <span className="small" role="status">{t(info.warning)}</span>}
       <audio ref={audio} src={`/api/sessions/${sessionId}/audio?v=${info.version}`} preload="metadata" onTimeUpdate={onTime}
         onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onError={() => setError(t('The recording could not be played.'))} />
       <button className="btn small play-btn" onClick={toggle} title={playing ? t('Pause audio') : t('Play audio')} aria-label={playing ? t('Pause audio') : t('Play audio')}>

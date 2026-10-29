@@ -59,6 +59,7 @@ export class Segmenter extends EventEmitter<{ progress: [Utterance]; final: [Utt
   }
 
   get isActive(): boolean { return this.active; }
+  get activeStartSec(): number | null { return this.active ? this.startSec : null; }
 
   push(tsSec: number, samples: Int16Array): void {
     if (this.clock !== null && Math.abs(tsSec - (this.clock + this.pending.length / SAMPLE_RATE)) > 0.3) {

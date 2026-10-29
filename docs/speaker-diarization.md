@@ -1,10 +1,12 @@
 # Speaker labeling: development implementation
 
+Speaker labeling is not available in the installed Windows app yet; the setup below is for a macOS source checkout.
+
 This first version groups voices **after a meeting ends**. Live Whisper transcription remains independent. Users may name the anonymous speakers and correct individual transcript lines. Those annotations accompany subsequent AI context and the evidence read by Claude Code/Codex; no paid AI request is needed to analyze or edit speakers.
 
 ## Try it
 
-1. Check out `codex/speaker-diarization` and run `npm run setup:speakers` once. Setup installs an isolated Python environment and downloads verified model assets under the ignored `build/speakers` directory. See [model provenance and requirements](speaker-models.md).
+1. In your Chumi folder, run `npm run setup:speakers` once. Setup installs an isolated Python environment and downloads verified model assets under the ignored `build/speakers` directory. See [model provenance and requirements](speaker-models.md).
 2. Run `npm run build:web` and `npm start` (or the existing development server workflow).
 3. Enable **Settings → Transcription → Speaker labels** before recording. The setting defaults off and cannot change during a meeting.
 4. End the meeting. Speaker analysis runs in a single local worker; the automatic final summary waits for it to settle. A failure still permits the summary. The UI shows analysis state and cancellation.

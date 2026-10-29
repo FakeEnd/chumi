@@ -5,7 +5,7 @@
  */
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { Store } from '../db.ts';
@@ -13,7 +13,7 @@ import { DATA_DIR, findClaude, REPO_ROOT, which } from '../paths.ts';
 import { uid } from '../util.ts';
 import { IS_WIN, openInTerminal, runCommand as run } from '../platform.ts';
 import { AGENT_BILLING, AGENT_NAMES, AGENTS, type AgentId } from '../../shared/agents.ts';
-import { dshBlock, dshCheckPatches, dshPatchFile, findDsh, handWrittenDsh, readDshBlock, splitDshPatch, withDshBlock, withoutDshBlock } from './dsh.ts';
+import { dshAppInstalled, dshBlock, dshCheckPatches, dshPatchFile, findDsh, handWrittenDsh, readDshBlock, splitDshPatch, withDshBlock, withoutDshBlock } from './dsh.ts';
 
 export { AGENTS, type AgentId };
 const NAME = 'chumi';
@@ -24,9 +24,18 @@ const PLAN_STRIP_ENV = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_
 export const MCP_SCRIPT = join(REPO_ROOT, 'server', 'mcp', 'main.ts');
 /** Prefer a stable link (e.g. /opt/homebrew/bin/node) over a versioned Cellar path that breaks on upgrade. */
 function stableNode(): string {
-  const link = which('node');
-  try { if (link && realpathSync(link) === realpathSync(process.execPath)) return link; } catch { /* fall through */ }
-  return process.execPath;
+  let binary = process.execPath;
+  try { binary = realpathSync(binary); } catch { /* the running binary may have been removed */ }
+  const links = [join(process.env.NVM_DIR || join(homedir(), '.nvm'), 'current', 'bin', 'node'), which('node')];
+  for (const link of links) {
+    try {
+      if (link && realpathSync(link) === binary) {
+        // fnm replaces its per-shell links on each launch; register their durable target instead.
+        return /[\\/]fnm_multishells[\\/]/i.test(link) ? binary : link;
+      }
+    } catch { /* fall through */ }
+  }
+  return binary;
 }
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const ansi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
@@ -113,27 +122,46 @@ export interface AgentStatus {
   cli: string | null;
   /** Chumi's MCP server is registered in this client's configuration. null = could not tell. */
   registered: boolean | null;
-  /** Registered with a different Chumi location or data folder (re-connect to fix). */
+  /** Registered with a missing or different Node command, Chumi location or data folder (re-connect to fix). */
   outdated: boolean;
+  outdatedReasons: string[];
   /** Health reported by the client itself (Claude Code, opencode and Qwen Code start the server to list it); unknown for Codex, Antigravity and DeepSeek Harness. */
   clientHealth: 'connected' | 'failed' | 'unknown';
   /** A real agent read through this client, recorded by the MCP server. */
   lastRead: { at: number; tool: string } | null;
   verifiedAt: number | null;
   detail: string | null;
+  /** DeepSeek Harness only: its desktop app was found. The dsh command alone can come from npm, and Continue opens the app. */
+  appFound?: boolean;
 }
 
 interface McpServer { command: string; args: string[]; env: Record<string, string> }
-type Registration = Pick<AgentStatus, 'registered'> & Partial<Pick<AgentStatus, 'outdated' | 'clientHealth' | 'detail'>>;
+type Registration = Pick<AgentStatus, 'registered'> & Partial<Pick<AgentStatus, 'outdated' | 'outdatedReasons' | 'clientHealth' | 'detail'>>;
 
-/** Registered for another copy of Chumi or another data folder. */
-const outdated = (args: string[] | undefined, env: Record<string, string> | null | undefined) =>
-  !(args ?? []).includes(MCP_SCRIPT) || (process.env.CHUMI_DATA_DIR ? env?.CHUMI_DATA_DIR !== DATA_DIR : !!env?.CHUMI_DATA_DIR);
+/** A removed version-manager binary needs reconnecting even when the script and data folder match. */
+function nodeProblem(command: string | undefined): string | null {
+  let binary: string;
+  try {
+    const path = command && (isAbsolute(command) ? command : which(command));
+    if (!path) throw new Error('Missing command');
+    binary = realpathSync(path);
+  } catch { return 'The registered Node.js command is missing. Reconnect to use the current Node.js.'; }
+  try { if (binary === realpathSync(stableNode())) return null; } catch { /* the current binary changed */ }
+  return 'The registered Node.js command changed. Reconnect to use the current Node.js.';
+}
+function registrationReasons(command: string | undefined, scriptChanged: boolean, dataChanged: boolean, detail: string | null = null) {
+  const reasons = [nodeProblem(command), scriptChanged ? 'connected to another Chumi location' : null,
+    dataChanged ? 'Connected to another Chumi data folder. Reconnect to use this folder.' : null].filter((reason): reason is string => !!reason);
+  return { outdated: reasons.length > 0, outdatedReasons: reasons, detail };
+}
+function registrationLocation(command: string | undefined, args: string[] | undefined, env: Record<string, string> | null | undefined, detail: string | null = null) {
+  return registrationReasons(command, !(args ?? []).includes(MCP_SCRIPT), process.env.CHUMI_DATA_DIR ? env?.CHUMI_DATA_DIR !== DATA_DIR : !!env?.CHUMI_DATA_DIR, detail);
+}
 
 /** What Chumi needs to know about one agent. */
 interface Adapter {
   bin: string;
-  /** Part of the MCP clientInfo name it sends (Claude Code "claude-code", Codex "codex-mcp-client", opencode "opencode", Qwen Code "qwen-cli-mcp-client-chumi", Antigravity "antigravity-client", DeepSeek Harness "dsh-mcp-client"). */
+  /** The MCP clientInfo name it sends (Claude Code "claude-code", Codex "codex-mcp-client", opencode "opencode", Qwen Code "qwen-cli-mcp-client-chumi", Antigravity "antigravity-client", DeepSeek Harness "dsh-mcp-client"). */
   client: string;
   /** Removed from the environment of commands Chumi runs. */
   strip: string[];
@@ -152,6 +180,13 @@ interface Adapter {
 
 /** Stands for the first message in Adapter.start. */
 const MESSAGE = Symbol('first message');
+const claudeConfig = () => join(process.env.CLAUDE_CONFIG_DIR || homedir(), '.claude.json');
+function claudeServers(cfg: unknown): Record<string, unknown> {
+  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) throw new Error('Claude Code user config is not a JSON object.');
+  const servers: unknown = (cfg as Record<string, unknown>).mcpServers;
+  if (servers !== undefined && (!servers || typeof servers !== 'object' || Array.isArray(servers))) throw new Error('Claude Code MCP servers config is not a JSON object.');
+  return (servers ?? {}) as Record<string, unknown>;
+}
 const opencodeFile = (ext: 'json' | 'jsonc') => join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'opencode', `opencode.${ext}`);
 const qwenSettings = () => join(homedir(), '.qwen', 'settings.json');
 /** Written by `agy mcp add`; the Antigravity app reads the same file. */
@@ -162,33 +197,54 @@ const AGY_CHECK_GRANT = `mcp(${NAME}/chumi_connection_check)`;
 
 const ADAPTERS: Record<AgentId, Adapter> = {
   'claude-code': {
-    bin: 'claude', client: 'claude', strip: PLAN_STRIP_ENV,
-    setup: (m) => `claude mcp add --scope user ${Object.entries(m.env).map(([k, v]) => `-e ${k}=${q(v)} `).join('')}${NAME} -- ${q(m.command)} ${q(m.args[0])}`,
+    bin: 'claude', client: 'claude-code', strip: PLAN_STRIP_ENV,
+    setup: (m) => `claude mcp add --scope user ${NAME} ${Object.entries(m.env).map(([k, v]) => `-e ${k}=${q(v)} `).join('')}-- ${q(m.command)} ${q(m.args[0])}`,
     async registration(cli) {
       const r = await run(cli, ['mcp', 'get', NAME], { timeoutMs: 45_000, env: childEnv(PLAN_STRIP_ENV) });
       if (r.code !== 0) return { registered: false };
       const health = /Status:\s*✔/.test(r.out) ? 'connected' : /Status:\s*(✘|✗|failed)/i.test(r.out) ? 'failed' : 'unknown';
-      const old = !r.out.includes(MCP_SCRIPT) || (process.env.CHUMI_DATA_DIR ? !r.out.includes(DATA_DIR) : /CHUMI_DATA_DIR=/.test(r.out));
-      return { registered: true, clientHealth: health, outdated: old };
+      const command = ansi(r.out).match(/^\s*Command:\s*(.+)$/m)?.[1].trim();
+      return { registered: true, clientHealth: health, ...registrationReasons(command, !r.out.includes(MCP_SCRIPT), process.env.CHUMI_DATA_DIR ? !r.out.includes(DATA_DIR) : /CHUMI_DATA_DIR=/.test(r.out)) };
     },
     async connect(cli, m) {
-      await run(cli, ['mcp', 'remove', NAME, '-s', 'user'], { env: childEnv(PLAN_STRIP_ENV) });
-      const r = await run(cli, ['mcp', 'add', '--scope', 'user', ...Object.entries(m.env).flatMap(([k, v]) => ['-e', `${k}=${v}`]), NAME, '--', m.command, ...m.args], { env: childEnv(PLAN_STRIP_ENV) });
-      if (r.code !== 0) throw new Error((r.err || r.out).trim() || 'claude mcp add failed');
+      const file = claudeConfig();
+      const text = readText(file);
+      const cfg: unknown = text === null ? {} : JSON.parse(text);
+      const previous = claudeServers(cfg)[NAME];
+      const env = childEnv(PLAN_STRIP_ENV);
+      // Claude cannot replace an entry, so save it before removing it and restore it if add fails.
+      if (previous !== undefined) {
+        const removed = await run(cli, ['mcp', 'remove', NAME, '-s', 'user'], { env });
+        if (removed.code !== 0) throw new Error((removed.err || removed.out).trim() || 'claude mcp remove failed');
+      }
+      const r = await run(cli, ['mcp', 'add', '--scope', 'user', NAME, ...Object.entries(m.env).flatMap(([k, v]) => ['-e', `${k}=${v}`]), '--', m.command, ...m.args], { env });
+      if (r.code !== 0) {
+        const why = (r.err || r.out).trim() || 'claude mcp add failed';
+        if (previous !== undefined) {
+          try {
+            const current = readText(file);
+            const config: unknown = current === null ? cfg : JSON.parse(current);
+            const servers = claudeServers(config);
+            (config as Record<string, unknown>).mcpServers = { ...servers, [NAME]: previous };
+            replaceFile(file, `${JSON.stringify(config, null, 2)}\n`, 0o600, false);
+          } catch { throw new Error(`${why} Could not restore Claude Code's previous registration.`); }
+        }
+        throw new Error(why);
+      }
     },
     async disconnect(cli) { await run(cli, ['mcp', 'remove', NAME, '-s', 'user'], { env: childEnv(PLAN_STRIP_ENV) }); },
     check: (prompt, extra) => ({ args: ['-p', prompt, '--model', 'haiku', '--allowedTools', `mcp__${NAME}__chumi_connection_check`, '--output-format', 'text', ...extra] }),
     start: (cli) => [cli, MESSAGE],
   },
   codex: {
-    bin: 'codex', client: 'codex', strip: PLAN_STRIP_ENV,
+    bin: 'codex', client: 'codex-mcp-client', strip: PLAN_STRIP_ENV,
     setup: (m) => `codex mcp add ${Object.entries(m.env).map(([k, v]) => `--env ${k}=${q(v)} `).join('')}${NAME} -- ${q(m.command)} ${q(m.args[0])}`,
     async registration(cli) {
       const r = await run(cli, ['mcp', 'get', NAME, '--json'], { env: childEnv(PLAN_STRIP_ENV) });
       if (r.code !== 0) return { registered: false };
       try {
-        const j = JSON.parse(r.out.slice(r.out.indexOf('{'))) as { enabled?: boolean; transport?: { args?: string[]; env?: Record<string, string> | null } };
-        return { registered: true, outdated: outdated(j.transport?.args, j.transport?.env), detail: j.enabled === false ? 'Registered but disabled in Codex.' : null };
+        const j = JSON.parse(r.out.slice(r.out.indexOf('{'))) as { enabled?: boolean; transport?: { command?: string; args?: string[]; env?: Record<string, string> | null } };
+        return { registered: true, ...registrationLocation(j.transport?.command, j.transport?.args, j.transport?.env, j.enabled === false ? 'Registered but disabled in Codex.' : null) };
       } catch {
         return { registered: true };
       }
@@ -217,7 +273,7 @@ const ADAPTERS: Record<AgentId, Adapter> = {
       const health = /\bconnected\b/i.test(line) ? 'connected' : /\b(failed|error)\b/i.test(line) ? 'failed' : 'unknown';
       const detail = entry.enabled === false ? 'Registered but disabled in opencode.'
         : inJsonc ? `An entry in ${opencodeFile('jsonc')} is yours to edit; Chumi only changes opencode.json.` : null;
-      return { registered: true, clientHealth: health, outdated: outdated(entry.command, entry.environment), detail };
+      return { registered: true, clientHealth: health, ...registrationLocation(entry.command?.[0], entry.command?.slice(1), entry.environment, detail) };
     },
     async connect(_cli, m) {
       editJsonFile(opencodeFile('json'), (cfg) => { cfg.mcp = { ...cfg.mcp, [NAME]: opencodeEntry(m) }; return true; }, { $schema: 'https://opencode.ai/config.json' });
@@ -236,19 +292,19 @@ const ADAPTERS: Record<AgentId, Adapter> = {
     start: (cli, ws) => [cli, ws, '--prompt', MESSAGE],
   },
   'qwen-code': {
-    bin: 'qwen', client: 'qwen', strip: [],
-    setup: (m) => `qwen mcp add --scope user ${Object.entries(m.env).map(([k, v]) => `-e ${k}=${q(v)} `).join('')}${NAME} ${q(m.command)} ${q(m.args[0])}`,
+    bin: 'qwen', client: 'qwen-cli-mcp-client-chumi', strip: [],
+    setup: (m) => `qwen mcp add --scope user ${NAME} ${q(m.command)} ${q(m.args[0])}${Object.entries(m.env).map(([k, v]) => ` -e ${k}=${q(v)}`).join('')}`,
     async registration(cli) {
-      const entry = readJsonc(qwenSettings())?.mcpServers?.[NAME] as { args?: string[]; env?: Record<string, string> } | undefined;
+      const entry = readJsonc(qwenSettings())?.mcpServers?.[NAME] as { command?: string; args?: string[]; env?: Record<string, string> } | undefined;
       if (!entry) return { registered: false };
       const r = await run(cli, ['mcp', 'list'], { timeoutMs: 45_000 });
       const line = ansi(`${r.out}\n${r.err}`).split('\n').find((l) => l.includes(`${NAME}:`)) ?? '';
       const health = /-\s*Connected\b/i.test(line) ? 'connected' : /-\s*(Disconnected|Failed)\b/i.test(line) ? 'failed' : 'unknown';
-      return { registered: true, clientHealth: health, outdated: outdated(entry.args, entry.env) };
+      return { registered: true, clientHealth: health, ...registrationLocation(entry.command, entry.args, entry.env) };
     },
     async connect(cli, m) {
       await run(cli, ['mcp', 'remove', '--scope', 'user', NAME]);
-      const r = await run(cli, ['mcp', 'add', '--scope', 'user', ...Object.entries(m.env).flatMap(([k, v]) => ['-e', `${k}=${v}`]), NAME, m.command, ...m.args]);
+      const r = await run(cli, ['mcp', 'add', '--scope', 'user', NAME, m.command, ...m.args, ...Object.entries(m.env).flatMap(([k, v]) => ['-e', `${k}=${v}`])]);
       if (r.code !== 0) throw new Error((r.err || r.out).trim() || 'qwen mcp add failed');
     },
     async disconnect(cli) { await run(cli, ['mcp', 'remove', '--scope', 'user', NAME]); },
@@ -258,13 +314,13 @@ const ADAPTERS: Record<AgentId, Adapter> = {
   },
   // Antigravity CLI (agy). It has no per-run tool allowlist, so Connect also adds AGY_CHECK_GRANT to its settings.
   antigravity: {
-    bin: 'agy', client: 'antigravity', strip: [],
+    bin: 'agy', client: 'antigravity-client', strip: [],
     setup: (m) => `agy mcp add ${Object.entries(m.env).map(([k, v]) => `-e ${k}=${q(v)} `).join('')}${NAME} -- ${q(m.command)} ${q(m.args[0])}\n${agySettings()}\n${JSON.stringify({ permissions: { allow: [AGY_CHECK_GRANT] } }, null, 2)}`,
     // `agy mcp list` shows only enabled or disabled, so there is no client health to report.
     async registration() {
-      const entry = readJsonc(agyMcpConfig())?.mcpServers?.[NAME] as { args?: string[]; env?: Record<string, string>; disabled?: boolean } | undefined;
+      const entry = readJsonc(agyMcpConfig())?.mcpServers?.[NAME] as { command?: string; args?: string[]; env?: Record<string, string>; disabled?: boolean } | undefined;
       if (!entry) return { registered: false };
-      return { registered: true, outdated: outdated(entry.args, entry.env), detail: entry.disabled ? 'Registered but disabled in Antigravity.' : null };
+      return { registered: true, ...registrationLocation(entry.command, entry.args, entry.env, entry.disabled ? 'Registered but disabled in Antigravity.' : null) };
     },
     async connect(cli, m) {
       // `agy mcp add` replaces an existing entry, and re-enables it.
@@ -295,7 +351,7 @@ const ADAPTERS: Record<AgentId, Adapter> = {
   // the layer every dsh profile (the desktop app's included) applies (dsh.ts). It has no terminal session to start:
   // handoffs continue in its desktop app (desktop-handoff.ts).
   'deepseek-harness': {
-    bin: 'dsh', client: 'dsh-mcp', strip: [],
+    bin: 'dsh', client: 'dsh-mcp-client', strip: [],
     setup: (m) => `${dshPatchFile()}\n${dshBlock(m)}`,
     missing: IS_WIN
       ? 'DeepSeek Harness was not found: there is no `dsh` command, and Windows lists no DeepSeek Harness installation. If it is installed somewhere else, choose its folder.'
@@ -310,7 +366,7 @@ const ADAPTERS: Record<AgentId, Adapter> = {
         return handWrittenDsh(rest) ? { registered: true, detail: 'A server named chumi was added to the DeepSeek Harness settings file outside Chumi; Chumi leaves it to you.' } : { registered: false };
       }
       const entry = readDshBlock(block);
-      return { registered: true, outdated: outdated(entry.args, entry.env) };
+      return { registered: true, ...registrationLocation(entry.command, entry.args, entry.env) };
     },
     async connect(cli, m) {
       const file = dshPatchFile();
@@ -356,7 +412,7 @@ export class AgentIntegration {
   mcpServer(): McpServer {
     return { command: stableNode(), args: [MCP_SCRIPT], env: process.env.CHUMI_DATA_DIR ? { CHUMI_DATA_DIR: DATA_DIR } : {} };
   }
-  cli(agent: AgentId): string | null { return agent === 'claude-code' ? findClaude() : agent === 'deepseek-harness' ? findDsh() : which(ADAPTERS[agent].bin); }
+  async cli(agent: AgentId, refresh = false): Promise<string | null> { return agent === 'claude-code' ? findClaude() : agent === 'deepseek-harness' ? findDsh(refresh) : which(ADAPTERS[agent].bin); }
 
   /** Copyable commands (or configuration) for manual setup. */
   setupCommands(): Record<AgentId, string> {
@@ -381,25 +437,27 @@ export class AgentIntegration {
     }
   }
 
-  async status(agent: AgentId): Promise<AgentStatus> {
+  async status(agent: AgentId, refresh = false): Promise<AgentStatus> {
     const a = ADAPTERS[agent];
-    const cli = this.cli(agent);
-    const reads = this.store.agentReads({ client: a.client, limit: 50 });
-    const verified = reads.find((r) => r.tool === 'connection_check' && r.token);
-    const base: AgentStatus = { agent, name: AGENT_NAMES[agent], billing: AGENT_BILLING[agent], cli, registered: null, outdated: false, clientHealth: 'unknown', lastRead: reads[0] ? { at: reads[0].at, tool: reads[0].tool } : null, verifiedAt: verified?.at ?? null, detail: null };
+    // Looked up first and refreshed once: the dsh command found afterwards reuses the same app lookup.
+    const appFound = agent === 'deepseek-harness' ? await dshAppInstalled(refresh) : undefined;
+    const cli = await this.cli(agent, refresh && appFound === undefined);
+    const reads = this.store.agentReads({ client: a.client, limit: 1 });
+    const verified = this.store.agentReads({ client: a.client, verifiedOnly: true, limit: 1 })[0];
+    const base: AgentStatus = { agent, name: AGENT_NAMES[agent], billing: AGENT_BILLING[agent], cli, registered: null, outdated: false, outdatedReasons: [], clientHealth: 'unknown', lastRead: reads[0] ? { at: reads[0].at, tool: reads[0].tool } : null, verifiedAt: verified?.at ?? null, detail: null, ...(appFound === undefined ? {} : { appFound }) };
     if (!cli) return { ...base, registered: false, detail: a.missing ?? `${AGENT_NAMES[agent]} is not installed (the \`${a.bin}\` command was not found).` };
     return { ...base, ...await a.registration(cli) };
   }
 
   /** Register (or re-register) Chumi in the client's user-level configuration. */
   async connect(agent: AgentId): Promise<void> {
-    const cli = this.cli(agent);
+    const cli = await this.cli(agent, true);
     if (!cli) throw new Error(`${AGENT_NAMES[agent]} is not installed.`);
     await ADAPTERS[agent].connect(cli, this.mcpServer());
   }
 
   async disconnect(agent: AgentId): Promise<void> {
-    const cli = this.cli(agent);
+    const cli = await this.cli(agent);
     if (cli) await ADAPTERS[agent].disconnect(cli);
   }
 
@@ -410,7 +468,7 @@ export class AgentIntegration {
   /** extraArgs: only for tests (e.g. a per-run --mcp-config or a stand-in model instead of the user's). */
   async verify(agent: AgentId, extraArgs: string[] = []): Promise<{ ok: boolean; detail: string }> {
     const a = ADAPTERS[agent];
-    const cli = this.cli(agent);
+    const cli = await this.cli(agent);
     if (!cli) return { ok: false, detail: 'Not installed.' };
     const token = uid('chk_');
     const prompt = `Call the MCP tool chumi_connection_check from the "chumi" server with token "${token}". Then reply with one line: OK if the tool returned ok true, otherwise the error.`;
@@ -426,17 +484,17 @@ export class AgentIntegration {
    * Open a Terminal window in the project folder running the agent with the handoff as its first message.
    * The agent then works under its own permission prompts; Chumi does not treat launching as completion.
    */
-  launch(agent: AgentId, handoffId: string, workspace: string, prompt: string): { script: string } {
-    const script = this.launchScript(agent, handoffId, workspace, prompt);
+  async launch(agent: AgentId, handoffId: string, workspace: string, prompt: string): Promise<{ script: string }> {
+    const script = await this.launchScript(agent, handoffId, workspace, prompt);
     openInTerminal(script);
     return { script };
   }
 
   /** Writes the handoff and a script that starts the agent in the project folder with it as the first message. */
-  launchScript(agent: AgentId, handoffId: string, workspace: string, prompt: string): string {
+  async launchScript(agent: AgentId, handoffId: string, workspace: string, prompt: string): Promise<string> {
     const start = ADAPTERS[agent].start;
     if (!start) throw new Error(`${AGENT_NAMES[agent]} has no terminal session to start. Continue in its app instead.`);
-    const cli = this.cli(agent);
+    const cli = await this.cli(agent);
     if (!cli) throw new Error(`${AGENT_NAMES[agent]} is not installed.`);
     if (!existsSync(workspace) || !statSync(workspace).isDirectory()) throw new Error(`The project folder is not available: ${workspace}. Choose its new location in Projects.`);
     const dir = join(DATA_DIR, 'handoffs');

@@ -88,7 +88,7 @@ const step = (ok: boolean, what: string, detail: string) => { if (!ok) failed = 
 const store = new Store();
 const integration = new AgentIntegration(store);
 try {
-  const cli = integration.cli(agent);
+  const cli = await integration.cli(agent);
   if (!cli) throw new Error(`${agent} is not installed.`);
   let extra: string[];
   if (agent === 'opencode') {

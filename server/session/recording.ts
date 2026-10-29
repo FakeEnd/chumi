@@ -7,7 +7,7 @@ import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import { AUDIO_DIR } from '../paths.ts';
 import { log } from '../util.ts';
-import { recordedTakes, type SavedTake } from '../speakers/audio.ts';
+import { recordedTakes, recoverOpenTakes, type SavedTake } from '../speakers/audio.ts';
 import { wavHeader } from './wavwriter.ts';
 import type { PlaybackInfo, PlaybackRegion } from '../../shared/recording.ts';
 
@@ -44,16 +44,18 @@ export function playbackLayout(takes: SavedTake[]): { regions: PlaybackRegion[];
   return { regions, placed, samples };
 }
 
-/** null when the session kept no audio. Throws if a retained take is incomplete or its manifest is invalid. */
+/** Repair abandoned takes lazily, then play every readable part of the retained recording. */
 export function sessionRecording(sessionId: string, root = AUDIO_DIR): Recording | null {
-  const takes = recordedTakes(sessionId, root);
-  if (!takes.length) return null;
+  recoverOpenTakes(sessionId, root);
+  const issues: string[] = [];
+  const takes = recordedTakes(sessionId, root, issues);
+  if (!takes.length) { if (issues.length) throw new Error('No readable audio remains in this recording.'); return null; }
   const { regions, placed, samples } = playbackLayout(takes);
   const version = createHash('sha1').update(JSON.stringify([LAYOUT, ...takes.map((t) => [t.id, t.samples])])).digest('hex').slice(0, 12);
-  return { version, duration_ms: samples / PER_MS, regions, samples, placed, bytes: 44 + samples * 2 };
+  return { version, duration_ms: samples / PER_MS, regions, samples, placed, bytes: 44 + samples * 2, ...(issues.length ? { warning: 'Part of this recording could not be read. Available audio is still playable.' } : {}) };
 }
 
-export const playbackInfo = ({ version, duration_ms, regions }: Recording): PlaybackInfo => ({ version, duration_ms, regions });
+export const playbackInfo = ({ version, duration_ms, regions, warning }: Recording): PlaybackInfo => ({ version, duration_ms, regions, ...(warning ? { warning } : {}) });
 
 function mixBlock(rec: Recording, start: number, n: number, fds: Map<string, number>): Int16Array {
   const acc = new Int32Array(n);

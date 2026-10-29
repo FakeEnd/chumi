@@ -2,7 +2,7 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { getEventListeners } from 'node:events';
 import { CodexProvider } from '../server/ai/codex.ts';
-import type { ProviderStatus } from '../server/ai/provider.ts';
+import type { CompletionRequest, ProviderStatus } from '../server/ai/provider.ts';
 
 type Json = Record<string, unknown>;
 function deferred<T>() {
@@ -41,7 +41,7 @@ function fixture(t: TestContext, delays: { ensure?: Promise<void>; thread?: Prom
   const controller = new AbortController();
   t.after(() => controller.abort());
   const deltas: string[] = [];
-  const start = () => provider.complete({ task: 'answer', instructions: 'Fixture instructions', input: 'Synthetic meeting text', signal: controller.signal, onDelta: (d) => deltas.push(d) });
+  const start = (effort?: CompletionRequest['effort']) => provider.complete({ effort, task: 'answer', instructions: 'Fixture instructions', input: 'Synthetic meeting text', signal: controller.signal, onDelta: (d) => deltas.push(d) });
   const notify = (method: string, params: Json) => transport.onMessage(JSON.stringify({ method, params: { threadId: 'fixture-thread', ...params } }));
   const methods = () => calls.map((c) => c.method);
   const cleaned = () => {
@@ -112,7 +112,7 @@ test('Codex timeout interrupts the running turn and releases its abort listener'
   const rejected = assert.rejects(f.start(), { kind: 'network' });
   await until(() => f.methods().includes('turn/start'));
   await tick();
-  t.mock.timers.tick(180_000);
+  t.mock.timers.tick(300_000);
   await rejected;
   assert.equal(f.methods().filter((m) => m === 'turn/interrupt').length, 1);
   f.cleaned();
@@ -128,5 +128,38 @@ test('Codex successful completion still streams text and removes cancellation st
   f.controller.abort();
   assert.deepEqual(f.deltas, ['Fixture answer']);
   assert.deepEqual(f.methods(), ['thread/start', 'turn/start', 'thread/unsubscribe']);
+  f.cleaned();
+});
+
+
+test('Codex thread progress resets idle time, but unrelated notifications do not', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(t);
+  const result = f.start('high');
+  const rejected = assert.rejects(result, /stopped sending progress/);
+  await until(() => f.methods().includes('turn/start'));
+  for (const method of ['item/started', 'item/reasoning/summaryTextDelta', 'item/agentMessage/delta']) {
+    t.mock.timers.tick(240_000);
+    f.notify(method, { delta: 'progress' });
+  }
+  t.mock.timers.tick(240_000);
+  f.notify('item/started', { threadId: 'unrelated-thread' });
+  t.mock.timers.tick(60_000);
+  await rejected;
+  f.cleaned();
+});
+
+test('Codex high effort tolerates long reasoning and still enforces an overall ceiling', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(t);
+  const result = f.start('max');
+  const rejected = assert.rejects(result, /time limit for this effort/);
+  await until(() => f.methods().includes('turn/start'));
+  for (let i = 0; i < 5; i++) {
+    t.mock.timers.tick(300_000);
+    f.notify('item/reasoning/summaryTextDelta', { delta: 'thinking' });
+  }
+  t.mock.timers.tick(300_000);
+  await rejected;
   f.cleaned();
 });

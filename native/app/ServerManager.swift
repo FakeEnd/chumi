@@ -8,6 +8,45 @@ enum ServerStartResult {
     case failed(String)
 }
 
+enum QuitCheck {
+    case idle, active, finishing, unknown
+
+    static func parse(_ response: (Int, [String: Any]?)?) -> QuitCheck {
+        guard let response, response.0 == 200, let json = response.1,
+              let status = json["status"] as? String,
+              let outputs = json["pendingOutputs"] as? Int, outputs >= 0,
+              let handoff = json["handoffGenerating"] as? Bool,
+              let summaries = json["pendingSummaries"] as? Int, summaries >= 0 else { return .unknown }
+        if ["recording", "paused", "starting"].contains(status) { return .active }
+        if status == "ending" || outputs > 0 || handoff || summaries > 0 { return .finishing }
+        return status == "idle" ? .idle : .unknown
+    }
+}
+
+/// Accessed under ServerManager's lock, including from process termination callbacks.
+struct ServerLifecycle {
+    private(set) var starting = false
+    private(set) var readyProcess: Process?
+
+    mutating func beginStart() -> Bool {
+        guard !starting else { return false }
+        starting = true
+        readyProcess = nil
+        return true
+    }
+
+    mutating func finishStart() { starting = false }
+    mutating func markReady(_ process: Process) { readyProcess = process }
+    mutating func stop() { readyProcess = nil }
+
+    func shouldReportExit(_ process: Process) -> Bool { !starting && process === readyProcess }
+
+    func quitCheck(for process: Process?, fetch: () -> (Int, [String: Any]?)?) -> QuitCheck {
+        guard let process, process === readyProcess else { return .idle }
+        return QuitCheck.parse(fetch())
+    }
+}
+
 final class ServerManager: @unchecked Sendable {
     static let defaultPort = 4777
     static let lastPort = 4790
@@ -20,6 +59,7 @@ final class ServerManager: @unchecked Sendable {
     private var process: Process?
     private var stdinPipe: Pipe?
     private var intentionalStop = false
+    private var lifecycle = ServerLifecycle()
     private let lock = NSLock()
 
     /// Progress text for the loading view (called on the main queue).
@@ -62,17 +102,34 @@ final class ServerManager: @unchecked Sendable {
     /// The server needs Node 24 or later (package.json "engines"; scripts/setup.sh checks the same).
     static let minimumNodeMajor = 24
 
-    /// Homebrew's node, then the login shell's. Versions older than `minimumNodeMajor` are skipped.
-    static func findNode() -> String? {
+    /// Versions older than `minimumNodeMajor` are skipped.
+    static func findNode(recorded: String? = Bundle.main.object(forInfoDictionaryKey: "ChumiNodePath") as? String,
+                         home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                         brewPaths: [String] = ["/opt/homebrew/bin/node", "/usr/local/bin/node"],
+                         shellOutput: () -> String? = { output(of: "/bin/zsh", ["-ilc", "command -v node"], timeout: 8) }) -> String? {
         let fm = FileManager.default
-        for candidate in ["/opt/homebrew/bin/node", "/usr/local/bin/node"]
-        where fm.isExecutableFile(atPath: candidate) && isRecentNode(candidate) {
-            return candidate
+        func usable(_ path: String) -> Bool {
+            path.hasPrefix("/") && fm.isExecutableFile(atPath: path) && isRecentNode(path)
         }
-        // Ask a login shell (picks up nvm/fnm/asdf PATH setup in ~/.zprofile / ~/.zshrc).
-        guard let out = output(of: "/bin/zsh", ["-lc", "command -v node"], timeout: 8) else { return nil }
-        let path = out.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.last { $0.hasPrefix("/") } ?? ""
-        return fm.isExecutableFile(atPath: path) && isRecentNode(path) ? path : nil
+        if let recorded, usable(recorded) { return recorded }
+        if let brew = brewPaths.first(where: usable) { return brew }
+        // Interactive login shells read both ~/.zprofile and ~/.zshrc.
+        if let out = shellOutput(), let path = out.split(separator: "\n").map({ $0.trimmingCharacters(in: .whitespaces) }).last(where: { $0.hasPrefix("/") }), usable(path) { return path }
+
+        func versions(_ directory: String, _ suffix: String) -> [String] {
+            let root = home.appendingPathComponent(directory, isDirectory: true)
+            let names = (try? fm.contentsOfDirectory(atPath: root.path)) ?? []
+            return names.sorted { $0.compare($1, options: .numeric) == .orderedDescending }.map { root.appendingPathComponent($0).appendingPathComponent(suffix).path }
+        }
+        let candidates = versions(".nvm/versions/node", "bin/node")
+            + versions(".local/share/fnm/node-versions", "installation/bin/node")
+            + versions("Library/Application Support/fnm/node-versions", "installation/bin/node")
+            + [".volta/bin/node", ".local/share/mise/shims/node", ".asdf/shims/node"].map { home.appendingPathComponent($0).path }
+        return candidates.first(where: usable)
+    }
+
+    static func serverPath(node: String, inherited: String?) -> String {
+        (node as NSString).deletingLastPathComponent + ":/opt/homebrew/bin:/usr/local/bin:" + (inherited ?? "/usr/bin:/bin:/usr/sbin:/sbin")
     }
 
     /// `node --version` prints e.g. "v24.1.0".
@@ -134,6 +191,37 @@ final class ServerManager: @unchecked Sendable {
         return app.lowercased() == "chumi"
     }
 
+    static func dataDirectory(environment: [String: String], home: URL, repo: String) -> URL {
+        if let path = environment["CHUMI_DATA_DIR"], !path.isEmpty {
+            return URL(fileURLWithPath: path, relativeTo: URL(fileURLWithPath: repo, isDirectory: true)).standardizedFileURL
+        }
+        return home.appendingPathComponent("Library/Application Support/Chumi", isDirectory: true)
+    }
+
+    static func recordedPort(in directory: URL, processExists: (Int32) -> Bool = { kill($0, 0) == 0 || errno == EPERM }) -> Int? {
+        struct ServerInfo: Decodable { let url: String; let pid: Int32 }
+        guard let data = try? Data(contentsOf: directory.appendingPathComponent("server.json")),
+              let info = try? JSONDecoder().decode(ServerInfo.self, from: data), info.pid > 0,
+              let url = URLComponents(string: info.url), url.scheme == "http",
+              ["127.0.0.1", "localhost"].contains(url.host ?? ""),
+              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+              url.path.isEmpty || url.path == "/", let port = url.port, (1...65535).contains(port),
+              processExists(info.pid) else { return nil }
+        return port
+    }
+
+    static func existingPort(in directory: URL, fallback: Int = defaultPort,
+                             probe: (Int) -> Bool = { isChumi(health(port: $0, timeout: 1.5)) }) -> Int? {
+        var candidates = [Int]()
+        if let recorded = recordedPort(in: directory) { candidates.append(recorded) }
+        if !candidates.contains(fallback) { candidates.append(fallback) }
+        for port in candidates {
+            // A busy or still-starting server may miss the first health request.
+            if probe(port) || probe(port) { return port }
+        }
+        return nil
+    }
+
     /// True if something accepts connections on 127.0.0.1:port or the port cannot be bound.
     static func portBusy(_ port: Int) -> Bool {
         var addr = sockaddr_in()
@@ -151,10 +239,12 @@ final class ServerManager: @unchecked Sendable {
             close(c)
             if connected { return true }
         }
-        // Can we bind it?
+        // Match Node/libuv: TIME_WAIT connections do not prevent a new listener.
         let s = socket(AF_INET, SOCK_STREAM, 0)
         guard s >= 0 else { return true }
         defer { close(s) }
+        var reuse: Int32 = 1
+        guard setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size)) == 0 else { return true }
         let bound = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(s, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
         } == 0
@@ -163,18 +253,41 @@ final class ServerManager: @unchecked Sendable {
 
     // MARK: - Start / stop
 
-    /// Connects to an existing Chumi server on 4777 or starts one. Completion is called on the main queue.
+    /// Connects to the recorded server (then 4777), or starts one. Completion is called on the main queue.
     func start(completion: @escaping @Sendable (ServerStartResult) -> Void) {
+        start(restarting: false, completion: completion)
+    }
+
+    private func start(restarting: Bool, completion: @escaping @Sendable (ServerStartResult) -> Void) {
+        lock.lock()
+        let accepted = lifecycle.beginStart()
+        lock.unlock()
+        guard accepted else { return }
         DispatchQueue.global(qos: .userInitiated).async {
+            if restarting { self.stop() }
             let result = self.startBlocking()
-            DispatchQueue.main.async { completion(result) }
+            if case .failed = result { self.stop() }
+            DispatchQueue.main.async {
+                self.lock.lock()
+                self.lifecycle.finishStart()
+                self.lock.unlock()
+                completion(result)
+                // An exit between health and delivery still belongs to this start, not a second alert.
+                self.lock.lock()
+                let exited = self.process.map { self.lifecycle.shouldReportExit($0) && !$0.isRunning } ?? false
+                let process = self.process
+                self.lock.unlock()
+                if exited, let process { self.reportUnexpectedExit(process) }
+            }
         }
     }
 
     private func startBlocking() -> ServerStartResult {
         // Reuse a server that's already running (e.g. `npm run dev` in a terminal).
-        if ServerManager.isChumi(ServerManager.health(port: ServerManager.defaultPort)) {
-            port = ServerManager.defaultPort
+        let directory = Self.dataDirectory(environment: ProcessInfo.processInfo.environment,
+                                           home: FileManager.default.homeDirectoryForCurrentUser, repo: repoPath)
+        if let existing = Self.existingPort(in: directory) {
+            port = existing
             ownsServer = false
             appendLog("=== \(Date()) Chumi.app connected to an already-running server on port \(port)\n")
             return .ready(baseURL, owned: false)
@@ -183,13 +296,13 @@ final class ServerManager: @unchecked Sendable {
         let repo = repoPath
         let mainTS = (repo as NSString).appendingPathComponent("server/main.ts")
         guard FileManager.default.fileExists(atPath: mainTS) else {
-            return .failed("The Chumi server was not found at:\n\(mainTS)\n\nRebuild the app with native/build.sh from the repository, or set ChumiRepoPath in Chumi.app/Contents/Info.plist.")
+            return .failed(L("The Chumi server was not found at:\n{path}\n\nRebuild the app with native/build.sh from the repository, or set ChumiRepoPath in Chumi.app/Contents/Info.plist.", ["path": mainTS]))
         }
         // If the repo is in a privacy-protected folder (~/Documents, ~/Desktop, iCloud Drive), macOS asks
         // once whether Chumi may access it. Trigger that here (off the main thread) so node does not stall
         // on it during the health-check window.
         let slowNotice = DispatchWorkItem { [weak self] in
-            self?.onStatus?("Waiting for permission to access \((repo as NSString).abbreviatingWithTildeInPath)…\nIf macOS asks whether Chumi may access this folder, choose Allow.")
+            self?.onStatus?(L("Waiting for permission to access {path}…\nIf macOS asks whether Chumi may access this folder, choose Allow.", ["path": (repo as NSString).abbreviatingWithTildeInPath]))
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: slowNotice)
         let readable = FileHandle(forReadingAtPath: mainTS).map { h -> Bool in
@@ -197,16 +310,16 @@ final class ServerManager: @unchecked Sendable {
             return (try? h.read(upToCount: 1)) != nil
         } ?? false
         slowNotice.cancel()
-        DispatchQueue.main.async { [weak self] in self?.onStatus?("Starting Chumi…") }
+        DispatchQueue.main.async { [weak self] in self?.onStatus?(L("Starting Chumi…")) }
         guard readable else {
-            return .failed("Chumi cannot read its server files in:\n\(repo)\n\nAllow access in System Settings → Privacy & Security → Files and Folders → Chumi, then reopen Chumi.")
+            return .failed(L("Chumi cannot read its server files in:\n{path}\n\nAllow access in System Settings → Privacy & Security → Files and Folders → Chumi, then reopen Chumi.", ["path": repo]))
         }
 
         guard let node = ServerManager.findNode() else {
-            return .failed("Chumi needs Node.js \(ServerManager.minimumNodeMajor) or later and did not find it (looked in /opt/homebrew/bin, /usr/local/bin and your login shell PATH; older versions are skipped).\n\nInstall a current Node.js (e.g. `brew install node`) and reopen Chumi.")
+            return .failed(L("Chumi needs Node.js {version} or later and did not find it (looked in the recorded build path, Homebrew, your login shell PATH and common version-manager locations; older versions are skipped).\n\nInstall a current Node.js (e.g. `brew install node`) and reopen Chumi.", ["version": String(ServerManager.minimumNodeMajor)]))
         }
         guard let chosen = (ServerManager.defaultPort...ServerManager.lastPort).first(where: { !ServerManager.portBusy($0) }) else {
-            return .failed("No free port between \(ServerManager.defaultPort) and \(ServerManager.lastPort) on 127.0.0.1.")
+            return .failed(L("No free port between {first} and {last} on 127.0.0.1.", ["first": String(ServerManager.defaultPort), "last": String(ServerManager.lastPort)]))
         }
         port = chosen
 
@@ -216,15 +329,17 @@ final class ServerManager: @unchecked Sendable {
         p.currentDirectoryURL = URL(fileURLWithPath: repo)
         var env = ProcessInfo.processInfo.environment
         env["CHUMI_APP"] = "1"
+        env["CHUMI_SYSTEM_LANGUAGE"] = ShellLocalization.systemLanguage
         env["CHUMI_SHUTDOWN_GRACE_MS"] = String(ServerManager.shutdownGraceMilliseconds)
         env["CHUMI_AUDIO_HELPER"] = helperPath
         env["PORT"] = String(chosen)
-        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
+        env["PATH"] = ServerManager.serverPath(node: node, inherited: env["PATH"])
         p.environment = env
 
         let fd = open(logURL.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
-        guard fd >= 0 else { return .failed("Could not open the log file \(logURL.path).") }
+        guard fd >= 0 else { return .failed(L("Could not open the log file {path}.", ["path": logURL.path])) }
         let logHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        let logStart = (try? logHandle.seekToEnd()) ?? 0
         logHandle.write("\n=== \(Date()) Chumi.app starting: \(node) \(mainTS) (PORT=\(chosen))\n".data(using: .utf8)!)
         p.standardOutput = logHandle
         p.standardError = logHandle
@@ -238,46 +353,71 @@ final class ServerManager: @unchecked Sendable {
             // manager no longer tracks also counts as stopped on purpose.
             self.lock.lock()
             let intentional = self.intentionalStop || proc !== self.process
+            let unexpected = !intentional && self.lifecycle.shouldReportExit(proc)
             self.lock.unlock()
             let status = proc.terminationStatus
             self.appendLog("=== \(Date()) server exited with status \(status)\(intentional ? " (requested)" : "")\n")
-            if !intentional {
-                let tail = self.logTail()
-                DispatchQueue.main.async { self.onUnexpectedExit?(status, tail) }
-            }
+            if unexpected { DispatchQueue.main.async { self.reportUnexpectedExit(proc) } }
         }
 
-        do {
-            try p.run()
-        } catch {
-            return .failed("Could not start node: \(error.localizedDescription)")
-        }
         lock.lock()
         process = p
         stdinPipe = input
         ownsServer = true
         intentionalStop = false
         lock.unlock()
-
+        do {
+            try p.run()
+        } catch {
+            return .failed(L("Could not start node: {error}", ["error": error.localizedDescription]))
+        }
         // Wait for health (every 250 ms, up to 30 s).
         let deadline = Date().addingTimeInterval(30)
         while Date() < deadline {
             if !p.isRunning {
-                return .failed("The Chumi server exited during startup (status \(p.terminationStatus)).\n\nLast lines of \(logURL.path):\n\n\(logTail())")
+                return .failed(Self.startupFailure(tail: logTail(since: logStart), repo: repo,
+                                                  reason: L("The Chumi server exited during startup (status {status}).", ["status": String(p.terminationStatus)])))
             }
-            if let h = ServerManager.health(port: chosen, timeout: 0.8), h.0 == 200 {
+            if ServerManager.isChumi(ServerManager.health(port: chosen, timeout: 0.8)), p.isRunning {
+                lock.lock()
+                lifecycle.markReady(p)
+                lock.unlock()
                 return .ready(baseURL, owned: true)
             }
             usleep(250_000)
         }
-        return .failed("The Chumi server did not become ready within 30 seconds.\n\nLast lines of \(logURL.path):\n\n\(logTail())")
+        return .failed(Self.startupFailure(tail: logTail(since: logStart), repo: repo,
+                                          reason: L("The Chumi server did not become ready within 30 seconds.")))
     }
 
-    /// True if the server we started is recording a meeting. Asks with a short timeout; false if it does not answer.
-    func isRecording() -> Bool {
-        guard ownsRunningServer,
-              let live = ServerManager.get(port: port, path: "/api/state", timeout: 2)?.1?["live"] as? [String: Any] else { return false }
-        return live["status"] as? String == "recording"
+    static func startupFailure(tail: String, repo: String, reason: String) -> String {
+        let error = tail.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.last {
+            $0.range(of: #"^[A-Za-z]*Error(?: \[[^\]]+\])?:"#, options: .regularExpression) != nil
+        }
+        // Node uses the same error code for missing packages and missing local files.
+        let missingPackage = #"Cannot find (?:package|module) ['"]((?:@[A-Za-z0-9_~-][A-Za-z0-9._~-]*/)?[A-Za-z0-9_~-][A-Za-z0-9._~-]*(?:/[^'":\\\s]+)*)['"]"#
+        if error?.range(of: missingPackage, options: .regularExpression) != nil {
+            return L("Chumi's dependencies are missing or out of date.\n\nRun npm install in:\n{path}\n\nThen choose Try Again. Open Log for technical details.", ["path": repo])
+        }
+        if tail.contains("Chumi is already using this data folder") {
+            return L("Another Chumi server is already using this data folder.\n\nUse that server's window, or stop it and choose Try Again. Open Log for technical details.")
+        }
+        if tail.contains("EADDRINUSE") {
+            return L("The server port is already in use.\n\nChoose Try Again to find an available port. Open Log for technical details.")
+        }
+        let detail = [reason, error].compactMap { $0 }.joined(separator: "\n\n")
+        return L("{reason}\n\nChoose Open Log for technical details, then Try Again.", ["reason": detail])
+    }
+
+    /// Only an owned server will stop on quit. An unanswered check must not imply that its work is saved.
+    func quitCheck() -> QuitCheck {
+        lock.lock()
+        let state = lifecycle
+        let current = ownsServer && process?.isRunning == true ? process : nil
+        let port = self.port
+        lock.unlock()
+        // A child that has not passed health yet cannot have meeting work to lose.
+        return state.quitCheck(for: current) { ServerManager.get(port: port, path: "/api/quit-check", timeout: 2) }
     }
 
     /// A normal child exit acknowledges that its bounded shutdown and database close have finished.
@@ -303,6 +443,7 @@ final class ServerManager: @unchecked Sendable {
         let owned = ownsServer
         let input = stdinPipe
         intentionalStop = true
+        lifecycle.stop()
         lock.unlock()
         guard owned, let p else { return }
         if !ServerManager.stopOwnedProcess(p) {
@@ -312,15 +453,16 @@ final class ServerManager: @unchecked Sendable {
     }
 
     func restart(completion: @escaping @Sendable (ServerStartResult) -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            self.stop()
-            self.lock.lock()
-            self.process = nil
-            self.intentionalStop = false
-            self.lock.unlock()
-            let result = self.startBlocking()
-            DispatchQueue.main.async { completion(result) }
-        }
+        start(restarting: true, completion: completion)
+    }
+
+    private func reportUnexpectedExit(_ process: Process) {
+        lock.lock()
+        let report = !intentionalStop && process === self.process && lifecycle.shouldReportExit(process)
+        if report { lifecycle.stop() }
+        lock.unlock()
+        guard report else { return }
+        onUnexpectedExit?(process.terminationStatus, logTail())
     }
 
     // MARK: - Log helpers
@@ -333,11 +475,11 @@ final class ServerManager: @unchecked Sendable {
         _ = bytes.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
     }
 
-    func logTail(lines: Int = 25) -> String {
-        guard let handle = try? FileHandle(forReadingFrom: logURL) else { return "(log unavailable)" }
+    func logTail(lines: Int = 25, since offset: UInt64 = 0) -> String {
+        guard let handle = try? FileHandle(forReadingFrom: logURL) else { return L("(log unavailable)") }
         defer { try? handle.close() }
         let size = (try? handle.seekToEnd()) ?? 0
-        let start = size > 16384 ? size - 16384 : 0
+        let start = max(min(offset, size), size > 16384 ? size - 16384 : 0)
         try? handle.seek(toOffset: start)
         let data = (try? handle.readToEnd()) ?? Data()
         let text = String(decoding: data, as: UTF8.self)

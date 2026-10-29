@@ -1,18 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store.ts';
 import { saveSettings } from '../actions.ts';
 import { api } from '../api.ts';
 import { getLang, t, tn } from '../i18n.ts';
 import { SpeakerSettings } from './Speakers.tsx';
 import { SpeechEngineSettings } from './SpeechEngineSettings.tsx';
+import { maxAsrThreads, threadDraftValue } from '../../../shared/asr-threads.ts';
+import { MODEL_BASE_URL, MODEL_MIRROR_URL, modelSourceName, type ModelDownloadSource } from '../../../shared/model-source.ts';
 import { speechSettingsBusy } from '../speechSettings.ts';
 
 interface ModelRow {
   engine?: 'qwen3' | 'sensevoice';
   id: string; name: string; sizeMB: number; speed: number; accuracy: number; minRamGB: number;
-  note: { en: string; zh: string }; installed: boolean; active: boolean;
+  note: { en: string; zh: string }; installed: boolean; active: boolean; partial: boolean;
 }
 interface ModelList {
+  source: ModelDownloadSource;
   hardware: { chip: string; appleSilicon: boolean; memoryGB: number; cores: number; gpu?: { name: string; memoryGB: number } | null };
   recommended: string; active: string; models: ModelRow[];
   download: { id: string; received: number; total: number; status: string; error?: string } | null;
@@ -31,15 +34,37 @@ export function TranscriptionTab() {
   const settings = useStore((s) => s.settings)!;
   const live = useStore((s) => s.live);
   const download = useStore((s) => s.asrDownload);
+  const [threads, setThreads] = useState(String(settings.asr.threads));
+  useEffect(() => setThreads(String(settings.asr.threads)), [settings.asr.threads]);
   const [list, setList] = useState<ModelList | null>(null);
   const [glossary, setGlossary] = useState(settings.asr.glossary.join(', '));
+  const glossaryEdit = useRef({ value: glossary, dirty: false, saved: settings.asr.glossary, submitted: null as string[] | null });
+  glossaryEdit.current.saved = settings.asr.glossary;
+  const flushGlossary = () => {
+    const edit = glossaryEdit.current;
+    if (!edit.dirty || edit.submitted) return;
+    const value = edit.value.split(/[,，、;；\n]+/).map((x) => x.trim()).filter(Boolean);
+    const same = (other: string[] | null) => other !== null && value.length === other.length && value.every((x, i) => x === other[i]);
+    if (same(edit.saved)) { edit.dirty = false; return; }
+    edit.submitted = value;
+    const draft = edit.value;
+    void saveSettings({ asr: { glossary: value } }).then((ok) => {
+      if (edit.submitted === value) edit.submitted = null;
+      if (ok) { edit.saved = value; if (edit.value === draft) edit.dirty = false; }
+      if (edit.value !== draft) flushGlossary();
+    });
+  };
+  // Escape and an outside click can remove the focused textarea without firing blur.
+  useEffect(() => () => flushGlossary(), []);
   const [bench, setBench] = useState<{ running: boolean; model?: string; results?: BenchResult[]; error?: string }>({ running: false });
   const busySession = speechSettingsBusy(live);
   const load = () => void api<ModelList>('/api/asr/models').then(setList).catch(() => {});
-  useEffect(load, [settings.asr.model, settings.asr.engine]);
-  useEffect(() => { if (download && download.status !== 'downloading') load(); }, [download?.status]);
-  const dl = download?.status === 'downloading' ? download : list?.download?.status === 'downloading' ? list.download : null;
+  // Reload when the source changes and whenever a download stops (or disappears after a server restart), so a stale 'downloading' entry can't linger.
+  useEffect(load, [settings.asr.model, settings.asr.engine, settings.asr.modelBaseUrl, download?.status]);
+  const dl = download?.status === 'downloading' ? download : null;
   const S = saveSettings;
+  const source = list?.source.fromEnvironment ? list.source : list ? { baseUrl: settings.asr.modelBaseUrl || MODEL_BASE_URL, fromEnvironment: false } : null;
+  const sourceName = source ? modelSourceName(source.baseUrl) : '';
 
   const runBench = () => {
     setBench({ running: true });
@@ -58,6 +83,14 @@ export function TranscriptionTab() {
       <SpeakerSettings />
 
       <h3>{t('Local speech models')}</h3>
+      {source && <label className="field"><span>{t('Download source')}</span>
+        <select value={source.baseUrl} disabled={!!dl || source.fromEnvironment} onChange={(e) => void S({ asr: { modelBaseUrl: e.target.value } })}>
+          <option value={MODEL_BASE_URL}>{t('Hugging Face')}</option>
+          <option value={MODEL_MIRROR_URL}>{t('hf-mirror.com')}</option>
+          {![MODEL_BASE_URL, MODEL_MIRROR_URL].includes(source.baseUrl) && <option value={source.baseUrl}>{sourceName}</option>}
+        </select>
+        {source.fromEnvironment && <span className="muted small">{t('Set by CHUMI_MODEL_BASE_URL. Change that variable and restart Chumi to use another source.')}</span>}
+      </label>}
       {hw && (
         <p className="small">
           {hw.appleSilicon ? t('This Mac: {chip} · {mem} GB memory.', { chip: hw.chip, mem: hw.memoryGB }) : t('This computer: {chip} · {mem} GB memory.', { chip: hw.gpu ? `${hw.chip} · ${hw.gpu.name}` : hw.chip, mem: hw.memoryGB })}{' '}
@@ -89,13 +122,14 @@ export function TranscriptionTab() {
                 {downloading && (
                   <div className="model-progress"><span className="quota-bar"><span style={{ width: `${pct}%` }} /></span><span className="small muted">{dl!.total ? `${pct}% · ${fmtSize(dl!.received / 1048576)} / ${fmtSize(dl!.total / 1048576)}` : t('Starting download…')}</span></div>
                 )}
-                {download?.id === m.id && download.status === 'error' && <div className="error-text small">{t('Download failed: {error}', { error: download.error ?? '' })}</div>}
+                {download?.id === m.id && download.status === 'error' && <div className="error-text small">{t('Download failed: {error}', { error: t(download.error ?? '') })}</div>}
               </div>
               <div className="model-actions">
                 {m.installed && !m.active && <button className="btn small primary" disabled={busySession} title={busySession ? t('End the current session before switching the speech model.') : ''} onClick={() => void S({ asr: m.engine ? { engine: m.engine } : { model: m.id } })}>{t('Use')}</button>}
                 {!m.installed && !downloading && (
-                  <button className="btn small" disabled={!!dl} onClick={() => { if (confirm(t('Download {name} ({size}) from Hugging Face? It is saved on this computer.', { name: m.name, size: fmtSize(m.sizeMB) }))) void api(`/api/asr/models/${m.id}/download`, { body: {} }); }}>{t('Download')} · {fmtSize(m.sizeMB)}</button>
+                  <button className="btn small" disabled={!!dl || !source} onClick={() => { if (confirm(t('Download {name} ({size}) from {source}? It is saved on this computer.', { name: m.name, size: fmtSize(m.sizeMB), source: sourceName }))) void api(`/api/asr/models/${m.id}/download`, { body: {} }); }}>{t('Download')} · {fmtSize(m.sizeMB)}</button>
                 )}
+                {!m.installed && m.partial && !downloading && <button className="btn small ghost" onClick={() => { if (confirm(t('Discard the partial download of {name}? A retry will start from the beginning.', { name: m.name }))) void api(`/api/asr/models/${m.id}`, { method: 'DELETE' }).then(load); }}>{t('Discard partial download')}</button>}
                 {downloading && <button className="btn small" onClick={() => void api(`/api/asr/models/${m.id}/cancel`, { body: {} })}>{t('Cancel')}</button>}
                 {m.installed && !m.active && <button className="btn small ghost" onClick={() => { if (confirm(t('Delete {name} from this computer? You can download it again later.', { name: m.name }))) void api(`/api/asr/models/${m.id}`, { method: 'DELETE' }).then(load); }}>{t('Delete')}</button>}
               </div>
@@ -108,7 +142,7 @@ export function TranscriptionTab() {
       <div className="btn-row">
         <button className="btn small" disabled={bench.running || busySession} onClick={runBench}>{bench.running ? t('Testing…') : settings.asr.engine === 'whisper' ? t('Test speed and accuracy of the current model') : t('Test speed and accuracy of the engine in use')}</button>
       </div>
-      {bench.error && <p className="error-text small">{bench.error}</p>}
+      {bench.error && <p className="error-text small">{t(bench.error)}</p>}
       {bench.results && (
         <table className="bench small">
           <thead><tr><th>{t('Test clip')}</th><th>{t('Time')}</th><th>{t('Speed')}</th><th>{t('Accuracy')}</th></tr></thead>
@@ -143,11 +177,11 @@ export function TranscriptionTab() {
       )}
 
       <h3>{t('Accuracy and performance')}</h3>
-      <label className="field"><span>{t('Vocabulary hints (comma separated): improves spelling of technical terms and names')}</span>
-        <textarea rows={3} value={glossary} onChange={(e) => setGlossary(e.target.value)} onBlur={() => S({ asr: { glossary: glossary.split(/[,，\n]+/).map((x) => x.trim()).filter(Boolean) } })} />
+      <label className="field"><span>{t('Vocabulary hints (commas, 、, or semicolons): improves spelling of technical terms and names')}</span>
+        <textarea rows={3} value={glossary} onChange={(e) => { glossaryEdit.current.value = e.target.value; glossaryEdit.current.dirty = true; setGlossary(e.target.value); }} onBlur={flushGlossary} />
       </label>
       {settings.asr.engine === 'sensevoice' && <p className="muted small">{t('SenseVoice does not support vocabulary hints. The glossary has no effect on this engine.')}</p>}
-      <label className="field"><span>{t('CPU threads (more is faster up to the number of performance cores; {n} cores on this computer)', { n: hw?.cores ?? '?' })}</span><input type="number" min={2} max={16} value={settings.asr.threads} disabled={busySession} title={busySession ? t('Wait until recording and transcription finish before changing speech recognition settings.') : ''} onChange={(e) => S({ asr: { threads: Number(e.target.value) } })} /></label>
+      <label className="field"><span>{t('CPU threads (more is faster up to the number of performance cores; {n} cores on this computer)', { n: hw?.cores ?? '?' })}</span><input type="number" min={2} max={maxAsrThreads(hw?.cores ?? 16)} value={threads} disabled={busySession} title={busySession ? t('Wait until recording and transcription finish before changing speech recognition settings.') : ''} onChange={(e) => setThreads(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} onBlur={() => { const value = threadDraftValue(threads, settings.asr.threads, hw?.cores ?? 16); setThreads(String(value)); if (value !== settings.asr.threads) void S({ asr: { threads: value } }).then((ok) => { if (!ok) setThreads(String(settings.asr.threads)); }); }} /></label>
     </section>
   );
 }

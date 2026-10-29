@@ -128,6 +128,7 @@ function pose(mood: Mood, t: number, u: number, s: RigState): Pose {
 
 export interface RigState { level: number; noteAt: number; swing: number }
 
+const SPARKLES = [[34, 62], [170, 104], [52, 40], [160, 150]];
 const OUT = '#2E2A78', INK = '#221D5C';
 const svg = (id: string) => `
 <svg class="chumi-pet" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" overflow="visible">
@@ -166,7 +167,7 @@ const svg = (id: string) => `
     </g>
     <g data-k="notepad">
       <rect x="80" y="146" width="40" height="27" rx="4" fill="#fff" stroke="${OUT}" stroke-width="2.6"/>
-      <path data-k="lines" d="M87,155 H112 M87,161 H108 M87,167 H104" stroke="#A5B4FC" stroke-width="2.2" stroke-linecap="round"/>
+      <path data-k="lines" stroke-dasharray="26 40" d="M87,155 H112 M87,161 H108 M87,167 H104" stroke="#A5B4FC" stroke-width="2.2" stroke-linecap="round"/>
       <g data-k="pencil"><rect x="-2.6" y="-15" width="5.2" height="17" rx="1.4" fill="#FCD34D" stroke="${OUT}" stroke-width="1.8"/><path d="M-2.6,2 L0,6.5 L2.6,2 Z" fill="${OUT}"/><rect x="-2.6" y="-18" width="5.2" height="4" rx="1.4" fill="#F9A8D4" stroke="${OUT}" stroke-width="1.8"/></g>
     </g>
     <g data-k="armL"><ellipse cx="0" cy="11" rx="9.5" ry="13" fill="url(#${id}-limb)" stroke="${OUT}" stroke-width="3"/></g>
@@ -188,7 +189,7 @@ const svg = (id: string) => `
   <g data-k="zzz">${[0, 1, 2].map((i) => `<text data-k="z${i}" font-family="ui-rounded, 'SF Pro Rounded', 'Arial Rounded MT Bold', sans-serif" font-weight="800" fill="#6366F1" stroke="#fff" stroke-width="3" paint-order="stroke">z</text>`).join('')}</g>
   <g data-k="hearts">${[0, 1, 2].map((i) => `<path data-k="heart${i}" d="M0,3.5 C-6,-1 -6,-7 -2.2,-7 C-0.6,-7 0,-5.6 0,-4.8 C0,-5.6 0.6,-7 2.2,-7 C6,-7 6,-1 0,3.5 Z" fill="#FF6FA5" stroke="#fff" stroke-width="1.4"/>`).join('')}</g>
   <g data-k="sweat"><path d="M0,-9 C4,-3 6,1 6,4 A6,6 0 0 1 -6,4 C-6,1 -4,-3 0,-9 Z" fill="#A5DCFF" stroke="${OUT}" stroke-width="2"/></g>
-  <g data-k="sparkles">${[[34, 62], [170, 104], [52, 40], [160, 150]].map(([x, y], i) => `<path data-k="sp${i}" transform="translate(${x} ${y})" d="M0,-7 Q.7,-.7 7,0 Q.7,.7 0,7 Q-.7,.7 -7,0 Q-.7,-.7 0,-7 Z" fill="#FCD34D" stroke="#fff" stroke-width="1"/>`).join('')}</g>
+  <g data-k="sparkles">${SPARKLES.map(([x, y], i) => `<path data-k="sp${i}" transform="translate(${x} ${y})" d="M0,-7 Q.7,-.7 7,0 Q.7,.7 0,7 Q-.7,.7 -7,0 Q-.7,-.7 0,-7 Z" fill="#FCD34D" stroke="#fff" stroke-width="1"/>`).join('')}</g>
   <g data-k="bang"><circle r="11" fill="#FB7185" stroke="${OUT}" stroke-width="2.4"/><rect x="-2" y="-7" width="4" height="8.5" rx="2" fill="#fff"/><circle cy="4.8" r="2.1" fill="#fff"/></g>
 </svg>`;
 
@@ -211,6 +212,7 @@ export class PetRig {
   private heartsAt = -99;
   private last = 0;
   private sm = { lookX: 0, lookY: 0, petting: 0, level: 0 };
+  private attributes = new WeakMap<Element, Map<string, string>>();
   private n: Record<string, SVGElement> = {};
 
   constructor() {
@@ -237,7 +239,14 @@ export class PetRig {
   tap(t: number): void { this.tapAt = t; this.heartsAt = t; }
   land(t: number): void { this.landAt = t; }
 
-  draw(t: number): void {
+  draw(t: number, still = false): void {
+    if (still) {
+      const p = pose(this.mood, 0, 10, { level: 0, noteAt: -99, swing: 0 });
+      if (this.look && LOOKS[this.mood]) { p.lookX = this.look.x; p.lookY = this.look.y; }
+      this.sm = { lookX: p.lookX, lookY: p.lookY, petting: 0, level: 0 }; this.last = t;
+      this.apply(p, 0);
+      return;
+    }
     const dt = clamp(t - this.last, 0, 0.1); this.last = t;
     const k = (rate: number) => 1 - Math.exp(-rate * dt);
     this.sm.level += (this.level - this.sm.level) * k(10);
@@ -272,10 +281,18 @@ export class PetRig {
     this.apply(p, t);
   }
 
+  private set(e: Element, key: string, value: string | number): void {
+    let attrs = this.attributes.get(e);
+    if (!attrs) { attrs = new Map(); this.attributes.set(e, attrs); }
+    const text = String(value);
+    if (attrs.get(key) === text) return;
+    attrs.set(key, text); e.setAttribute(key, text);
+  }
+
   private apply(p: Pose, t: number): void {
-    const n = this.n, set = (e: SVGElement, k: string, v: string | number) => e.setAttribute(k, String(v));
+    const n = this.n, set = (e: Element, k: string, v: string | number) => this.set(e, k, v);
     const f = (v: number) => v.toFixed(2);
-    const show = (e: SVGElement, v: number) => set(e, 'opacity', f(clamp(v)));
+    const show = (e: SVGElement, v: number) => { const opacity = f(clamp(v)); set(e, 'opacity', opacity); return opacity !== '0.00'; };
     set(n.rig, 'transform', `translate(${f(p.x)} ${f(p.y)}) translate(100 179) rotate(${f(p.rot)}) scale(${f(p.sx)} ${f(p.sy)}) translate(-100 -179)`);
     set(n.shadow, 'transform', `translate(100 182) scale(${f(clamp(1 + p.y / 60, 0.55, 1.1) * p.sx)} 1) translate(-100 -182)`);
     show(n.shadow, 0.16 * clamp(1 + p.y / 50, 0.4, 1));
@@ -289,8 +306,7 @@ export class PetRig {
     for (const s of ['L', 'R'] as const) {
       set(n[`eye${s}`], 'transform', `translate(${f((s === 'L' ? 79 : 121) + p.lookX * 1.6)} ${f(129 + p.lookY * 1.4)})`);
       const wide = p.eye === 'wide' ? 1.16 : 1;
-      set(n[`open${s}`], 'transform', `scale(${f(wide)} ${f(Math.max(0.08, p.open) * wide)})`);
-      show(n[`open${s}`], p.eye === 'open' || p.eye === 'wide' ? 1 : 0);
+      if (show(n[`open${s}`], p.eye === 'open' || p.eye === 'wide' ? 1 : 0)) set(n[`open${s}`], 'transform', `scale(${f(wide)} ${f(Math.max(0.08, p.open) * wide)})`);
       show(n[`happy${s}`], p.eye === 'happy' ? 1 : 0); show(n[`closed${s}`], p.eye === 'closed' ? 1 : 0); show(n[`x${s}`], p.eye === 'x' ? 1 : 0);
       show(n[`blush${s}`], p.blush * 0.62);
     }
@@ -301,49 +317,48 @@ export class PetRig {
     const headTop = 179 - 99 * p.sy + p.y;
     set(n.star, 'transform', `translate(${f(100 + p.x + p.rot * 0.9)} ${f(headTop - 27 + p.starY)})`);
     set(n.spark, 'transform', `rotate(${f(p.starRot)}) scale(${f(p.starS)})`);
-    show(n.spark, p.starA); show(n.glow, p.glow); set(n.glow, 'transform', `scale(${f(0.85 + 0.15 * Math.sin(t * 6))})`);
+    show(n.spark, p.starA); if (show(n.glow, p.glow)) set(n.glow, 'transform', `scale(${f(0.85 + 0.15 * Math.sin(t * 6))})`);
 
     // Listening bubble: the logo's speech bubble, its bars following the room's audio level.
-    show(n.bubble, Math.max(p.bars, p.pause)); show(n.bars, p.bars); show(n.pauseGlyph, p.pause * (1 - p.bars));
-    set(n.bubble, 'transform', `translate(${f(p.x * 0.6)} ${f(p.y * 0.5 + 2 * Math.sin(t * 2.2))})`);
+    if (show(n.bubble, Math.max(p.bars, p.pause))) set(n.bubble, 'transform', `translate(${f(p.x * 0.6)} ${f(p.y * 0.5 + 2 * Math.sin(t * 2.2))})`);
     const lv = clamp(this.sm.level);
-    for (let i = 0; i < 5; i++) {
+    show(n.pauseGlyph, p.pause * (1 - p.bars));
+    if (show(n.bars, p.bars)) for (let i = 0; i < 5; i++) {
       const env = [0.55, 0.8, 1, 0.8, 0.55][i];
       const h = 4 + 20 * env * clamp(0.16 + 0.08 * Math.sin(t * 3.1 + i * 1.3) + lv * (0.55 + 0.45 * Math.sin(t * (9 + i * 2.3) + i * 1.7)));
       set(n[`bar${i}`], 'height', f(h)); set(n[`bar${i}`], 'y', f(99 - h / 2));
     }
 
-    show(n.notepad, p.notepad);
-    set(n.pencil, 'transform', `translate(${f(102 + 9 * Math.sin(t * 13))} ${f(160 + 2.5 * Math.sin(t * 26))}) rotate(28)`);
-    set(n.lines, 'stroke-dasharray', '26 40'); set(n.lines, 'stroke-dashoffset', f(26 - 26 * clamp(((t - this.noteAt) / 1.8) % 1.2)));
+    if (show(n.notepad, p.notepad)) {
+      set(n.pencil, 'transform', `translate(${f(102 + 9 * Math.sin(t * 13))} ${f(160 + 2.5 * Math.sin(t * 26))}) rotate(28)`);
+      set(n.lines, 'stroke-dashoffset', f(26 - 26 * clamp(((t - this.noteAt) / 1.8) % 1.2)));
+    }
 
-    show(n.dots, p.dots);
-    for (let i = 0; i < 3; i++) show(n[`dot${i}`], (t * 1.5) % 1.2 > i * 0.3 ? 1 : 0.15);
+    if (show(n.dots, p.dots)) for (let i = 0; i < 3; i++) show(n[`dot${i}`], (t * 1.5) % 1.2 > i * 0.3 ? 1 : 0.15);
 
-    show(n.zzz, p.zzz);
-    for (let i = 0; i < 3; i++) {
+    if (show(n.zzz, p.zzz)) for (let i = 0; i < 3; i++) {
       const q = (t * 0.42 + i / 3) % 1, z = n[`z${i}`];
       set(z, 'x', f(142 + 22 * q + 3 * Math.sin(q * 9))); set(z, 'y', f(98 - 52 * q)); set(z, 'font-size', f(11 + 13 * q));
       show(z, Math.sin(Math.PI * q));
     }
-    show(n.hearts, p.hearts);
-    for (let i = 0; i < 3; i++) {
+    if (show(n.hearts, p.hearts)) for (let i = 0; i < 3; i++) {
       const q = (t * 0.7 + i / 3) % 1, x = [62, 104, 142][i] + 8 * Math.sin(q * 7 + i);
       set(n[`heart${i}`], 'transform', `translate(${f(x)} ${f(headTop + 8 - 50 * q)}) scale(${f(0.9 + 0.6 * q)})`);
       show(n[`heart${i}`], Math.sin(Math.PI * q));
     }
-    show(n.sweat, p.sweat); set(n.sweat, 'transform', `translate(${f(150 + p.x)} ${f(headTop + 30 + 5 * ((t * 0.9) % 1))})`);
-    show(n.sparkles, p.sparkles);
-    for (let i = 0; i < 4; i++) { const e = n[`sp${i}`]; const base = e.getAttribute('transform')!.split(' scale')[0]; set(e, 'transform', `${base} scale(${f(0.35 + 0.65 * Math.abs(Math.sin(t * 4 + i * 1.9)))})`); }
-    show(n.bang, p.bang); set(n.bang, 'transform', `translate(${f(150 + p.x)} ${f(headTop - 6)}) scale(${f(ease(p.bang * 1.4) * (1 + 0.15 * Math.sin(t * 14) * p.bang))})`);
+    if (show(n.sweat, p.sweat)) set(n.sweat, 'transform', `translate(${f(150 + p.x)} ${f(headTop + 30 + 5 * ((t * 0.9) % 1))})`);
+    if (show(n.sparkles, p.sparkles)) for (let i = 0; i < SPARKLES.length; i++) {
+      const [x, y] = SPARKLES[i];
+      set(n[`sp${i}`], 'transform', `translate(${x} ${y}) scale(${f(0.35 + 0.65 * Math.abs(Math.sin(t * 4 + i * 1.9)))})`);
+    }
+    if (show(n.bang, p.bang)) set(n.bang, 'transform', `translate(${f(150 + p.x)} ${f(headTop - 6)}) scale(${f(ease(p.bang * 1.4) * (1 + 0.15 * Math.sin(t * 14) * p.bang))})`);
 
-    show(n.confetti, p.confetti);
-    if (p.confetti > 0.01) {
+    if (show(n.confetti, p.confetti)) {
       [...n.confetti.children].forEach((c, i) => {
         const speed = 0.35 + 0.3 * hash(i + 0.3), q = (t * speed + hash(i + 0.7)) % 1;
         const x = 12 + 176 * hash(i * 1.7) + 10 * Math.sin(t * 2 + i), y = -12 + 196 * q;
-        c.setAttribute('transform', `translate(${f(x)} ${f(y)}) rotate(${f(t * 260 * (hash(i + 2.2) - 0.5))})`);
-        c.setAttribute('opacity', f(Math.min(1, (1 - q) * 3)));
+        set(c, 'transform', `translate(${f(x)} ${f(y)}) rotate(${f(t * 260 * (hash(i + 2.2) - 0.5))})`);
+        set(c, 'opacity', f(Math.min(1, (1 - q) * 3)));
       });
     }
   }

@@ -170,6 +170,8 @@ class Source {
         ComApartment apartment;
         ComPtr<IMMDeviceEnumerator> devices;
         bool announced = false;
+        unsigned reconnectAttempt = 0;
+        const DWORD retryDelays[] = {1000, 2000, 5000, 10000};
         try { check(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)devices.out()), "Open Windows audio"); }
         catch (const AudioError& error) { started.set_value({{"error", errorMessage(error)}}); return; }
         while (WaitForSingleObject(stopEvent, 0) != WAIT_OBJECT_0) {
@@ -185,6 +187,7 @@ class Source {
                 ComPtr<IAudioCaptureClient> capture;
                 check(client->GetService(__uuidof(IAudioCaptureClient), (void**)capture.out()), "Open audio stream");
                 check(client->Start(), "Start audio device");
+                reconnectAttempt = 0;
                 if (!announced) { started.set_value({{"name", friendlyName}, {"uid", utf8(uid)}}); announced = true; }
                 else event({{"type", "device_changed"}, {"kind", id == 2 ? "output" : "input"}, {"name", friendlyName}, {"uid", utf8(uid)}});
                 double lastPacket = clockSeconds(), lastDeviceCheck = lastPacket;
@@ -215,9 +218,11 @@ class Source {
                 client->Stop(); flush(); nextTime = -1;
             } catch (const AudioError& error) {
                 if (!announced) { started.set_value({{"error", errorMessage(error)}}); return; }
-                event({{"type", "warning"}, {"code", "device_disconnected"}, {"message", errorMessage(error)}});
+                if (reconnectAttempt == 0) event({{"type", "warning"}, {"code", "device_disconnected"}, {"message", errorMessage(error)}});
                 flush(); nextTime = -1;
-                if (WaitForSingleObject(stopEvent, 1000) == WAIT_OBJECT_0) return;
+                const DWORD delay = retryDelays[reconnectAttempt];
+                reconnectAttempt = std::min(reconnectAttempt + 1, 3u);
+                if (WaitForSingleObject(stopEvent, delay) == WAIT_OBJECT_0) return;
             }
         }
     }

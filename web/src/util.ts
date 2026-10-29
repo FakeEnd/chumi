@@ -19,6 +19,11 @@ export function parseT(s: string): number | null {
 }
 export const fmtClock = (ms: number) => new Date(ms).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
 export const fmtDate = (ms: number) => new Date(ms).toLocaleString(locale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+export const screenLabel = (screen: { app: string; title: string }): string => {
+  if (screen.app) return screen.app;
+  const title = Array.from(screen.title);
+  return title.length > 40 ? `${title.slice(0, 39).join('')}…` : screen.title;
+};
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 

@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { aiWorkdir, findClaude } from '../paths.ts';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { aiWorkdir, DATA_DIR, findClaude } from '../paths.ts';
 import { runCommand, spawnCommand, stopProcess } from '../platform.ts';
 import { ProviderError, type AIProvider, type CompletionRequest, type CompletionResult, type ProviderStatus } from './provider.ts';
 
@@ -27,6 +28,21 @@ interface RateInfo { status?: string; resetsAt?: number; rateLimitType?: string;
 /** A request that prints nothing for this long is stuck; none may take longer than the cap. Either frees its AI queue slot. */
 const IDLE_MS = 5 * 60_000;
 const OVERALL_MS = 15 * 60_000;
+const PROMPT_DIR = join(DATA_DIR, 'claude-prompts');
+let cleanedPrompts = false;
+
+function removePrompt(folder: string): void {
+  try { rmSync(folder, { recursive: true, force: true }); } catch { /* Windows may still hold the file; retry at the next startup. */ }
+}
+
+function cleanPrompts(): void {
+  if (cleanedPrompts) return;
+  cleanedPrompts = true;
+  // No requests exist yet. Keep temporary instructions outside the shared CLI working directory.
+  for (const root of [PROMPT_DIR, join(DATA_DIR, 'ai-workdir')]) {
+    try { for (const name of readdirSync(root)) if (name.startsWith('claude-prompt-')) removePrompt(join(root, name)); } catch { /* No leftovers. */ }
+  }
+}
 
 export class ClaudeCliProvider implements AIProvider {
   readonly id = 'claude-cli';
@@ -37,11 +53,12 @@ export class ClaudeCliProvider implements AIProvider {
   private lastRate: RateInfo | null = null;
   private overageBlocked = false;
   private lastStatus: ProviderStatus | null = null;
-  private limits: { idleMs: number; overallMs: number };
+  private limits: { idleMs: number; overallMs: number; authMs: number };
 
-  constructor(cfg: () => { model: string }, limits: { idleMs?: number; overallMs?: number } = {}) {
+  constructor(cfg: () => { model: string }, limits: { idleMs?: number; overallMs?: number; authMs?: number } = {}) {
+    cleanPrompts();
     this.cfg = cfg;
-    this.limits = { idleMs: limits.idleMs ?? IDLE_MS, overallMs: limits.overallMs ?? OVERALL_MS };
+    this.limits = { idleMs: limits.idleMs ?? IDLE_MS, overallMs: limits.overallMs ?? OVERALL_MS, authMs: limits.authMs ?? 15_000 };
   }
 
   private childEnv(): NodeJS.ProcessEnv {
@@ -58,13 +75,23 @@ export class ClaudeCliProvider implements AIProvider {
       return this.lastStatus = { ...base, billing: 'none', billingLabel: 'Not installed', state: 'not_installed', ready: false,
         quota: { known: false, summary: 'Quota information unavailable.' }, message: 'Claude Code CLI not found.', setupHint: 'Install Claude Code, then run: claude auth login' };
     }
-    const out = (await runCommand(bin, ['auth', 'status'], { env: this.childEnv(), timeoutMs: 15000 })).out;
-    let st: { loggedIn?: boolean; authMethod?: string; subscriptionType?: string; email?: string } = {};
-    try { st = JSON.parse(out); } catch { /* older CLI prints text */ }
+    const result = await runCommand(bin, ['auth', 'status'], { env: this.childEnv(), timeoutMs: this.limits.authMs });
+    let st: { loggedIn: boolean; authMethod?: string; subscriptionType?: string; email?: string } | null = null;
+    try {
+      const value = JSON.parse(result.out);
+      if (value && typeof value === 'object' && !Array.isArray(value) && typeof value.loggedIn === 'boolean' &&
+          ['authMethod', 'subscriptionType', 'email'].every((key) => value[key] == null || typeof value[key] === 'string')) st = value;
+    } catch { /* An unreadable status is not evidence that the user signed out. */ }
     const quota = this.quota();
-    if (!st.loggedIn) {
+    // Claude uses exit 1 for an explicit signed-out JSON status.
+    if (st?.loggedIn === false && (result.code === 0 || result.code === 1)) {
       return this.lastStatus = { ...base, billing: 'none', billingLabel: 'Not signed in', state: 'signed_out', ready: false, quota,
         message: 'The Claude Code CLI is not signed in.', setupHint: 'In Terminal run: claude auth login  (sign in with your Claude Pro/Max account). Chumi never sees your credentials.' };
+    }
+    if (!st || result.code !== 0) {
+      return this.lastStatus = { ...base, billing: 'none', billingLabel: 'Unavailable', state: 'error', ready: false, quota,
+        message: 'Chumi could not read Claude Code’s sign-in status. Run claude update, then refresh the provider status in Settings.',
+        setupHint: 'In Terminal run: claude auth status' };
     }
     const method = (st.authMethod || '').toLowerCase();
     if (/api|key|console/.test(method)) {
@@ -73,8 +100,8 @@ export class ClaudeCliProvider implements AIProvider {
         setupHint: 'Run "claude auth logout" then "claude auth login" with your Claude subscription.' };
     }
     if (this.overageBlocked) {
-      return this.lastStatus = { ...base, billing: 'subscription', billingLabel: 'Subscription — Claude plan', state: 'quota_blocked', ready: false, quota, plan: st.subscriptionType ?? null,
-        message: 'Claude Code reported paid extra usage (overage). Chumi paused AI requests so nothing is charged beyond your plan. Re-select the provider in Settings to resume after your limit resets.' };
+      return this.lastStatus = { ...base, billing: 'subscription', billingLabel: 'Subscription — Claude plan', state: 'quota_blocked', overageBlocked: true, ready: false, quota, plan: st.subscriptionType ?? null,
+        message: 'Claude Code reported paid extra usage (overage). Chumi paused further AI requests. Use Resume Claude requests in Settings after your limit resets.' };
     }
     const rejected = this.lastRate?.status === 'rejected' && (!this.lastRate.resetsAt || this.lastRate.resetsAt * 1000 > Date.now());
     return this.lastStatus = {
@@ -100,7 +127,7 @@ export class ClaudeCliProvider implements AIProvider {
   }
 
   /** Re-enable after an overage block (explicit user action). */
-  clearOverageBlock(): void { this.overageBlocked = false; this.lastStatus = null; }
+  clearOverageBlock(): void { if (this.overageBlocked) this.lastRate = null; this.overageBlocked = false; this.lastStatus = null; }
 
   async complete(req: CompletionRequest): Promise<CompletionResult> {
     const st = await this.status();
@@ -109,15 +136,25 @@ export class ClaudeCliProvider implements AIProvider {
     const model = this.cfg().model;
     let instructions = req.instructions;
     if (req.jsonSchema) instructions += `\n\nReturn ONLY a JSON object (no prose, no code fences) matching this JSON Schema:\n${JSON.stringify(req.jsonSchema)}`;
-    const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--model', model,
-      '--system-prompt', instructions, '--tools', '', '--strict-mcp-config', '--no-session-persistence'];
-    const effort = req.effort && !/haiku/i.test(model) ? req.effort : null;
-    if (effort) args.push('--effort', effort);
     // One user message: screen captures (if any) as image blocks, then the text. Read before spawning, so a missing file leaves no child behind.
     const content = [
       ...(req.images ?? []).map((im) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: readFileSync(im.path).toString('base64') } })),
       { type: 'text', text: req.input },
     ];
+    mkdirSync(PROMPT_DIR, { recursive: true, mode: 0o700 });
+    const folder = mkdtempSync(join(PROMPT_DIR, 'claude-prompt-'));
+    const promptFile = join(folder, 'system.txt');
+    try {
+      writeFileSync(promptFile, instructions, { mode: 0o600 });
+      return await this.run(req, bin, model, promptFile, content);
+    } finally { removePrompt(folder); }
+  }
+
+  private async run(req: CompletionRequest, bin: string, model: string, promptFile: string, content: unknown[]): Promise<CompletionResult> {
+    const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--model', model,
+      '--system-prompt-file', promptFile, '--tools', '', '--strict-mcp-config', '--no-session-persistence'];
+    const effort = req.effort && !/haiku/i.test(model) ? req.effort : null;
+    if (effort) args.push('--effort', effort);
     if (req.signal?.aborted) throw new ProviderError('aborted', 'Request cancelled.');
     const proc = spawnCommand(bin, args, { cwd: aiWorkdir(), env: this.childEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     let killTimer: NodeJS.Timeout | undefined;
@@ -153,10 +190,12 @@ export class ClaudeCliProvider implements AIProvider {
         if (m.is_error) errMsg = String(m.result ?? m.subtype ?? 'error'); else result = String(m.result ?? '');
       }
     };
-    proc.stderr!.on('data', (d: Buffer) => { alive(); stderr = (stderr + d.toString()).slice(-2000); });
-    proc.stdout!.on('data', (d: Buffer) => {
+    proc.stderr!.setEncoding('utf8');
+    proc.stderr!.on('data', (d: string) => { alive(); stderr = (stderr + d).slice(-2000); });
+    proc.stdout!.setEncoding('utf8');
+    proc.stdout!.on('data', (d: string) => {
       alive();
-      buf += d.toString('utf8');
+      buf += d;
       let i;
       while ((i = buf.indexOf('\n')) >= 0) { onLine(buf.slice(0, i)); buf = buf.slice(i + 1); }
     });

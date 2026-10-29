@@ -24,6 +24,7 @@ function session(id = 'a'): SessionData {
 }
 
 interface Actions {
+  continueHandoff(id: string, agent: string): Promise<{ prompt: string; launched: boolean }>;
   loadState(): Promise<void>;
   openSession(id: string): Promise<void>;
   refreshSession(id: string): Promise<void>;
@@ -45,6 +46,8 @@ function harness(initial: Partial<AppState> = {}) {
   } as AppState;
   let handlers: Record<string, (data: any) => void> = {}, connection: (ok: boolean) => void = () => {};
   const calls: Array<{ path: string; options: any }> = [], notices: string[] = [];
+  const timers = new Map<number, { fn: () => void; ms: number }>();
+  let timerId = 0;
   const replies = new Map<string, Array<unknown>>();
   const api = async (path: string, options: any = {}) => {
     calls.push({ path, options });
@@ -70,11 +73,14 @@ function harness(initial: Partial<AppState> = {}) {
     subscribe: (events: typeof handlers, conn: typeof connection) => { handlers = events; connection = conn; return () => {}; },
     projectContextOn: () => false, t: (text: string) => text, saveCompact: () => {},
     location: { search: '', pathname: '/', hash: '' }, history: { state: null, replaceState: () => {} },
+    setTimeout: (fn: () => void, ms: number) => { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
+    clearTimeout: (id: number) => timers.delete(id),
   };
-  const actions = new Function(...Object.keys(dependencies), `${source}\nreturn { loadState, openSession, refreshSession, goHome, connectEvents, endSession, submitQuestion };`)(...Object.values(dependencies)) as Actions;
-  actions.connectEvents();
+  const actions = new Function(...Object.keys(dependencies), `${source}\nreturn { continueHandoff, loadState, openSession, refreshSession, goHome, connectEvents, endSession, submitQuestion };`)(...Object.values(dependencies)) as Actions;
+  const disconnect = actions.connectEvents();
   return {
-    actions, calls, notices, get: () => state, set: setState,
+    actions, calls, notices, disconnect, timers, get: () => state, set: setState,
+    retry: () => { const [id, timer] = timers.entries().next().value!; timers.delete(id); timer.fn(); },
     reply: (path: string, ...values: unknown[]) => replies.set(path, [...(replies.get(path) ?? []), ...values]),
     emit: (event: string, data: unknown) => handlers[event](data), connection: (ok: boolean) => connection(ok),
   };
@@ -94,6 +100,51 @@ test('reconnection refreshes the open session without losing the reader or compo
   assert.equal(h.get().attached, attached);
   assert.equal(h.get().askDraft, 'My draft');
   assert.deepEqual(h.get().deltas, { 'still-writing': 'Keep this text' });
+  assert.equal(h.get().sessionsRev, 1);
+});
+
+test('reconnection replaces missed download progress, including a restarted server with no download', async () => {
+  for (const download of [{ id: 'model', received: 100, total: 100, status: 'done' }, { id: 'model', received: 42, total: 100, status: 'error' }, null]) {
+    const h = harness({ viewId: null, data: null, live: null, asrDownload: { id: 'model', received: 42, total: 100, status: 'downloading' } });
+    h.reply('/api/state', { live: null, asrDownload: download });
+    h.connection(true); await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(h.get().asrDownload, download);
+    assert.equal(h.get().sessionsRev, 1);
+  }
+});
+
+test('a download event arriving during the state read wins over older snapshot progress', async () => {
+  const h = harness({ viewId: null, live: null }), pending = deferred<unknown>();
+  h.reply('/api/state', pending.promise);
+  const read = h.actions.loadState();
+  const done = { id: 'model', status: 'done', received: 100, total: 100 };
+  h.emit('asr-download', done);
+  pending.resolve({ live: null, asrDownload: { ...done, status: 'downloading', received: 42 } }); await read;
+  assert.deepEqual(h.get().asrDownload, done);
+});
+
+test('failed state reads retry with capped backoff while the event stream remains open', async () => {
+  const h = harness({ loaded: false, viewId: null, live: null });
+  for (const delay of [2000, 4000, 8000, 16000, 30000, 30000]) {
+    const pending = deferred<unknown>(); h.reply('/api/state', pending.promise);
+    if (!h.calls.length) h.connection(true); else h.retry();
+    pending.reject(new TypeError('Failed to fetch'));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(h.get().loaded, false); assert.equal([...h.timers.values()][0].ms, delay);
+  }
+  h.reply('/api/state', { live: null }); h.retry(); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.get().loaded, true); assert.equal(h.timers.size, 0);
+});
+
+test('disconnect and cleanup cancel state retries and ignore a late aborted snapshot', async () => {
+  const h = harness({ loaded: false, viewId: null, live: null }), pending = deferred<unknown>();
+  h.reply('/api/state', pending.promise); h.connection(true); h.connection(false);
+  assert.equal(h.calls[0].options.signal.aborted, true);
+  pending.resolve({ live: null }); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.get().loaded, false); assert.equal(h.timers.size, 0);
+  const failed = deferred<unknown>(); h.reply('/api/state', failed.promise); h.connection(true);
+  failed.reject(new Error('Unavailable')); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.timers.size, 1); h.disconnect(); assert.equal(h.timers.size, 0);
 });
 
 test('events racing a snapshot are merged exactly once and finished outputs stay finished', async () => {
@@ -261,5 +312,55 @@ test('handoff progress merging keeps newer saves but respects hidden or reassign
     h.set({ data: { ...data, handoff: handoff() } });
     h.emit('handoff', { sessionId: 'a', handoff: handoff({ ...patch, progress: { ...progress, note: '', version: 0 } }) });
     assert.equal(h.get().data?.handoff?.items[0].progress?.note, '', 'old progress belongs to the original project and task');
+  }
+});
+
+test('capture recovery clears the obsolete crash banner and preserves unrelated notices', () => {
+  const f = harness({ notices: [
+    { id: 1, code: 'capture_stopped', level: 'error', message: 'Restarting', at: 0 },
+    { id: 2, code: 'other', level: 'error', message: 'Unrelated', at: 0 },
+  ] });
+  f.emit('notice', { code: 'capture_restarted', level: 'info', message: 'Audio capture restarted. Recording continues.' });
+  assert.deepEqual(f.get().notices.map((n) => n.code), ['other']);
+});
+
+
+test('merged transcription gaps replace their previous timeline entries', () => {
+  const h = harness();
+  h.emit('timeline', { id: 1, session_id: 'a', kind: 'gap', t: 0, detail: '0–1' });
+  h.emit('timeline', { id: 2, session_id: 'a', kind: 'gap', t: 2000, detail: '2–3' });
+  h.emit('timeline', { id: 1, session_id: 'a', kind: 'gap', t: 0, detail: '0–3', replaces: [1, 2] });
+  assert.equal(h.get().data?.timeline.length, 1);
+  assert.equal(h.get().data?.timeline[0].detail, '0–3');
+});
+
+test('mybot completion events refresh the export status independently of settings', () => {
+  const h = harness({ mybotExportRev: 0 });
+  h.emit('mybot-exported', { exported: 3, dir: '/tmp/synthetic' });
+  assert.equal(h.get().mybotExportRev, 1);
+  h.emit('mybot-exported', { exported: 4, dir: '/tmp/synthetic' });
+  assert.equal(h.get().mybotExportRev, 2);
+});
+
+test('handoff continuation exposes launch failures and updates the handoff on success', async () => {
+  const h = harness(), pending = deferred<unknown>();
+  h.reply('/api/handoffs/h/continue', pending.promise);
+  const continuation = h.actions.continueHandoff('h', 'codex');
+  pending.reject(new Error('The project folder is not available.'));
+  await assert.rejects(continuation, /project folder is not available/);
+  assert.deepEqual(h.notices, []);
+  const handoff = { id: 'h', session_id: 'a', items: [] };
+  h.reply('/api/handoffs/h/continue', { prompt: 'Reviewed instructions', launched: true, handoff });
+  assert.equal((await h.actions.continueHandoff('h', 'codex')).launched, true);
+  assert.deepEqual(h.get().data?.handoff, handoff);
+});
+
+
+test('a successful handoff launch tolerates absent handoff metadata', async () => {
+  const h = harness();
+  for (const handoff of [null, undefined]) {
+    h.reply('/api/handoffs/h/continue', { prompt: 'Reviewed instructions', launched: true, handoff });
+    assert.equal((await h.actions.continueHandoff('h', 'codex')).launched, true);
+    assert.deepEqual(h.notices, []);
   }
 });

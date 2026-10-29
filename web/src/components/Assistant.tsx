@@ -3,6 +3,7 @@ import { setState, useStore } from '../store.ts';
 import { ask, cancelOutput, explain, refreshOutput, submitQuestion } from '../actions.ts';
 import { fmtClock, fmtT, parseT } from '../util.ts';
 import { msg, plural, t } from '../i18n.ts';
+import { digestProgress } from '../ai-progress.ts';
 import { DEPTH_LABEL } from './TopBar.tsx';
 import { Markdown } from './Markdown.tsx';
 import { focusTime } from './Transcript.tsx';
@@ -85,6 +86,7 @@ function OutputCard({ o, depth, open, onToggle }: { o: Output; depth: Depth; ope
           {category && <span className={`tag tag-${category}`} title={t(CATEGORY_TAG[category].tip)}>{t(CATEGORY_TAG[category].label)}</span>}
           {auto && <span className="tag">{t('Background')}</span>}
           {o.kind === 'final_summary' && <span className="tag tag-summary">{t('Summary')}</span>}
+          {(o.stale_reason === 'transcription_pending' || o.stale_reason === 'transcript_completed_late') && <span className="tag tag-warn">{t('Transcript incomplete when generated')}</span>}
           {o.stale_reason === 'speaker_labels_changed' && <span className="tag tag-warn">{t('Speaker labels changed')}</span>}
           <span className="card-title">{title(o)}</span>
         </button>
@@ -110,16 +112,18 @@ function OutputCard({ o, depth, open, onToggle }: { o: Output; depth: Depth; ope
           </div>
           <ProjectContextSources o={o} />
           {o.stale_reason === 'speaker_labels_changed' && <p className="small warn-text">{t('This answer used older speaker labels or names. Regenerate it to use the current corrections.')}</p>}
+          {o.stale_reason === 'transcription_pending' && <p className="small warn-text">{t('The summary may be missing the last part. Transcription is still pending; refresh the summary when it finishes.')}</p>}
+          {o.stale_reason === 'transcript_completed_late' && <p className="small warn-text">{t('More transcript arrived after this response was started. Refresh it to include the new lines.')}</p>}
           {auto && o.data?.why && <p className="why muted">{o.data.why}</p>}
           {o.status === 'pending' && <div className="pending"><span className="spinner" /> {t('Waiting for the AI provider…')}</div>}
           {(o.status === 'streaming' || o.status === 'done') && body && <Markdown text={body} />}
-          {o.status === 'streaming' && !body && <div className="pending"><span className="spinner" /> {t('Thinking…')}</div>}
-          {o.status === 'error' && <div className="error-box">{o.error}</div>}
+          {o.status === 'streaming' && !body && <div className="pending"><span className="spinner" /> {digestProgress(o) ?? t('Thinking…')}</div>}
+          {o.status === 'error' && <div className="error-box">{o.error && t(o.error)}</div>}
           {o.status === 'cancelled' && <div className="muted small">{t('Cancelled.')}</div>}
           {invalid.length > 0 && <div className="muted small warn-text">{t(invalid.length === 1 ? msg('Note: {n} cited time ({list}) did not match any transcript line.') : msg('Note: {n} cited times ({list}) did not match any transcript line.'), { n: invalid.length, list: invalid.slice(0, 3).join(', ') })}</div>}
           <div className="card-actions">
             {(o.status === 'pending' || o.status === 'streaming') && <button className="btn small" onClick={() => cancelOutput(o.id)}>{t('Cancel')}</button>}
-            {o.status === 'done' && (o.stale_reason === 'speaker_labels_changed' || o.kind === 'catchup' || o.kind === 'final_summary') && <button className="btn small" onClick={() => refreshOutput(o.id)} title={t('Re-run up to the current moment')}>{o.stale_reason === 'speaker_labels_changed' ? t('Regenerate with current speakers') : t('Refresh')}</button>}
+            {o.status === 'done' && (o.stale_reason || o.kind === 'catchup' || o.kind === 'final_summary') && <button className="btn small" onClick={() => refreshOutput(o.id)} title={t('Re-run up to the current moment')}>{o.stale_reason === 'speaker_labels_changed' ? t('Regenerate with current speakers') : t('Refresh')}</button>}
             {auto && o.status === 'done' && (
               <>
                 <button className="btn small" onClick={() => explain(o.question ?? '', evidenceT != null ? { fromT: evidenceT, toT: evidenceT + 5000, text: o.question ?? '' } : null, depth === 'quick' ? 'standard' : depth, o.id)}>{t('Explain more')}</button>
@@ -127,7 +131,7 @@ function OutputCard({ o, depth, open, onToggle }: { o: Output; depth: Depth; ope
               </>
             )}
             {o.status === 'done' && (o.kind === 'answer' || o.kind === 'explain') && o.depth !== 'deep' && <button className="btn small" onClick={() => (o.kind === 'explain' ? explain(o.question ?? '', o.selection, 'deep', o.id) : ask(o.question ?? '', o.selection, 'deep'))}>{t('Go deeper')}</button>}
-            {(o.status === 'error') && <button className="btn small" onClick={() => refreshOutput(o.id)}>{t('Retry')}</button>}
+            {(o.status === 'error' || o.status === 'cancelled') && <button className="btn small" onClick={() => refreshOutput(o.id)}>{t('Retry')}</button>}
             {o.status === 'done' && body && <button className="btn small ghost" onClick={() => void navigator.clipboard?.writeText(body)}>{t('Copy')}</button>}
           </div>
         </>
@@ -176,7 +180,7 @@ function AskBox() {
       <div className="ask-row">
         <div className="ask-options">
           <div className="seg-control small" role="group" aria-label={t('Depth for this question')}>
-            {(['quick', 'standard', 'deep'] as Depth[]).map((d) => <button key={d} className={depth === d ? 'on' : ''} onClick={() => setDepth(d)}>{t(DEPTH_LABEL[d])}</button>)}
+            {(['quick', 'standard', 'deep'] as Depth[]).map((d) => <button key={d} className={depth === d ? 'on' : ''} aria-pressed={depth === d} onClick={() => setDepth(d)}>{t(DEPTH_LABEL[d])}</button>)}
           </div>
           {supportsEffort && <select className="effort-select" value={effort} onChange={(e) => setEffort(e.target.value as Effort)} title={t('Reasoning effort for this question: higher is more thorough but slower and uses more of your plan')} aria-label={t('Reasoning effort')}>
             {(['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as Effort[]).map((x) => <option key={x} value={x}>{t('Effort: {level}', { level: t(EFFORT_LABEL[x]) })}</option>)}
@@ -205,7 +209,8 @@ export function AssistantPanel() {
   const cards = useMemo(() => {
     if (!data) return [];
     const outs = data.outputs.filter((o) => ['catchup', 'answer', 'explain', 'auto_explain', 'final_summary'].includes(o.kind));
-    const superseded = new Set(outs.filter((o) => o.parent_id && o.status !== 'error' && o.kind !== 'explain').map((o) => o.parent_id!));
+    const failed = new Set(outs.filter((o) => o.status === 'error' || o.status === 'cancelled').map((o) => o.id));
+    const superseded = new Set(outs.filter((o) => o.parent_id && (failed.has(o.parent_id) || (o.status !== 'error' && o.status !== 'cancelled' && o.kind !== 'explain'))).map((o) => o.parent_id!));
     const visible = outs.filter((o) => !superseded.has(o.id)).sort((a, b) => b.created_at - a.created_at);
     const summary = visible.find((o) => o.kind === 'final_summary');
     return summary ? [summary, ...visible.filter((o) => o.id !== summary.id && o.kind !== 'final_summary')] : visible;

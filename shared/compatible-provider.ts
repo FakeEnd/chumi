@@ -20,6 +20,9 @@ export interface CompatibleProfile {
   supportsImages: boolean;
   structuredOutput: StructuredOutputMode;
   maxOutputTokens: number;
+  contextTokens: number;
+  /** Only an explicit choice may override the local server’s context setting. */
+  contextExplicit: boolean;
 }
 
 export interface CompatibleSettings {
@@ -39,6 +42,8 @@ export function defaultCompatibleSettings(): CompatibleSettings {
     supportsImages: false,
     structuredOutput: 'prompt',
     maxOutputTokens: 4096,
+    contextTokens: 8192,
+    contextExplicit: false,
   }])) as CompatibleSettings['profiles'];
   return { preset: 'ollama', profiles };
 }
@@ -61,7 +66,7 @@ export function validateCompatibleSettings(value: unknown): CompatibleSettings {
   if (Object.keys(value).some((key) => !['preset', 'profiles'].includes(key))) throw new Error('Unknown compatible model setting.');
   if (Object.keys(value.profiles).some((key) => !isCompatiblePreset(key))) throw new Error('Unknown model preset.');
   const profiles = {} as CompatibleSettings['profiles'];
-  const fields = ['enabled', 'baseUrl', 'model', 'supportsImages', 'structuredOutput', 'maxOutputTokens'];
+  const fields = ['enabled', 'baseUrl', 'model', 'supportsImages', 'structuredOutput', 'maxOutputTokens', 'contextTokens', 'contextExplicit'];
   for (const id of Object.keys(COMPATIBLE_PRESETS) as CompatiblePreset[]) {
     const profile = value.profiles[id];
     if (!object(profile) || Object.keys(profile).some((key) => !fields.includes(key)) ||
@@ -71,6 +76,9 @@ export function validateCompatibleSettings(value: unknown): CompatibleSettings {
         !Number.isInteger(profile.maxOutputTokens) || profile.maxOutputTokens < 64 || profile.maxOutputTokens > 32768) {
       throw new Error('Invalid model profile. API keys must be saved separately in Keychain.');
     }
+    const contextTokens = profile.contextTokens === undefined ? 8192 : profile.contextTokens; // Profiles saved before context limits used the 8K recommendation.
+    if (typeof contextTokens !== 'number' || !Number.isInteger(contextTokens) || contextTokens < 1024 || contextTokens > 1048576) throw new Error('Context tokens must be a whole number from 1024 to 1048576.');
+    if (profile.contextExplicit !== undefined && typeof profile.contextExplicit !== 'boolean') throw new Error('Invalid model profile. API keys must be saved separately in Keychain.');
     if (profile.baseUrl.length > 2048 || profile.model.length > 200 || /[\r\n\x00-\x1f]/.test(profile.model)) throw new Error('Invalid model URL or model ID.');
     const baseUrl = profile.baseUrl.trim() ? normalizeCompatibleUrl(profile.baseUrl, COMPATIBLE_PRESETS[id].local) : '';
     if (id !== 'custom' && !baseUrl) throw new Error('A model server URL is required.');
@@ -81,6 +89,8 @@ export function validateCompatibleSettings(value: unknown): CompatibleSettings {
       supportsImages: profile.supportsImages,
       structuredOutput: profile.structuredOutput as StructuredOutputMode,
       maxOutputTokens: profile.maxOutputTokens,
+      contextTokens,
+      contextExplicit: profile.contextExplicit === true,
     };
   }
   return { preset: value.preset, profiles };

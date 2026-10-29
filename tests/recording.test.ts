@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout } from 'node:timers/promises';
@@ -84,9 +84,13 @@ test('after a crash, an open take keeps its audio, including what came after the
   const rec = new SpeakerRecorder('meeting', true, dir);
   rec.write('mic', 1000, new Int16Array(16_000).fill(7)); // a new span checkpoints at once
   rec.write('mic', 2000, new Int16Array(8_000).fill(9)); // continues the span: no checkpoint yet
-  // The app "crashes" here: the take is never closed.
+  // Restore the checkpoint after closing the descriptor to simulate a process exit.
+  const takes = join(dir, 'meeting', 'speakers', 'retained');
+  const manifestPath = join(takes, readdirSync(takes).find((n) => n.endsWith('.json'))!);
+  const checkpoint = readFileSync(manifestPath);
   assert.equal(hasRecordedAudio('meeting', dir), true);
   assert.deepEqual(recordedTakes('meeting', dir), [], 'an open take is not played back');
+  rec.close(); writeFileSync(manifestPath, checkpoint);
   assert.equal(recoverOpenTakes('meeting', dir), 1);
   assert.equal(recoverOpenTakes('meeting', dir), 0, 'recovery runs once');
   const [take] = recordedTakes('meeting', dir);
@@ -97,22 +101,27 @@ test('after a crash, an open take keeps its audio, including what came after the
   assert.equal(pcm[20_000], 9);
 });
 
-test('recovery trims a manifest that is ahead of its audio and removes takes with none', () => {
+test('recovery trims a manifest that is ahead of its audio and removes empty takes', () => {
   const dir = fresh();
   const takes = join(dir, 'meeting', 'speakers', 'retained');
   const empty = new SpeakerRecorder('meeting', true, dir);
   empty.write('mic', 0, new Int16Array(16_000));
   const [name] = readdirSync(takes).filter((n) => n.endsWith('.json'));
   const manifest = JSON.parse(readFileSync(join(takes, name), 'utf8'));
+  empty.close();
   writeFileSync(join(takes, name), JSON.stringify({ ...manifest, samples: 32_000, spans: [...manifest.spans, { sample_start: 16_000, sample_count: 16_000, start_ms: 5000 }] }));
   recoverOpenTakes('meeting', dir);
   assert.deepEqual(recordedTakes('meeting', dir)[0].spans, [{ sample_start: 0, sample_count: 16_000, start_ms: 0 }]);
   const lost = new SpeakerRecorder('lost', true, dir);
   lost.write('mic', 0, new Int16Array(160));
   const lostDir = join(dir, 'lost', 'speakers', 'retained');
+  lost.close();
   for (const n of readdirSync(lostDir).filter((f) => f.endsWith('.wav'))) writeFileSync(join(lostDir, n), Buffer.alloc(44));
-  recoverOpenTakes('lost', dir);
-  assert.deepEqual(readdirSync(lostDir), []);
+  assert.deepEqual(recordedTakes('lost', dir), [], 'zero-readable takes are ignored before repair');
+  assert.equal(sessionRecording('lost', dir), null);
+  assert.deepEqual(readdirSync(lostDir), [], 'nothing remains to repeatedly repair or log');
+  assert.equal(sessionRecording('lost', dir), null);
+  assert.equal(recoverOpenTakes('lost', dir), 0);
 });
 
 test('the Record audio choice belongs to each session and continues when it is resumed', { timeout: 10_000 }, async () => {
@@ -160,4 +169,57 @@ test('export encodes the recording as one AAC file on macOS and reuses it', { sk
   assert.equal(readFileSync(out.path).toString('ascii', 4, 8), 'ftyp', 'an MPEG-4 audio file');
   assert.deepEqual(readdirSync(join(dir, 'meeting')).filter((n) => n.includes('tmp')), [], 'temporary files are removed');
   assert.deepEqual(await exportRecording('meeting', r, dir), out);
+});
+
+test('an unreadable take cannot block healthy playback or speaker analysis', async () => {
+  const dir = fresh();
+  const rec = new SpeakerRecorder('meeting', true, dir);
+  rec.write('mic', 1000, new Int16Array(16_000).fill(123));
+  rec.write('system', 1000, new Int16Array(16_000).fill(456));
+  rec.close();
+  const [good, bad] = recordedTakes('meeting', dir);
+  writeFileSync(bad.path.replace(/\.wav$/, '.json'), '');
+  const recording = sessionRecording('meeting', dir)!;
+  assert.match(recording.warning!, /Part of this recording/);
+  assert.equal(recording.duration_ms, 1000);
+  const wav = await bytes(recordingBytes(recording));
+  assert.equal(wav.readInt16LE(44), readFileSync(good.path).readInt16LE(44));
+  const { speakerAudioAvailable, prepareSpeakerInputs } = await import('../server/speakers/audio.ts');
+  assert.equal(speakerAudioAvailable('meeting', dir), true);
+  assert.equal((await prepareSpeakerInputs('meeting', new AbortController().signal, dir)).length, 1);
+  assert.ok(existsSync(bad.path), 'the unmapped WAV is preserved');
+});
+
+test('short closed takes are clamped and abandoned open takes recover lazily, without closing live writers', async () => {
+  const dir = fresh();
+  const rec = new SpeakerRecorder('meeting', true, dir);
+  rec.write('mic', 1000, new Int16Array(16_000).fill(7));
+  const directory = join(dir, 'meeting/speakers/retained');
+  const name = readdirSync(directory).find((n) => n.endsWith('.json'))!;
+  const checkpoint = readFileSync(join(directory, name));
+  assert.equal(sessionRecording('meeting', dir), null, 'the live take stays open');
+  rec.write('mic', 2000, new Int16Array(16_000).fill(8));
+  rec.close();
+  writeFileSync(join(directory, name), checkpoint);
+  assert.equal(sessionRecording('meeting', dir)!.duration_ms, 2000, 'an ended take left open by a failed final save is repaired');
+  const [take] = recordedTakes('meeting', dir);
+  truncateSync(take.path, 44 + 20_000 * 2 + 1);
+  const repaired = sessionRecording('meeting', dir)!;
+  assert.equal(repaired.duration_ms, 1250);
+  assert.match(repaired.warning!, /Part of this recording/);
+  assert.equal((await bytes(recordingBytes(repaired))).length, 44 + 20_000 * 2);
+  assert.match(sessionRecording('meeting', dir)!.warning!, /Part of this recording/, 'the warning survives another read');
+});
+
+test('a complete temporary manifest can repair an unreadable final manifest', () => {
+  const dir = fresh();
+  const rec = new SpeakerRecorder('meeting', true, dir);
+  rec.write('mic', 0, new Int16Array(16000));
+  rec.close();
+  const [take] = recordedTakes('meeting', dir);
+  const manifest = take.path.replace(/\.wav$/, '.json');
+  writeFileSync(`${manifest}.tmp`, readFileSync(manifest));
+  writeFileSync(manifest, '');
+  assert.equal(sessionRecording('meeting', dir)!.duration_ms, 1000);
+  assert.equal(JSON.parse(readFileSync(manifest, 'utf8')).open, undefined);
 });

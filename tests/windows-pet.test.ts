@@ -82,7 +82,7 @@ test('Windows pet IPC accepts only its own top-level page and cannot navigate to
   const h = harness();
   assert.equal(h.window.visible, false);
   assert.equal(h.window.protected, true);
-  const message = { type: 'open', session: 'meeting-a', t: 2500 };
+  const message = { type: 'open', session: 'meeting-a', t: 2500, dialog: 'handoff' };
   h.send(message, { sender: { mainFrame: {} } as any, senderFrame: {} as any });
   h.send(message, { sender: h.window.webContents, senderFrame: { url } });
   h.window.webContents.mainFrame.url = 'https://example.com/pet.html';

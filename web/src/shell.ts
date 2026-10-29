@@ -5,6 +5,7 @@
  * browser there is no message handler and this does nothing.
  */
 import { openSession } from './actions.ts';
+import { getState, setState } from './store.ts';
 
 type Handler = { postMessage(message: unknown): void };
 
@@ -23,10 +24,13 @@ export function startShellBridge(): void {
   const handler = (window as unknown as { webkit?: { messageHandlers?: Record<string, Handler> } }).webkit?.messageHandlers?.chumiShell;
   if (!handler && !(window as unknown as { chumiShell?: Handler }).chumiShell) return;
   // App → page: the desktop pet opens a meeting here, optionally at a transcript time.
-  (window as unknown as { chumiOpen: unknown }).chumiOpen = (o: { session?: unknown; t?: unknown; t2?: unknown }) => {
+  (window as unknown as { chumiOpen: unknown }).chumiOpen = (o: { session?: unknown; t?: unknown; t2?: unknown; dialog?: unknown }) => {
     if (typeof o?.session !== 'string') return;
     const t = Number(o.t), t2 = Number(o.t2);
-    void openSession(o.session, Number.isFinite(t) && o.t != null ? { t, t2: Number.isFinite(t2) && o.t2 != null ? t2 : undefined } : undefined);
+    const session = o.session;
+    void openSession(session, Number.isFinite(t) && o.t != null ? { t, t2: Number.isFinite(t2) && o.t2 != null ? t2 : undefined } : undefined).then(() => {
+      if (o.dialog === 'handoff' && getState().viewId === session && getState().data?.session.id === session) setState({ dialog: 'handoff' });
+    });
   };
   if (!handler) return;
   let last = '';

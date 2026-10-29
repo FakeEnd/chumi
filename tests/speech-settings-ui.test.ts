@@ -100,3 +100,35 @@ test('privacy text identifies each configured transcription destination in both 
     }
   } finally { setLang('en'); }
 });
+
+
+test('thread drafts restore empty input and round and clamp only when committed', async () => {
+  const { threadDraftValue, maxAsrThreads } = await import('../shared/asr-threads.ts');
+  for (const draft of ['', ' ', 'NaN']) assert.equal(threadDraftValue(draft, 6, 10), 6);
+  for (const [draft, expected] of [['1', 2], ['12', 10], ['99', 10], ['2.5', 3], ['6', 6]] as const) assert.equal(threadDraftValue(draft, 6, 10), expected);
+  assert.equal(maxAsrThreads(32), 16);
+  assert.equal(maxAsrThreads(1), 2);
+});
+
+test('typing a thread count sends no saves until blur or Enter and unchanged values stay idle', async () => {
+  const { tick } = await import('./helpers/web-ui.ts');
+  const { transcriptionHarness } = await import('./helpers/transcription-ui.ts');
+  const { MODEL_BASE_URL } = await import('../shared/model-source.ts');
+  const { DEFAULT_SETTINGS } = await import('../server/settings.ts');
+  const state = { settings: { ...DEFAULT_SETTINGS, asr: { ...DEFAULT_SETTINGS.asr, threads: 6 } }, live: null };
+  const calls: unknown[] = [];
+  const ui = await transcriptionHarness(state, {
+    api: async () => ({ source: { baseUrl: MODEL_BASE_URL, fromEnvironment: false }, hardware: { cores: 10 }, models: [] }),
+    saveSettings: async (patch: { asr: { threads: number } }) => { calls.push(patch); state.settings.asr.threads = patch.asr.threads; return true; },
+  });
+  await tick(); ui.render();
+  const input = () => ui.find((e) => e.type === 'input' && e.props.type === 'number');
+  for (const draft of ['', '1', '12']) { input().props.onChange({ target: { value: draft } }); ui.render(); }
+  assert.deepEqual(calls, []);
+  input().props.onKeyDown({ key: 'Enter', currentTarget: { blur: () => input().props.onBlur() } }); await tick(); ui.render();
+  assert.deepEqual(calls, [{ asr: { threads: 10 } }]);
+  input().props.onBlur(); await tick(); ui.render();
+  assert.equal(calls.length, 1);
+  input().props.onChange({ target: { value: '' } }); ui.render(); input().props.onBlur(); ui.render();
+  assert.equal(input().props.value, '10'); assert.equal(calls.length, 1);
+});

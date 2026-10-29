@@ -7,6 +7,7 @@ import { Store } from '../server/db.ts';
 import { HandoffService } from '../server/projects/handoff.ts';
 import { ProjectWorkService } from '../server/projects/work.ts';
 import type { Assistant } from '../server/ai/assistant.ts';
+import { sessionToJsonl } from '../server/integrations/mybot.ts';
 import { AGENTS } from '../shared/agents.ts';
 
 // Execute the real route handlers with inert desktop/AI adapters and an isolated database.
@@ -30,22 +31,25 @@ function fixture(openDesktop: (...args: string[]) => Promise<unknown> = async ()
   const handoffs = new HandoffService(store, {} as Assistant, () => {});
   const projectWork = new ProjectWorkService(store);
   const handlers = new Map<string, Handler>(), events: string[] = [], terminal: string[][] = [];
+  const exports = new Map<string, string | null>();
   const deps = {
     store, handoffs, projectWork, AGENTS, HttpError,
     route: (method: string, path: string, handler: Handler) => handlers.set(`${method} ${path}`, handler),
     readJson: async (body: unknown) => body,
-    broadcast: (event: string) => events.push(event), syncMybot: () => events.push('mybot'),
+    broadcast: (event: string) => events.push(event), syncMybot: (id: string) => { events.push('mybot'); exports.set(id, sessionToJsonl(store, id, false)); },
+    checkWorkspace: (path: string) => path, gitInfo: async () => null, projectPublic: (p: unknown) => p,
     chumiLink: () => () => null, agents: { launch: (...args: string[]) => terminal.push(args) }, launchCodexDesktop: openDesktop,
     continueInDeepSeekHarness: openDsh, NO_LAUNCH: false, log: () => {},
   };
   const code = [
+    routeSource("route('PATCH', '/api/projects/:id',", "route('POST', '/api/projects/choose-folder',"),
     routeSource("route('GET', '/api/projects/:id/brief'", "route('POST', '/api/projects',"),
     routeSource("route('PATCH', '/api/handoff-items/:id/progress'", "route('PATCH', '/api/handoff-items/:id',"),
     routeSource("route('POST', '/api/handoffs/:id/continue'", '// ---------------------------------------------------------------- coding agent connection'),
   ].join('\n');
   new Function(...Object.keys(deps), stripTypeScriptTypes(code))(...Object.values(deps));
   const call = (key: string, id: string, body: unknown = {}) => handlers.get(key)!(body, null, { id });
-  return { store, handoffs, events, terminal, call };
+  return { store, handoffs, events, terminal, call, exports };
 }
 
 test('desktop continuation waits for the opener and does not require or launch a CLI', async () => {
@@ -126,5 +130,22 @@ test('agenda save is versioned and the brief returns the persisted agenda', asyn
     assert.equal(brief.agenda.text, r.agenda.text);
     await assert.rejects(f.call('PATCH /api/projects/:id/agenda', 'project', { expectedVersion: 0, text: 'Old draft' }), /changed/);
     assert.equal(f.events.length, 1);
+  } finally { f.store.close(); }
+});
+
+test('project name and workspace edits refresh exports for only that project', async () => {
+  const f = fixture();
+  try {
+    f.store.createProject({ id: 'other', name: 'Other project', workspace: tmpdir() });
+    f.store.createSession({ id: 'other-meeting', title: 'Other meeting', type: 'other', audio_source: 'mic' });
+    f.store.assignSession('other-meeting', 'other');
+    await f.call('PATCH /api/projects/:id', 'project', { name: 'Renamed project', workspace: '/tmp/new-project-folder' });
+    assert.deepEqual([...f.exports.keys()], ['meeting']);
+    const header = JSON.parse(f.exports.get('meeting')!.split('\n')[0]);
+    assert.equal(header.project.name, 'Renamed project');
+    assert.equal(header.cwd, '/tmp/new-project-folder');
+    f.exports.clear();
+    await f.call('PATCH /api/projects/:id', 'project', { archived: true });
+    assert.equal(f.exports.size, 0);
   } finally { f.store.close(); }
 });

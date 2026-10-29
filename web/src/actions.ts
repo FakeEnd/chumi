@@ -8,11 +8,15 @@ import type { AgentId } from '../../shared/agents.ts';
 import type { ActionProgress } from '../../shared/project-work.ts';
 import type { Depth, Effort, Frame, Handoff, Output, Profile, Project, Segment, SessionData, Settings, SpeakerUpdate, WindowInfo } from './types.ts';
 
-export async function loadState(): Promise<void> {
-  const s = await api('/api/state');
+let downloadRevision = 0;
+export async function loadState(signal?: AbortSignal): Promise<void> {
+  const revision = downloadRevision;
+  const s = await api('/api/state', { signal });
+  if (signal?.aborted) return;
   setState({
     loaded: true, settings: s.settings, profile: s.profile, provider: s.provider, live: s.live, liveReceivedAt: Date.now(), partials: s.live?.partials ?? {},
     devMode: s.devMode, helperBuilt: s.helperBuilt, platform: s.platform ?? '', screenToolBuilt: s.screenToolBuilt, hotkey: s.hotkey ?? null, appMode: s.appMode, dataDir: s.dataDir, samples: s.samples ?? [], systemLanguage: s.systemLanguage ?? '',
+    ...(revision === downloadRevision ? { asrDownload: s.asrDownload ?? null } : {}),
   });
   void loadProjects();
   // Reconnected (laptop sleep, server restart): the server doesn't replay missed events, so fetch the open session again.
@@ -105,7 +109,18 @@ export function goHome(): void {
 }
 
 export function connectEvents(): () => void {
-  return subscribe({
+  let closed = false, retryMs = 2000;
+  let retry: ReturnType<typeof setTimeout> | undefined, request: AbortController | undefined;
+  const cancelSync = () => { clearTimeout(retry); retry = undefined; request?.abort(); };
+  const sync = () => {
+    const current = request = new AbortController();
+    void loadState(current.signal).then(() => { if (!current.signal.aborted) retryMs = 2000; }).catch(() => {
+      if (closed || current.signal.aborted) return;
+      retry = setTimeout(sync, retryMs);
+      retryMs = Math.min(retryMs * 2, 30000);
+    });
+  };
+  const unsubscribe = subscribe({
     hello: (d) => setState({ live: d.live, liveReceivedAt: Date.now() }),
     live: (live) => {
       const prev = getState().live;
@@ -123,6 +138,7 @@ export function connectEvents(): () => void {
       if (!cur || cur.uttId > p.uttId) return {};
       const next = { ...s.partials }; delete next[p.source]; return { partials: next };
     }),
+    timeline: (entry) => { changedDuringFetch(entry.session_id); setState((s) => s.data && s.data.session.id === entry.session_id ? { data: { ...s.data, timeline: [...s.data.timeline.filter((e) => e.id !== entry.id && !entry.replaces?.includes(e.id)), entry].sort((a, b) => a.t - b.t || a.id - b.id) } } : {}); },
     segment: (seg: Segment) => { caught(seg.session_id)?.segments.push(seg); setState((s) => (s.data && s.data.session.id === seg.session_id ? { data: { ...s.data, segments: append(s.data.segments, seg) } } : {})); },
     ai: (o: Output) => {
       caught(o.session_id)?.outputs.push(o);
@@ -138,12 +154,13 @@ export function connectEvents(): () => void {
     }),
     provider: (p) => setState({ provider: p }),
     hotkey: (h) => setState({ hotkey: h }),
-    'asr-download': (d) => setState({ asrDownload: d }),
+    'mybot-exported': () => setState((s) => ({ mybotExportRev: s.mybotExportRev + 1 })),
+    'asr-download': (d) => { downloadRevision++; setState({ asrDownload: d }); },
     settings: (st: Settings) => setState({ settings: st }),
     profile: (p: Profile) => setState({ profile: p }),
-    notice: (n) => notify(n.level, n.message, n.code),
+    notice: (n) => { if (n.code === 'capture_restarted') setState((s) => ({ notices: s.notices.filter((x) => x.code !== 'capture_stopped' && x.code !== 'capture_gave_up') })); notify(n.level, n.message, n.code, n.vars); },
     asr: (a) => setState((s) => ({ live: s.live ? { ...s.live, asr: { ...s.live.asr, state: a.state, message: a.message } } : s.live })),
-    'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); bumpSessions(); notify('info', t('Session saved. Preparing the final summary…'), 'ended'); },
+    'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); bumpSessions(); notify('info', t(e.transcriptionPending ? 'Session saved. Finishing transcription before the final summary…' : 'Session saved. Preparing the final summary…'), 'ended'); },
     'session-updated': (sess) => {
       changedDuringFetch(sess.id);
       setState((s) => ({ sessionsRev: s.sessionsRev + 1, projectWorkRev: s.projectWorkRev + 1, ...(s.data && s.data.session.id === sess.id ? { data: { ...s.data, session: sess } } : {}) }));
@@ -155,9 +172,11 @@ export function connectEvents(): () => void {
     projects: () => void loadProjects(),
     'project-work': () => setState((s) => ({ projectWorkRev: s.projectWorkRev + 1 })),
   }, (ok) => {
-    setState((s) => ({ connected: ok, ...(ok ? { projectWorkRev: s.projectWorkRev + 1 } : {}) }));
-    if (ok) void loadState().catch(() => {});
+    cancelSync();
+    setState({ connected: ok });
+    if (ok && !closed) { bumpSessions(); retryMs = 2000; sync(); }
   });
+  return () => { closed = true; cancelSync(); unsubscribe(); };
 }
 
 const guard = async <T>(p: Promise<T>): Promise<T | undefined> => {
@@ -173,7 +192,7 @@ export async function startSession(o: { title: string; type: string; source: str
     }
   }
   const r = await guard(api('/api/session/start', { body: o }));
-  if (r) { setState({ dialog: null, startProjectId: null }); await openSession(r.session.id); }
+  if (r) { setState({ dialog: null, startProjectId: null, startDraft: null }); await openSession(r.session.id); }
   return !!r;
 }
 export async function quickStart(): Promise<void> {
@@ -330,9 +349,10 @@ export const confirmHandoff = (handoffId: string) => withHandoff(api(`/api/hando
 export const reopenHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/reopen`, { body: {} }));
 export const retargetHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/retarget`, { body: {} }));
 /** paste: for an app that cannot be handed the handoff (DeepSeek Harness), the instruction to paste there and whether Chumi copied it. */
-export async function continueHandoff(handoffId: string, agent: AgentId | 'copy' | 'codex-app'): Promise<{ prompt: string; launched: boolean; paste?: { text: string; copied: boolean } } | undefined> {
-  const r = await withHandoff(api<{ prompt: string; launched: boolean; paste?: { text: string; copied: boolean }; handoff: Handoff }>(`/api/handoffs/${handoffId}/continue`, { body: { agent } }));
-  return r ? { prompt: r.prompt, launched: r.launched, paste: r.paste } : undefined;
+export async function continueHandoff(handoffId: string, agent: AgentId | 'copy' | 'codex-app'): Promise<{ prompt: string; launched: boolean; paste?: { text: string; copied: boolean } }> {
+  const r = await api<{ prompt: string; launched: boolean; paste?: { text: string; copied: boolean }; handoff?: Handoff | null }>(`/api/handoffs/${handoffId}/continue`, { body: { agent } });
+  if (r.handoff) setHandoff(r.handoff.session_id, r.handoff);
+  return { prompt: r.prompt, launched: r.launched, paste: r.paste };
 }
 
 export async function updateActionProgress(itemId: string, patch: Pick<ActionProgress, 'status' | 'note' | 'results'> & { expectedVersion: number }): Promise<ActionProgress | null> {

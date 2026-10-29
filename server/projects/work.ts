@@ -90,13 +90,18 @@ export class ProjectWorkService {
         (b.value.progress.updatedAt ?? 0) - (a.value.progress.updatedAt ?? 0) || b.row.meeting_time - a.row.meeting_time || a.row.id.localeCompare(b.row.id)).map(({ value }) => value);
       const decisions = rows.filter((r) => r.kind === 'decision').map(item);
       const questions = rows.filter((r) => r.kind === 'question').map(item);
-      const reviewNeeded = this.store.db.prepare(`SELECT COUNT(*) AS count FROM handoffs h JOIN sessions s ON s.id = h.session_id
+      const reviewNeeded = this.store.db.prepare(`SELECT s.id AS sessionId, s.title AS title,
+        CASE WHEN h.project_id IS NOT s.project_id OR EXISTS (SELECT 1 FROM handoff_items i WHERE i.handoff_id = h.id AND i.review != 'rejected' AND i.project_id IS NOT s.project_id) THEN 'moved'
+          WHEN h.status = 'error' THEN 'failed' WHEN h.status != 'confirmed' THEN 'unconfirmed' ELSE 'changed' END AS reason
+        FROM handoffs h JOIN sessions s ON s.id = h.session_id
         WHERE s.project_id = ? AND (h.status != 'confirmed' OR h.project_id IS NOT s.project_id OR h.confirmed_revision IS NOT s.revision
-          OR EXISTS (SELECT 1 FROM handoff_items i WHERE i.handoff_id = h.id AND i.review != 'rejected' AND i.project_id IS NOT s.project_id))`).get(projectId) as { count: number };
+          OR EXISTS (SELECT 1 FROM handoff_items i WHERE i.handoff_id = h.id AND i.review != 'rejected' AND i.project_id IS NOT s.project_id))
+          AND (h.status NOT IN ('draft', 'error') OR EXISTS (SELECT 1 FROM handoff_items i WHERE i.handoff_id = h.id AND i.review != 'rejected'))
+        ORDER BY COALESCE(s.started_at, s.created_at) DESC, s.id`).all(projectId) as unknown as ProjectBrief['reviewNeeded'];
       return {
         project: { id: project.id, name: project.name }, agenda: this.store.projectAgenda(projectId), latestMeeting: latest ?? null,
         actions, completedActions: completed.slice(0, HISTORY_LIMIT), decisions: decisions.slice(0, HISTORY_LIMIT), questions: questions.slice(0, HISTORY_LIMIT),
-        reviewNeededCount: reviewNeeded.count,
+        reviewNeededCount: reviewNeeded.length, reviewNeeded,
         omitted: { completedActions: Math.max(0, completed.length - HISTORY_LIMIT), decisions: Math.max(0, decisions.length - HISTORY_LIMIT), questions: Math.max(0, questions.length - HISTORY_LIMIT) },
       };
     }, false);

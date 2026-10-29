@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { setState, useStore } from '../store.ts';
+import { notify, setState, useStore } from '../store.ts';
 import { api } from '../api.ts';
 import { refreshProvider, saveSettings } from '../actions.ts';
 import { t } from '../i18n.ts';
+import { providerSetupCommand } from '../providerSetup.ts';
+import { isModelMirror, MODEL_MIRROR_URL, type ModelDownloadSource } from '../../../shared/model-source.ts';
 import { providerShort } from './TopBar.tsx';
 
 type Mic = 'granted' | 'denied' | 'restricted' | 'not_determined' | 'unknown' | string;
-interface Step { id: string; done: boolean; title: string; detail: string; action?: { label: string; run: () => void }; code?: string }
+interface Step { id: string; done: boolean; title: string; detail: string; action?: { label: string; run: () => void }; code?: string; retryMirror?: boolean }
 
 /**
  * Getting started on Home, until everything needed is ready or the user hides it: the speech engine, an AI
@@ -17,8 +19,11 @@ export function SetupChecklist() {
   const asr = useStore((s) => s.live?.asr);
   const provider = useStore((s) => s.provider);
   const profile = useStore((s) => s.profile);
-  const windows = useStore((s) => s.platform) === 'win32';
+  const platform = useStore((s) => s.platform);
+  const windows = platform === 'win32';
   const download = useStore((s) => s.asrDownload);
+  const [source, setSource] = useState<ModelDownloadSource | null>(null);
+  useEffect(() => { void api<{ source: ModelDownloadSource }>('/api/asr/models').then((r) => setSource(r.source)).catch(() => {}); }, [settings?.asr.modelBaseUrl]);
   const [mic, setMic] = useState<Mic | null>(null);
   const [helper, setHelper] = useState(true);
   const [checking, setChecking] = useState(false);
@@ -39,13 +44,15 @@ export function SetupChecklist() {
   const localSpeech = settings.asr.engine === 'qwen3' || settings.asr.engine === 'sensevoice' || settings.asr.engine === 'whisper';
   const steps: Step[] = [
     {
+      retryMirror: download?.status === 'error' && localSpeech && asr?.state === 'missing_model' && !!source && !source.fromEnvironment && !isModelMirror(settings.asr.modelBaseUrl || source.baseUrl),
       id: 'speech', done: asr?.state === 'ready',
       title: localSpeech ? t('Speech recognition on this computer') : t('Speech recognition'),
       detail: asr?.state === 'ready' ? localSpeech ? t('Ready. Audio never leaves your computer.') : t('Ready. A speech service transcribes your meetings.')
         : download?.status === 'downloading' ? t('Downloading speech model: {progress}', { progress: download.total ? `${Math.round(download.received / download.total * 100)}%` : `${Math.round(download.received / 1048576)} MB` })
+          : download?.status === 'error' ? t('Download failed: {error}', { error: t(download.error ?? '') })
           : asr?.state === 'missing_model' ? settings.asr.engine === 'qwen3' ? t('Download Qwen3-ASR, the recommended local engine. Whisper keeps transcribing if its model is installed.') : t('Download the speech model once. Meetings are then transcribed locally.') : asr?.message ?? t('The speech model is not ready yet.'),
       action: asr?.state === 'ready' || download?.status === 'downloading' || asr?.state === 'starting' ? undefined
-        : asr?.state === 'missing_model' ? { label: t('Download speech model'), run: () => void api('/api/asr/setup', { body: {} }) }
+        : asr?.state === 'missing_model' ? { label: download?.status === 'error' ? t('Retry') : t('Download speech model'), run: () => void api('/api/asr/setup', { body: {} }) }
           : { label: t('Open Transcription settings'), run: () => setState({ dialog: 'settings', settingsTab: 'asr' }) },
     },
     {
@@ -54,9 +61,9 @@ export function SetupChecklist() {
       detail: provider?.state === 'ready'
         ? t('{provider} is connected.', { provider: providerShort(provider.label) })
         : provider?.message ? t(provider.message) : t('Use your ChatGPT or Claude subscription, or a local model.'),
-      code: provider?.state === 'ready' || windows ? undefined : provider?.setupHint?.match(/(codex login|claude auth login|brew install [\w-]+|npm install -g [\w@/-]+)/)?.[1],
+      code: providerSetupCommand(provider, platform),
       action: provider?.state === 'ready' ? undefined
-        : windows && settings.ai.provider === 'codex' ? { label: t('Sign in with ChatGPT'), run: () => void api('/api/provider/codex/login', { body: {} }) }
+        : settings.ai.provider === 'codex' && provider?.state === 'signed_out' ? { label: t('Sign in with ChatGPT'), run: () => void api('/api/provider/codex/login', { body: {} }).catch((e) => notify('error', (e as Error).message)) }
           : { label: t('Choose AI'), run: () => setState({ dialog: 'settings', settingsTab: 'ai' }) },
     },
     {
@@ -101,6 +108,7 @@ export function SetupChecklist() {
             <div className="setup-body">
               <div className="setup-title">{s.title}</div>
               <div className="muted small">{s.detail}</div>
+              {s.retryMirror && <button className="link-btn small" onClick={() => void saveSettings({ asr: { modelBaseUrl: MODEL_MIRROR_URL } }).then((saved) => { if (saved) return api('/api/asr/setup', { body: {} }); })}>{t('Use the hf-mirror.com copy')}</button>}
               {s.code && <div className="setup-code"><code>{s.code}</code><button className="link-btn small" onClick={() => copy(s.code!)}>{copied === s.code ? t('Copied') : t('Copy')}</button><span className="muted small">{t('Run it in Terminal, then click Check again.')}</span></div>}
             </div>
             {s.action && <button className="btn small primary" onClick={s.action.run}>{s.action.label}</button>}

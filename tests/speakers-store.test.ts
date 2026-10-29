@@ -181,7 +181,7 @@ test('unanalysed lines carry no tag, budgets count tags, first labels keep AI ou
     segment(store, 9000, 10000);
     assert.equal(store.segments('meeting')[0].speaker_state, null, 'never analysed: no "unknown" state');
     assert.equal(formatSeg(store.segments('meeting')[0]), `[0:00] ${long.text}`);
-    store.insertOutput({ id: 'early', session_id: 'meeting', kind: 'digest', status: 'done', content: 'Notes before labels.', covered_from: 0, covered_to: 9000 });
+    store.insertOutput({ id: 'early', session_id: 'meeting', kind: 'digest', status: 'done', content: 'Notes before labels.', covered_from: 0, covered_to: 9000, data_json: JSON.stringify({ segmentIds: [long.id] }) });
 
     run(store, 'g1', [turn('x', 500, 4500), turn('y', 9000, 9300)], [{ source: 'mic', start_ms: 0, end_ms: 10000 }]);
     const [a, b] = store.segments('meeting');

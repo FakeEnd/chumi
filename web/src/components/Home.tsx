@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { setState, useStore } from '../store.ts';
 import { api } from '../api.ts';
-import { openSession, quickStart, saveSettings } from '../actions.ts';
+import { openSession, quickStart } from '../actions.ts';
 import { sourceLabel } from '../util.ts';
 import { getLang, msg, t, tn } from '../i18n.ts';
 import type { Session } from '../types.ts';
@@ -32,14 +32,20 @@ export function Home() {
   const [briefProject, setBriefProject] = useState('');
   const windows = useStore((s) => s.platform) === 'win32';
   const [recent, setRecent] = useState<Session[] | null>(null);
+  const [recentError, setRecentError] = useState('');
+  const [retry, setRetry] = useState(0);
   const sessionsRev = useStore((s) => s.sessionsRev);
-  useEffect(() => { void api<{ sessions: Session[] }>('/api/sessions').then((r) => setRecent(r.sessions.slice(0, 6))).catch(() => setRecent([])); }, [live?.status, sessionsRev]);
+  useEffect(() => {
+    const controller = new AbortController();
+    setRecentError('');
+    void api<{ sessions: Session[] }>('/api/sessions', { signal: controller.signal })
+      .then((r) => { if (!controller.signal.aborted) setRecent(r.sessions.slice(0, 6)); })
+      .catch(() => { if (!controller.signal.aborted) setRecentError(t('Could not load recent sessions.')); });
+    return () => controller.abort();
+  }, [live?.status, sessionsRev, retry]);
 
   const liveSession = live?.session && live.status !== 'idle' ? live.session : null;
-  const startWith = async (source: string) => {
-    if (settings?.audio.source !== source) await saveSettings({ audio: { source } });
-    setState({ dialog: 'start' });
-  };
+  const startWith = (source: 'mic' | 'system' | 'both') => setState({ startSource: source, dialog: 'start' });
   const quickSrc = settings ? (settings.quickStart.source === 'default' ? settings.audio.source : settings.quickStart.source) : 'mic';
   const aiReady = provider?.state === 'ready';
   const topDomains = (profile?.domains ?? []).slice().sort((a, b) => b.level - a.level).slice(0, 6);
@@ -61,8 +67,8 @@ export function Home() {
           <h1>{greeting()}{getLang() === 'zh' ? '' : '.'}</h1>
           <p>{t('Chumi listens alongside you, keeps track of the discussion, and explains what you need, right when you need it.')}</p>
           <div className="hero-status">
-            <span className={`pill ${asr?.state === 'ready' ? 'ok' : 'muted'}`}><span className="dot" />{t('Speech engine')} {asr?.state === 'ready' ? service ? t('ready (speech service)') : t('ready (on this computer)') : asr?.state === 'error' && service ? t('service error') : asr?.state ? t(ASR_STATE[asr.state] ?? asr.state) : '…'}</span>
-            <span className={`pill ${aiReady ? 'ok' : 'warn'}`} onClick={() => setState({ dialog: 'settings', settingsTab: 'ai' })} role="button" tabIndex={0}><span className="dot" />{provider ? `${providerShort(provider.label)} · ${aiReady ? billingWord(provider.billing) : t(PROVIDER_STATE[provider.state] ?? provider.state)}` : t('AI: checking…')}</span>
+            <button onClick={() => setState({ dialog: 'settings', settingsTab: 'asr' })} title={t('Open Transcription settings')} className={`pill ${asr?.state === 'ready' ? 'ok' : 'muted'}`}><span className="dot" />{t('Speech engine')} {asr?.state === 'ready' ? service ? t('ready (speech service)') : t('ready (on this computer)') : asr?.state === 'error' && service ? t('service error') : asr?.state ? t(ASR_STATE[asr.state] ?? asr.state) : '…'}</button>
+            <button className={`pill ${aiReady ? 'ok' : 'warn'}`} onClick={() => setState({ dialog: 'settings', settingsTab: 'ai' })}><span className="dot" />{provider ? `${providerShort(provider.label)} · ${aiReady ? billingWord(provider.billing) : t(PROVIDER_STATE[provider.state] ?? provider.state)}` : t('AI: checking…')}</button>
             {hotkey?.state === 'ready' && <span className="pill accent"><IconBolt width={13} height={13} />{t('{key} starts listening from any app', { key: hotkey.shortcut })}</span>}
           </div>
         </div>
@@ -111,7 +117,8 @@ export function Home() {
               <h2>{t('Recent sessions')}</h2>
               <button className="btn small ghost" onClick={() => setState({ dialog: 'history' })}>{t('View all')} <IconArrow width={13} height={13} /></button>
             </div>
-            {recent === null && <p className="muted small pad">{t('Loading…')}</p>}
+            {recentError && <p className="error-text small pad" role="alert">{recentError} <button className="btn small" onClick={() => setRetry((n) => n + 1)}>{t('Retry')}</button></p>}
+            {!recentError && recent === null && <p className="muted small pad">{t('Loading…')}</p>}
             {recent?.length === 0 && (
               <div className="empty-recent">
                 <IconSpark width={28} height={28} />

@@ -2,6 +2,10 @@ import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
+export class DataDirectoryInUseError extends Error {
+  constructor() { super('Chumi is already using this data folder. Close the other Chumi server before starting another one.'); }
+}
+
 /**
  * Only the app server owns this separate database. Holding its exclusive transaction prevents
  * another server from recovering a live meeting, without blocking the meeting database or MCP.
@@ -17,7 +21,7 @@ export function acquireDataDirectoryLock(directory: string): { release(): void }
     lock.close();
     const code = (error as { errcode?: number }).errcode;
     if (code != null && [5, 6].includes(code & 0xff)) {
-      throw new Error('Chumi is already using this data folder. Close the other Chumi server before starting another one.');
+      throw new DataDirectoryInUseError();
     }
     throw error;
   }

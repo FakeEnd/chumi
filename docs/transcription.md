@@ -25,7 +25,7 @@ Each utterance that a service fails on (network down, key rejected, server stopp
 
 **Test speed and accuracy** never falls back: it measures the service itself, and reports its error if it fails.
 
-Keep a local Qwen3-ASR, SenseVoice or Whisper model downloaded, even when you use a service. Without a local model, the transcriber retries once, then that piece of audio is not transcribed. Settings → Transcription shows which case applies.
+Keep a local Qwen3-ASR, SenseVoice or Whisper model downloaded, even when you use a service. Without a local model, failed clips get up to three attempts, with retries after 2 and 30 seconds. Fresh audio goes first, so a failing clip does not block later speech or another meeting. Only failed audio is capped (15 minutes of audio or 15 minutes waiting); a healthy but slow backlog is kept. Untranscribed stretches get a timeline gap marker and a notice; any saved recording remains available. End can return while retries continue, and the final summary waits up to 20 minutes for pending transcription. If that wait expires, the summary is visibly marked incomplete and can be refreshed when late text arrives. Settings → Transcription shows which case applies.
 
 ## Local Qwen3-ASR
 

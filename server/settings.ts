@@ -1,8 +1,12 @@
 import os from 'node:os';
+import { maxAsrThreads } from '../shared/asr-threads.ts';
 import { DEFAULT_SESSION_TYPES, type SessionTypeOption } from '../shared/session-types.ts';
 import { recommendModel } from './asr/models.ts';
 import { defaultLocalEngine, QWEN_CLOUD_MODEL, QWEN_CLOUD_REGIONS, QWEN_LOCAL_MODEL, QWEN_LOCAL_URL, type SpeechEngineId } from './asr/engines.ts';
 import { defaultCompatibleSettings, type CompatibleSettings } from '../shared/compatible-provider.ts';
+
+export const ASR_THREAD_LIMIT = maxAsrThreads(os.cpus().length);
+
 export type AudioSourceMode = 'mic' | 'system' | 'both';
 export type Depth = 'quick' | 'standard' | 'deep';
 export type SessionType = string;
@@ -33,6 +37,8 @@ export interface Settings {
     qwenLocal: { baseUrl: string; model: string };
     /** The local Whisper model; used when Qwen3 is unavailable or Whisper is selected. */
     model: string;
+    /** Saved download source; empty uses Hugging Face (or CHUMI_MODEL_BASE_URL). */
+    modelBaseUrl: string;
     /** 'auto' handles English, Mandarin and code-switching; force a language if detection misbehaves. */
     language: 'auto' | 'en' | 'zh';
     threads: number;
@@ -114,6 +120,7 @@ export const DEFAULT_SETTINGS: Settings = {
     qwenCloud: { baseUrl: QWEN_CLOUD_REGIONS.singapore, model: QWEN_CLOUD_MODEL },
     qwenLocal: { baseUrl: QWEN_LOCAL_URL, model: QWEN_LOCAL_MODEL },
     model: recommendModel(), // Large v3 Turbo on Apple Silicon with 16 GB+, smaller models elsewhere
+    modelBaseUrl: '',
     language: 'auto',
     threads: Math.max(2, Math.min(8, os.cpus().length - 2)), // leave cores for audio, UI and the AI client
     glossary: ['ATAC-seq', 'ChIP-seq', 'RNA-seq', 'scRNA-seq', 'enhancer', 'promoter', 'motif', 'transcription factor', 'chromatin accessibility', 'gene regulation', 'CRISPR', 'GWAS', 'eQTL', 'transformer', 'convolutional'],

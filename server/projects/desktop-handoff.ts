@@ -79,7 +79,7 @@ export async function launchCodexDesktop(
 
 interface DeepSeekHarnessDependencies {
   dataDir: string;
-  installed: () => boolean;
+  installed: () => boolean | Promise<boolean>;
   copy: (text: string) => Promise<void>;
   open: () => Promise<void>;
 }
@@ -99,7 +99,7 @@ export async function continueInDeepSeekHarness(
 ): Promise<{ instruction: string; copied: boolean }> {
   await checkHandoff(handoffId, workspace, prompt, 'DeepSeek Harness');
   // Checked first: on Windows, opening a link nothing handles is not reported as a failure, and the clipboard would be overwritten for nothing.
-  if (!(dependencies.installed ?? dshAppInstalled)()) throw new Error('Chumi could not find the DeepSeek Harness desktop app. Install it, or choose where it is in Settings → Coding agents. You can also choose “Copy instructions”.');
+  if (!await (dependencies.installed ?? (() => dshAppInstalled(true)))()) throw new Error('Chumi could not find the DeepSeek Harness desktop app. Install it, or choose where it is in Settings → Coding agents. You can also choose “Copy instructions”.');
   let file: string;
   try {
     file = await saveSnapshot(dependencies.dataDir ?? DATA_DIR, handoffId, 'dsh', prompt);

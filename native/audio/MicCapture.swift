@@ -52,7 +52,7 @@ final class MicCapture {
         if dev != kAudioObjectUnknown, Hardware.isBuiltIn(dev), Hardware.lidClosed() == true {
             return "The built-in microphone is delivering digital silence because the MacBook lid is closed (macOS disables the built-in mic in clamshell mode). Open the lid or connect an external microphone and select it in Chumi."
         }
-        return "The microphone \"\(deviceName ?? "input")\" has delivered digital silence (all zeros) for \(Int(MicCapture.silenceSeconds)) s. Check that it is not muted (System Settings → Sound → Input) and that microphone access is allowed in System Settings → Privacy & Security → Microphone."
+        return "The microphone \"{device}\" has delivered digital silence (all zeros) for {seconds} s. Check that it is not muted (System Settings → Sound → Input) and that microphone access is allowed in System Settings → Privacy & Security → Microphone."
     }
 
     /// Resolves microphone permission, then starts the engine. `completion(true)` (on the main queue)
@@ -139,7 +139,9 @@ final class MicCapture {
         do {
             try startEngine()
             installDefaultInputListener()
-            let watch = SilenceWatch(pipeline: pipeline, threshold: 0, seconds: MicCapture.silenceSeconds, code: "mic_silent") { [weak self] in
+            let watch = SilenceWatch(pipeline: pipeline, threshold: 0, seconds: MicCapture.silenceSeconds, code: "mic_silent", vars: { [weak self] in
+                [("device", .string(self?.deviceName ?? "input")), ("seconds", .int(Int(MicCapture.silenceSeconds)))]
+            }) { [weak self] in
                 self?.silenceMessage() ?? "The microphone is delivering digital silence."
             }
             watch.start()

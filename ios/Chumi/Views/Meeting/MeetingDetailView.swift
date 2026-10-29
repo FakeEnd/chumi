@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// One meeting: recording, sync to the Mac, the transcript and the assistant.
-/// This view owns the recording run and every request to the Mac; the panels it shows only render.
+/// Recording belongs to this screen; the meeting store keeps assistant polling alive after navigation.
 struct MeetingDetailView: View {
     enum Tab: Hashable { case transcript, assistant }
 
@@ -12,7 +12,8 @@ struct MeetingDetailView: View {
     @StateObject private var recorder = MeetingRecorder()
 
     @State private var tab: Tab = DemoScreen.requested == .assistant ? .assistant : .transcript
-    @State private var locale = "zh-CN"
+    @AppStorage("recognitionLocale") private var defaultLocale = Meeting.defaultRecognitionLocale
+    @State private var locale = Meeting.defaultRecognitionLocale
 
     // The current recording run. Its segment times are offset by the meeting's earlier duration.
     @State private var baseDuration = 0
@@ -23,6 +24,7 @@ struct MeetingDetailView: View {
     // Requests to the Mac.
     @State private var busy = false
     @State private var error: String?
+    @State private var recovery: String?
     @State private var operation: Task<Void, Never>?
     @State private var projects: [MobileProject] = []
 
@@ -36,12 +38,14 @@ struct MeetingDetailView: View {
     @State private var showNote = false
     @State private var showDelete = false
     @State private var showProjects = false
+    @State private var showLeaveRecording = false
+    @State private var showSyncCopy = false
 
     private var meeting: Meeting? { store.meeting(meetingId) }
     private var recordingBusy: Bool { recorder.isRecording || recorder.isStopping || recorder.isPreparing || starting }
     private var recordingTransition: Bool { recorder.isStopping || recorder.isPreparing || starting }
     private var connectedIdentity: String? {
-        connection.credentials.map { $0.url + "|" + ($0.certificateSHA256 ?? "system-trust") }
+        connection.identity
     }
 
     /// Whether the currently paired Mac holds this meeting's latest revision.
@@ -51,7 +55,8 @@ struct MeetingDetailView: View {
 
     private var canAsk: Bool {
         guard let meeting else { return false }
-        return !store.isReadOnly && !busy && !recordingTransition && isSyncedHere(meeting) && !meeting.segments.isEmpty
+        return !store.isReadOnly && !busy && !recordingTransition && connection.credentials != nil
+            && (!meeting.segments.isEmpty || recorder.isRecording)
     }
 
     var body: some View {
@@ -59,25 +64,62 @@ struct MeetingDetailView: View {
             if let meeting {
                 content(meeting)
             } else {
-                ContentUnavailableView("找不到会议", systemImage: "doc.text.magnifyingglass")
+                ContentUnavailableView(String(localized: "Meeting not found"), systemImage: "doc.text.magnifyingglass")
             }
         }
         .background(ChumiBackground())
+        .background(RecordingNavigationGuard(isLocked: recordingBusy))
+        .navigationBarBackButtonHidden(recordingBusy)
+        .confirmationDialog(
+            String(localized: "Stop recording and go back?"), isPresented: $showLeaveRecording,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "Stop recording and go back"), role: .destructive) {
+                recorder.cancelAutomaticResume()
+                recordingTask?.cancel()
+                recordingTask = Task {
+                    await recorder.stop()
+                    finishRecording()
+                    dismiss()
+                }
+            }
+            Button(String(localized: "Keep recording"), role: .cancel) {}
+        }
         .sheet(isPresented: $showConnection) { ConnectionView() }
-        .sheet(isPresented: $showNote) { NoteSheet(note: $note, canSave: !recordingBusy, onSave: addNote) }
+        .sheet(isPresented: $showNote) {
+            NoteSheet(note: $note, canSave: !recordingTransition && !busy, onSave: addNote)
+        }
         .sheet(isPresented: $showProjects) {
             ProjectPickerSheet(projects: projects, selectedId: meeting?.projectId, onSelect: assignProject)
         }
-        .confirmationDialog("删除这部 iPhone 上的会议？", isPresented: $showDelete, titleVisibility: .visible) {
-            Button("删除会议", role: .destructive, action: deleteMeeting)
+        .confirmationDialog(
+            String(localized: "Delete this meeting from your iPhone?"), isPresented: $showDelete,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "Delete meeting"), role: .destructive, action: deleteMeeting)
         } message: {
-            Text("Mac 上的副本不受影响。录音文件仍保留在“文件”App 的 Chumi / Recordings 中，可单独管理。")
+            Text(
+                String(
+                    localized:
+                        "The Mac copy is unaffected. Audio files for this meeting will also be deleted from your phone. Export any recordings you want to keep first."
+                ))
         }
         .onAppear(perform: attachRecorder)
-        .onChange(of: recorder.isRecording) { wasRecording, isRecording in
-            if wasRecording && !isRecording { finishRecording() }
+        .task(id: connectedIdentity) { await refreshRemote(automatic: true) }
+        .confirmationDialog(
+            String(localized: "Keep both versions?"), isPresented: $showSyncCopy, titleVisibility: .visible
+        ) {
+            Button(String(localized: "Upload as a new copy"), action: uploadSyncCopy)
+        } message: {
+            Text(
+                String(
+                    localized:
+                        "This phone transcript will become a new meeting on your Mac. The existing Mac copy will be kept."
+                ))
         }
         .onDisappear {
+            recorder.cancelAutomaticResume()
+            recorder.onResumeRequested = nil
             operation?.cancel()
             recordingTask?.cancel()
             Task {
@@ -99,16 +141,30 @@ struct MeetingDetailView: View {
                     projectName: projects.first { $0.id == meeting.projectId }?.name)
                 RecorderCard(
                     recorder: recorder,
-                    displayMs: recordingRunActive ? baseDuration + recorder.elapsedMs : meeting.durationMs,
-                    locale: $locale,
+                    baseDuration: baseDuration,
+                    storedDuration: meeting.durationMs,
+                    runActive: recordingRunActive,
+                    locale: languageSelection,
                     audioFiles: meeting.audioFiles,
                     isStarting: starting,
-                    canStart: !starting && !busy && !store.isReadOnly,
+                    canStart: !starting && !store.isReadOnly,
                     canChangeLanguage: !starting && !store.isReadOnly,
                     canExport: !recordingBusy,
-                    onStart: startRecording,
+                    onStart: { startRecording() },
                     onStop: stopRecording)
-                if let error { Notice(message: error) }
+                if let message = error ?? store.syncErrors[meetingId]?.message { Notice(message: message) }
+                if let recovery = recovery ?? store.syncErrors[meetingId]?.recovery {
+                    switch recovery {
+                    case "pair": Button(String(localized: "Pair Mac again")) { showConnection = true }
+                    case "copy":
+                        Button(String(localized: "Upload as a new copy")) { showSyncCopy = true }.disabled(
+                            busy || recordingTransition)
+                    case "project": Button(String(localized: "Choose another project"), action: loadProjects)
+                    default:
+                        Button(String(localized: "Sync meeting again"), action: syncMeeting).disabled(
+                            busy || recordingTransition)
+                    }
+                }
                 if let error = recorder.errorMessage { Notice(message: error) }
                 if let error = store.errorMessage { Notice(message: error) }
                 SyncCard(
@@ -124,20 +180,25 @@ struct MeetingDetailView: View {
                 SegmentedControl(
                     selection: $tab,
                     options: [
-                        SegmentOption(.transcript, "转写 · \(meeting.segments.count)"),
-                        SegmentOption(.assistant, meeting.outputs.isEmpty ? "助手" : "助手 · \(meeting.outputs.count)"),
+                        SegmentOption(.transcript, String(localized: "Transcript · \(meeting.segments.count)")),
+                        SegmentOption(
+                            .assistant,
+                            meeting.outputs.isEmpty
+                                ? String(localized: "Assistant")
+                                : String(localized: "Assistant · \(meeting.outputs.count)")),
                     ])
                 switch tab {
                 case .transcript:
                     TranscriptPanel(
                         segments: meeting.segments,
-                        partialText: recorder.partialText,
+                        telemetry: recorder.telemetry,
                         isRecording: recorder.isRecording,
-                        canAddNote: !recordingBusy && !store.isReadOnly,
+                        canAddNote: !recordingTransition && !busy && !store.isReadOnly,
                         onAddNote: { showNote = true })
                 case .assistant:
                     AssistantPanel(
                         outputs: meeting.outputs,
+                        outputErrors: store.outputErrors[meetingId] ?? [:],
                         hasProject: meeting.projectId != nil,
                         canAsk: canAsk,
                         canRefresh: !busy && !store.isReadOnly && meeting.syncedServer == connectedIdentity,
@@ -148,7 +209,8 @@ struct MeetingDetailView: View {
                         onCatchup: { runAI(kind: "catchup") },
                         onSummary: { runAI(kind: "summary") },
                         onAsk: { runAI(kind: "answer") },
-                        onRefresh: refreshOutput)
+                        onRefresh: refreshOutput,
+                        onRefreshAll: { Task { await refreshRemote() } })
                 }
             }
             .padding(.horizontal, 16)
@@ -156,8 +218,15 @@ struct MeetingDetailView: View {
             .padding(.bottom, 32)
         }
         .scrollDismissesKeyboard(.interactively)
+        .refreshable { await refreshRemote() }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            if recordingBusy {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(String(localized: "Back"), systemImage: "chevron.left") { showLeaveRecording = true }
+                        .disabled(recorder.isStopping)
+                }
+            }
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 6) {
                     TypeDot(type: meeting.type, size: 8)
@@ -170,32 +239,40 @@ struct MeetingDetailView: View {
 
     private func actionsMenu(_ meeting: Meeting) -> some View {
         Menu {
-            Button("添加文字笔记", systemImage: "square.and.pencil") { showNote = true }
-                .disabled(recordingBusy || store.isReadOnly)
-            Button("选择 Mac 上的项目", systemImage: "folder", action: loadProjects)
+            Button(String(localized: "Add a text note"), systemImage: "square.and.pencil") { showNote = true }
+                .disabled(recordingTransition || busy || store.isReadOnly)
+            Button(String(localized: "Choose a Mac project"), systemImage: "folder", action: loadProjects)
                 .disabled(recordingBusy || busy || store.isReadOnly)
-            Button("连接 Mac", systemImage: "desktopcomputer") { showConnection = true }
+            Button(String(localized: "Connect Mac"), systemImage: "desktopcomputer") { showConnection = true }
             if !meeting.segments.isEmpty {
-                ShareLink(item: transcriptText(meeting)) {
-                    Label("导出文字", systemImage: "square.and.arrow.up")
+                ShareLink(item: TranscriptExport(meeting: meeting), preview: SharePreview(meeting.title)) {
+                    Label(String(localized: "Export transcript"), systemImage: "square.and.arrow.up")
                 }
             }
             Divider()
-            Button("删除手机上的会议", systemImage: "trash", role: .destructive) { showDelete = true }
-                .disabled(recordingBusy || busy || store.isReadOnly)
+            Button(String(localized: "Delete meeting from phone"), systemImage: "trash", role: .destructive) {
+                showDelete = true
+            }
+            .disabled(recordingBusy || busy || store.isReadOnly)
         } label: {
             Image(systemName: "ellipsis.circle")
         }
-        .accessibilityLabel("会议操作")
-    }
-
-    private func transcriptText(_ meeting: Meeting) -> String {
-        meeting.segments.map { "[\(durationLabel($0.tStart))] \($0.text)" }.joined(separator: "\n\n")
+        .accessibilityLabel(String(localized: "Meeting actions"))
     }
 
     // MARK: Recording
 
     private func attachRecorder() {
+        store.resumePendingOutputs(connection: connection)
+        locale = meeting?.recognitionLocale ?? meeting?.segments.last(where: { $0.lang != nil })?.lang ?? defaultLocale
+        recorder.onStopped = { automaticallyResuming in finishRecording(automaticallyResuming: automaticallyResuming) }
+        recorder.onResumeRequested = { startRecording(automatically: true) }
+        recorder.onAudioSaved = { file, duration in
+            store.update(meetingId) {
+                if !$0.audioFiles.contains(file) { $0.audioFiles.append(file) }
+                $0.durationMs = max($0.durationMs, baseDuration + duration)
+            }
+        }
         recorder.onSegment = { text, from, to, isFinal in
             guard isFinal, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             let start = baseDuration + max(0, Int(from * 1000))
@@ -207,40 +284,57 @@ struct MeetingDetailView: View {
         }
     }
 
-    private func startRecording() {
+    private func startRecording(automatically: Bool = false) {
         guard let meeting, !store.isReadOnly, !recordingBusy else { return }
+        recorder.cancelAutomaticResume()
         error = nil
         baseDuration = meeting.durationMs
         starting = true
         recordingTask = Task {
             defer { starting = false }
-            await recorder.start(locale: locale)
+            await recorder.start(locale: locale, automatically: automatically, title: meeting.title)
             guard recorder.isRecording else { return }
+            if automatically { recorder.reportAutomaticResume() }
             recordingRunActive = true
             store.update(meetingId) {
                 $0.status = "recording"
-                if let file = recorder.recordingURL?.lastPathComponent, !$0.audioFiles.contains(file) {
-                    $0.audioFiles.append(file)
-                }
+                $0.recognitionLocale = locale
             }
         }
     }
 
     private func stopRecording() {
+        recorder.cancelAutomaticResume()
         recordingTask = Task {
             await recorder.stop()
             finishRecording()
         }
     }
 
-    private func finishRecording() {
+    private func finishRecording(automaticallyResuming: Bool = false) {
         guard recordingRunActive else { return }
         recordingRunActive = false
         store.update(meetingId) {
             $0.status = "ended"
             $0.durationMs = max($0.durationMs, baseDuration + recorder.elapsedMs)
-            if let file = recorder.recordingURL?.lastPathComponent, !$0.audioFiles.contains(file) {
+            if RecordingRunPolicy.keepAudio(durationMs: recorder.elapsedMs),
+                let file = recorder.recordingURL?.lastPathComponent, !$0.audioFiles.contains(file)
+            {
                 $0.audioFiles.append(file)
+            }
+        }
+        if RecordingRunPolicy.syncAfterStop(automaticallyResuming: automaticallyResuming),
+            let meeting, meeting.remoteId != nil, meeting.syncedServer == connectedIdentity,
+            let client = try? connection.client(), let identity = connectedIdentity
+        {
+            let precedingRequest = operation
+            Task {
+                await precedingRequest?.value
+                guard let snapshot = store.meeting(meetingId), snapshot.status == "ended",
+                    snapshot.syncedServer == identity
+                else { return }
+                // The store scopes failures to this meeting and serializes competing uploads.
+                try? await store.syncMeeting(meetingId, client: client, identity: identity, finalOnly: true)
             }
         }
     }
@@ -249,12 +343,21 @@ struct MeetingDetailView: View {
 
     private func addNote() {
         let text = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        store.update(meetingId) {
-            $0.segments.append(
-                .init(tStart: $0.durationMs, tEnd: $0.durationMs, text: TranscriptSegment.notePrefix + text, lang: nil))
+        guard !text.isEmpty, text.utf16.count <= 15_990, !recordingTransition else { return }
+        perform {
+            let wasRecording = recordingRunActive
+            let runOffset = baseDuration
+            _ = await recorder.flush { offset in
+                store.update(meetingId) {
+                    let time = wasRecording ? runOffset + offset : $0.durationMs
+                    $0.durationMs = max($0.durationMs, time)
+                    $0.segments.append(
+                        .init(tStart: time, tEnd: time, text: TranscriptSegment.notePrefix + text, lang: nil))
+                }
+            }
+            note = ""
+            showNote = false
         }
-        note = ""
-        showNote = false
     }
 
     private func assignProject(_ id: String?) {
@@ -276,22 +379,37 @@ struct MeetingDetailView: View {
 
     private func syncMeeting() {
         perform {
-            guard !recordingTransition else { return }
-            if recordingRunActive {
-                store.update(meetingId) { $0.durationMs = max($0.durationMs, baseDuration + recorder.elapsedMs) }
-            }
-            guard let meeting else { throw MeetingError.unavailable }
-            let client = try connection.client()
-            let identity = connectedIdentity
-            let snapshotRevision = meeting.revision
-            let result = try await client.sync(meeting)
-            try Task.checkCancellation()
-            store.update(meetingId, contentChanged: false) {
-                $0.remoteId = result.id
-                $0.syncedRevision = snapshotRevision
-                $0.syncedServer = identity
-            }
+            _ = await recorder.flush()
+            try await synchronize()
         }
+    }
+
+    private func synchronize() async throws {
+        if recordingRunActive {
+            store.update(meetingId) { $0.durationMs = max($0.durationMs, baseDuration + recorder.elapsedMs) }
+        }
+        guard let identity = connectedIdentity else { throw MeetingError.missingConnection }
+        try await store.syncMeeting(meetingId, client: connection.client(), identity: identity)
+        guard identity == connectedIdentity else { throw CancellationError() }
+    }
+
+    private func uploadSyncCopy() {
+        guard !recordingTransition else { return }
+        perform {
+            try store.prepareSyncCopy(meetingId)
+            _ = await recorder.flush()
+            try await synchronize()
+        }
+    }
+
+    private var languageSelection: Binding<String> {
+        Binding(
+            get: { locale },
+            set: { value in
+                locale = value
+                defaultLocale = value
+                store.update(meetingId, contentChanged: false) { $0.recognitionLocale = value }
+            })
     }
 
     private func loadProjects() {
@@ -311,48 +429,83 @@ struct MeetingDetailView: View {
         let prompt = question.trimmingCharacters(in: .whitespacesAndNewlines)
         let scope = catchupScope
         perform {
-            guard let meeting, let remoteId = meeting.remoteId else { throw MeetingError.needsSync }
+            _ = await recorder.flush()
+            try Task.checkCancellation()
+            try await synchronize()
+            guard let meeting, !meeting.segments.isEmpty else { throw MeetingError.emptyTranscript }
+            guard let remoteId = meeting.remoteId else { throw MeetingError.needsSync }
             let client = try connection.client()
+            let identity = connectedIdentity
             let ticket: OutputTicket
-            switch kind {
-            case "catchup":
-                ticket = try await client.catchup(sessionId: remoteId, scope: scope)
-            case "summary":
-                ticket = try await client.summary(sessionId: remoteId)
-            default:
-                ticket = try await client.ask(sessionId: remoteId, question: prompt, projectContext: projectContext)
+            do {
+                switch kind {
+                case "catchup":
+                    ticket = try await client.catchup(sessionId: remoteId, scope: scope)
+                case "summary":
+                    ticket = try await client.summary(sessionId: remoteId)
+                default:
+                    ticket = try await client.ask(sessionId: remoteId, question: prompt, projectContext: projectContext)
+                }
+            } catch {
+                if case ConnectionError.server(_, "not_found", _) = error, let identity {
+                    store.forgetRemote(meetingId, remoteId: remoteId, identity: identity)
+                }
+                throw error
             }
+            try Task.checkCancellation()
+            guard identity == connectedIdentity else { throw CancellationError() }
             let pending = AssistantOutput(
                 id: ticket.id, kind: kind, status: "pending",
                 question: kind == "answer" ? prompt : nil,
                 scope: kind == "catchup" ? scope : nil)
             store.saveOutput(pending, meetingId: meetingId)
             if kind == "answer" { question = "" }
-            try await poll(ticket.id, client: client)
+            if let identity = connectedIdentity {
+                store.pollOutput(
+                    ticket.id, meetingId: meetingId, client: client, identity: identity, reportingErrors: true)
+            }
+        }
+    }
+
+    private func refreshRemote(automatic: Bool = false) async {
+        guard !store.isReadOnly, let meeting, let remoteId = meeting.remoteId,
+            let identity = connectedIdentity, meeting.syncedServer == identity
+        else { return }
+        do {
+            let detail = try await connection.client().detail(sessionId: remoteId)
+            try Task.checkCancellation()
+            guard connectedIdentity == identity, self.meeting?.remoteId == remoteId else { return }
+            store.mergeRemoteOutputs(detail.outputs, meetingId: meetingId)
+            error = nil
+            recovery = nil
+            store.resumePendingOutputs(connection: connection)
+        } catch is CancellationError {
+        } catch {
+            guard !Task.isCancelled else { return }
+            if case ConnectionError.server(_, "not_found", _) = error {
+                store.forgetRemote(meetingId, remoteId: remoteId, identity: identity)
+            }
+            if RequestFeedback.shouldPresent(error, automatic: automatic) {
+                self.error = error.localizedDescription
+                recovery = (error as? ConnectionError)?.recovery
+            }
         }
     }
 
     private func refreshOutput(_ id: String) {
-        perform { try await poll(id, client: connection.client()) }
-    }
-
-    private func poll(_ id: String, client: MobileAPI) async throws {
-        let deadline = Date().addingTimeInterval(180)
-        while Date() < deadline {
-            try Task.checkCancellation()
-            let output = try await client.output(id: id)
-            try Task.checkCancellation()
-            store.saveOutput(output, meetingId: meetingId)
-            if output.isFinished { return }
-            try await Task.sleep(nanoseconds: 1_200_000_000)
-        }
-        throw MeetingError.pollingTimeout
+        do {
+            let client = try connection.client()
+            if let identity = connectedIdentity {
+                store.pollOutput(id, meetingId: meetingId, client: client, identity: identity, reportingErrors: true)
+            }
+        } catch { self.error = error.localizedDescription }
     }
 
     /// Runs one request to the Mac at a time and shows its error, unless it was cancelled.
     private func perform(_ work: @escaping @MainActor () async throws -> Void) {
         guard !store.isReadOnly, !busy else { return }
         error = nil
+        recovery = nil
         busy = true
         operation = Task {
             defer { busy = false }
@@ -360,9 +513,40 @@ struct MeetingDetailView: View {
                 try await work()
             } catch is CancellationError {
             } catch {
-                if !Task.isCancelled { self.error = error.localizedDescription }
+                if !Task.isCancelled {
+                    self.error = error.localizedDescription
+                    recovery = (error as? ConnectionError)?.recovery
+                }
             }
         }
+    }
+}
+
+/// SwiftUI's hidden Back button is supplemented by a gesture guard during capture.
+private struct RecordingNavigationGuard: UIViewControllerRepresentable {
+    let isLocked: Bool
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.isLocked = isLocked
+        controller.updateGesture()
+    }
+    static func dismantleUIViewController(_ controller: Controller, coordinator: ()) { controller.restore() }
+
+    final class Controller: UIViewController {
+        var isLocked = false
+        private weak var gesture: UIGestureRecognizer?
+        private var wasEnabled = true
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            updateGesture()
+        }
+        func updateGesture() {
+            guard isLocked else { restore(); return }
+            guard let current = navigationController?.interactivePopGestureRecognizer else { return }
+            if gesture !== current { restore(); gesture = current; wasEnabled = current.isEnabled }
+            current.isEnabled = false
+        }
+        func restore() { gesture?.isEnabled = wasEnabled; gesture = nil }
     }
 }
 
@@ -384,17 +568,20 @@ private struct MeetingHeader: View {
                 .fixedSize(horizontal: false, vertical: true)
             FlowLayout(spacing: 6) {
                 if isRecording {
-                    Badge(text: "录音中", tone: .live)
+                    Badge(text: String(localized: "Recording"), tone: .live)
                 } else {
-                    Badge(text: "保存在这台 iPhone", tone: .muted, systemImage: "iphone")
+                    Badge(text: String(localized: "Saved on this iPhone"), tone: .muted, systemImage: "iphone")
                 }
                 if isSynced {
-                    Badge(text: "已同步到 Mac", tone: .ok, systemImage: "checkmark")
+                    Badge(text: String(localized: "Synced to Mac"), tone: .ok, systemImage: "checkmark")
                 } else if meeting.remoteId != nil {
-                    Badge(text: "有新内容待同步", tone: .warn, systemImage: "arrow.triangle.2.circlepath")
+                    Badge(
+                        text: String(localized: "New content to sync"), tone: .warn,
+                        systemImage: "arrow.triangle.2.circlepath")
                 }
                 if meeting.projectId != nil {
-                    Badge(text: projectName ?? "已关联项目", tone: .accent, systemImage: "folder")
+                    Badge(
+                        text: projectName ?? String(localized: "Project linked"), tone: .accent, systemImage: "folder")
                 }
             }
         }

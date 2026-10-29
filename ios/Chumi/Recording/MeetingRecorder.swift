@@ -11,19 +11,31 @@ final class MeetingRecorder: NSObject, ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var isStopping = false
     @Published private(set) var isPreparing = false
-    @Published private(set) var elapsedMs = 0
-    @Published private(set) var partialText = ""
+    let telemetry = RecordingTelemetry()
+    private(set) var elapsedMs: Int {
+        get { telemetry.elapsedMs }
+        set { telemetry.elapsedMs = newValue }
+    }
+    private(set) var partialText: String {
+        get { telemetry.partialText }
+        set { if telemetry.partialText != newValue { telemetry.partialText = newValue } }
+    }
     @Published private(set) var errorMessage: String?
-    @Published private(set) var statusMessage = "录音和转写保存在这台 iPhone 上"
+    @Published private(set) var statusMessage = String(localized: "Audio and transcripts stay on this iPhone")
     @Published private(set) var recordingURL: URL?
+    @Published private(set) var storageMessage: String?
+    private var bytesPerSecond: Double = 0
 
     /// Persist only isFinal events. Partial events replace the live preview.
     var onSegment: ((String, Double, Double, Bool) -> Void)?
+    var onResumeRequested: (() -> Void)?
+    var onStopped: ((Bool) -> Void)?
+    var onAudioSaved: ((String, Int) -> Void)?
+    private var recovery = RecordingRecovery()
+    private var warningAfterStop = false
+    private var didReportAudio = false
 
-    static var audioDirectory: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Recordings", isDirectory: true)
-    }
+    static var audioDirectory: URL { RecordingStorage.directory }
 
     // AVAudioSession is shared by the entire app. Keep ownership across view
     // navigation until pending permissions and final audio cleanup have ended.
@@ -37,9 +49,11 @@ final class MeetingRecorder: NSObject, ObservableObject {
     private var windowOrder: [UUID] = []
     private var activeWindowID: UUID?
     private var isRotating = false
+    private var isFlushing = false
+    private var commitBarrierID: UUID?
     private var speechEnabled = false
     private var consecutiveRecognitionErrors = 0
-    private var startedAt: TimeInterval = 0
+    private var speechRetryAt: TimeInterval?
     private var clockTask: Task<Void, Never>?
     private var preparationID: UUID?
     private var observers: [NSObjectProtocol] = []
@@ -50,7 +64,17 @@ final class MeetingRecorder: NSObject, ObservableObject {
         observe(AVAudioSession.interruptionNotification) { recorder, notification in
             let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
             if raw == AVAudioSession.InterruptionType.began.rawValue {
-                recorder.stopForInterruption("录音被来电或其他音频应用中断，已保存当前内容")
+                if recorder.isRecording && !recorder.isStopping {
+                    recorder.recovery.request(at: ProcessInfo.processInfo.systemUptime, awaitingInterruptionEnd: true)
+                }
+                recorder.stopForInterruption(
+                    String(
+                        localized: "A call or another audio app interrupted recording. Your recording has been saved."))
+            } else if raw == AVAudioSession.InterruptionType.ended.rawValue {
+                let options = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                recorder.recovery.interruptionEnded(
+                    shouldResume: AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume))
+                recorder.resumeIfPossible()
             }
         }
         observe(AVAudioSession.routeChangeNotification) { recorder, notification in
@@ -58,15 +82,36 @@ final class MeetingRecorder: NSObject, ObservableObject {
             if raw == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue
                 || raw == AVAudioSession.RouteChangeReason.newDeviceAvailable.rawValue
             {
-                recorder.stopForInterruption("音频设备已切换，当前录音已保存；可重新开始录音")
+                // Connecting headphones should not interrupt the built-in room microphone.
+                let session = AVAudioSession.sharedInstance()
+                if recorder.isRecording && !recorder.isStopping
+                    && (!recorder.engine.isRunning
+                        || recorder.prefersBuiltInInput(session))
+                {
+                    recorder.recovery.request(at: ProcessInfo.processInfo.systemUptime)
+                    recorder.stopForInterruption(String(localized: "The audio device changed. Resuming recording…"))
+                }
             }
         }
+        observe(.AVAudioEngineConfigurationChange) { recorder, notification in
+            guard let changed = notification.object as? AVAudioEngine, changed === recorder.engine,
+                recorder.isRecording, !recorder.isStopping, !recorder.engine.isRunning
+            else { return }
+            recorder.recovery.request(at: ProcessInfo.processInfo.systemUptime)
+            recorder.stopForInterruption(
+                String(localized: "The audio configuration changed. Saving and resuming recording…"))
+        }
         observe(AVAudioSession.mediaServicesWereResetNotification) { recorder, _ in
-            recorder.stopForInterruption("系统音频服务已重置，当前录音已保存")
+            recorder.cancelAutomaticResume()
+            recorder.stopForInterruption(
+                String(localized: "System audio services reset. Your recording has been saved."))
         }
         observe(UIApplication.didEnterBackgroundNotification) { recorder, _ in
-            recorder.stopForInterruption("应用已进入后台，当前录音已保存")
+            // A call may background the app; keep its resume request for the next foreground event.
+            recorder.stopForInterruption(
+                String(localized: "The app moved to the background. Your recording has been saved."))
         }
+        observe(UIApplication.didBecomeActiveNotification) { recorder, _ in recorder.resumeIfPossible() }
     }
 
     deinit {
@@ -74,19 +119,25 @@ final class MeetingRecorder: NSObject, ObservableObject {
         clockTask?.cancel()
     }
 
-    func start(locale: String = "zh-CN") async {
+    func start(locale: String = "zh-CN", automatically: Bool = false, title: String = "Meeting") async {
         guard !isRecording, !isStopping, !isPreparing else { return }
         guard Self.sessionOwner == nil else {
-            errorMessage = "另一段录音正在进行或保存，请稍后重试。"
+            errorMessage = String(localized: "Another recording is running or being saved. Try again shortly.")
             return
         }
+        if !automatically { recovery.reset() }
+        speechRetryAt = nil
+        recordingURL = nil
+        elapsedMs = 0
+        didReportAudio = false
+        warningAfterStop = false
         Self.sessionOwner = self
         let preparation = UUID()
         preparationID = preparation
         isPreparing = true
         errorMessage = nil
         stopMessage = nil
-        statusMessage = "正在检查麦克风和设备端转写权限…"
+        statusMessage = String(localized: "Checking microphone and on-device transcription permissions…")
         defer {
             if preparationID == preparation {
                 preparationID = nil
@@ -111,30 +162,52 @@ final class MeetingRecorder: NSObject, ObservableObject {
             recognizer = speechEnabled ? candidate : nil
             let fallback: String?
             if speechStatus != .authorized {
-                fallback = "仅录音：语音识别权限未开启，可在系统设置中允许"
+                fallback = String(localized: "Audio only: allow speech recognition in Settings to enable transcription")
             } else if candidate?.supportsOnDeviceRecognition != true {
-                fallback = "仅录音：当前语言的设备端识别不可用；录音仍会保存在手机"
+                fallback = String(
+                    localized:
+                        "Audio only: on-device recognition is unavailable for this language. Audio is still saved on your phone."
+                )
             } else if candidate?.isAvailable != true {
-                fallback = "仅录音：设备端语音识别暂时不可用"
+                fallback = String(localized: "Audio only: on-device speech recognition is temporarily unavailable")
             } else {
                 fallback = nil
             }
 
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: [.allowBluetooth])
+            try session.setCategory(.record, mode: .measurement, options: [])
             try session.setActive(true)
+            if prefersBuiltInInput(session),
+                let microphone = session.availableInputs?.first(where: { $0.portType == .builtInMic })
+            {
+                try session.setPreferredInput(microphone)
+            }
             try checkPreparation(preparation)
             let format = engine.inputNode.outputFormat(forBus: 0)
             guard format.sampleRate > 0, format.channelCount > 0 else {
                 throw RecorderError.noInput
             }
             try FileManager.default.createDirectory(at: Self.audioDirectory, withIntermediateDirectories: true)
-            let url = Self.audioDirectory.appendingPathComponent("\(UUID().uuidString).caf")
+            bytesPerSecond =
+                format.sampleRate * Double(format.streamDescription.pointee.mBytesPerFrame)
+                * (format.isInterleaved ? 1 : Double(format.channelCount))
+            let capacity = try await RecordingStorage.availableBytes(at: Self.audioDirectory)
+            try checkPreparation(preparation)
+            let minutes = RecordingStorage.minutesRemaining(capacity: capacity, bytesPerSecond: bytesPerSecond)
+            guard minutes >= 1 else { throw RecorderError.lowStorage }
+            storageMessage =
+                minutes < 30
+                ? String(
+                    localized:
+                        "Storage is low: about \(minutes) minutes of recording remain. Export and delete older recordings soon."
+                ) : nil
+            let url = Self.audioDirectory.appendingPathComponent(RecordingStorage.filename(title: title))
             let captureSink = try RecordingSink(url: url, format: format) { [weak self] message in
                 Task { @MainActor [weak self] in
                     guard let self, self.isRecording, !self.isStopping else { return }
                     self.errorMessage = message
-                    self.stopForInterruption("录音已停止，已保留成功写入的音频和文字")
+                    self.stopForInterruption(
+                        String(localized: "Recording stopped. All successfully saved audio and text have been kept."))
                 }
             }
             sink = captureSink
@@ -152,24 +225,27 @@ final class MeetingRecorder: NSObject, ObservableObject {
             engine.prepare()
             try checkPreparation(preparation)
             try engine.start()
-            startedAt = ProcessInfo.processInfo.systemUptime
             isRecording = true
-            statusMessage = fallback ?? "设备端转写中 · \(locale == "en-US" ? "English" : "中文")"
+            UIApplication.shared.isIdleTimerDisabled = true
+            let languageName = locale == "en-US" ? "English" : String(localized: "Chinese")
+            statusMessage = fallback ?? String(localized: "On-device transcription · \(languageName)")
             if speechEnabled { await beginRecognitionWindow() }
             startClock()
         } catch {
+            UIApplication.shared.isIdleTimerDisabled = false
             engine.stop()
             removeTap()
-            if let sink { _ = await sink.finish() }
+            if let sink { elapsedMs = Int((await sink.finish() * 1000).rounded()) }
             sink = nil
+            finishAudioFile()
             recognizer = nil
             speechEnabled = false
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             if error is CancellationError {
-                statusMessage = "已取消录音"
+                statusMessage = String(localized: "Recording cancelled")
             } else {
                 errorMessage = error.localizedDescription
-                statusMessage = "未开始录音"
+                statusMessage = String(localized: "Recording did not start")
             }
         }
     }
@@ -184,6 +260,7 @@ final class MeetingRecorder: NSObject, ObservableObject {
         }
         guard isRecording else { return }
         isStopping = true
+        UIApplication.shared.isIdleTimerDisabled = false
         let backgroundTask = UIApplication.shared.beginBackgroundTask(
             withName: "Save Chumi recording", expirationHandler: nil)
         defer {
@@ -213,21 +290,57 @@ final class MeetingRecorder: NSObject, ObservableObject {
             window.task?.cancel()
         }
         commitFinishedWindows()
+        while isFlushing { await finalizationTick() }
         partialText = ""
+        telemetry.level = 0
         recognizer = nil
         speechEnabled = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        statusMessage = stopMessage ?? "已保存到这台 iPhone"
+        if warningAfterStop {
+            warningAfterStop = false
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        }
+        finishAudioFile()
+        statusMessage = stopMessage ?? String(localized: "Saved on this iPhone")
         isStopping = false
         isRecording = false
         releaseSessionOwnership()
+        let resume = takeAutomaticResume()
+        onStopped?(resume)
+        if resume { onResumeRequested?() }
     }
 
-    private func beginRecognitionWindow() async {
+    /// Close the live window and commit its latest text before taking a sync snapshot.
+    func flush(onBoundary: ((Int) -> Void)? = nil) async -> Int {
+        while isRotating || isFlushing { await finalizationTick() }
+        if isStopping { await stop(); onBoundary?(elapsedMs); return elapsedMs }
+        guard isRecording else { onBoundary?(elapsedMs); return elapsedMs }
+        isFlushing = true
+        defer { isFlushing = false }
+        let pending = Set(windowOrder)
+        let offset =
+            await beginRecognitionWindow(holdingCommit: true) ?? sink?.progress.duration ?? Double(elapsedMs) / 1000
+        let deadline = ProcessInfo.processInfo.systemUptime + 1.6
+        while pending.contains(where: { windows[$0] != nil }) && ProcessInfo.processInfo.systemUptime < deadline {
+            await finalizationTick()
+        }
+        for id in pending {
+            if let window = windows[id] { window.finished = true; window.end = offset; window.task?.cancel() }
+        }
+        commitFinishedWindows()
+        let milliseconds = Int((offset * 1000).rounded(.down))
+        onBoundary?(milliseconds)
+        commitBarrierID = nil
+        commitFinishedWindows()
+        return milliseconds
+    }
+
+    @discardableResult
+    private func beginRecognitionWindow(holdingCommit: Bool = false) async -> Double? {
         guard isRecording, !isStopping, speechEnabled, !isRotating,
             let recognizer, recognizer.supportsOnDeviceRecognition,
             let sink
-        else { return }
+        else { return nil }
         isRotating = true
         defer { isRotating = false }
         let previousID = activeWindowID
@@ -237,7 +350,7 @@ final class MeetingRecorder: NSObject, ObservableObject {
         request.taskHint = .dictation
         if #available(iOS 16.0, *) { request.addsPunctuation = true }
         let offset = await sink.replaceRequest(request)
-        guard isRecording, !isStopping else { request.endAudio(); return }
+        guard isRecording, !isStopping else { request.endAudio(); return nil }
         if let previousID, let previous = windows[previousID] {
             previous.end = offset
             scheduleFinalization(of: previousID)
@@ -247,12 +360,14 @@ final class MeetingRecorder: NSObject, ObservableObject {
         windows[id] = window
         windowOrder.append(id)
         activeWindowID = id
+        if holdingCommit { commitBarrierID = id }
         partialText = ""
         window.task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             let snapshot = result.map { SpeechSnapshot(result: $0) }
             let message = error?.localizedDescription
             Task { @MainActor [weak self] in self?.receive(snapshot, error: message, windowID: id) }
         }
+        return offset
     }
 
     private func receive(_ snapshot: SpeechSnapshot?, error: String?, windowID id: UUID) {
@@ -273,12 +388,14 @@ final class MeetingRecorder: NSObject, ObservableObject {
         let needsRestart = activeWindowID == id && !isStopping
         if activeWindowID == id { activeWindowID = nil; partialText = "" }
         commitFinishedWindows()
-        if let error, needsRestart {
+        if error != nil, needsRestart {
             consecutiveRecognitionErrors += 1
             if consecutiveRecognitionErrors >= 3 {
                 speechEnabled = false
-                statusMessage = "仅录音：设备端转写暂时不可用"
-                errorMessage = "转写已暂停，录音仍在保存。\(error)"
+                statusMessage = String(localized: "Audio only: on-device transcription is temporarily unavailable")
+                errorMessage = String(
+                    localized: "Transcription paused. Audio is still being saved. Retrying in 30 seconds.")
+                speechRetryAt = ProcessInfo.processInfo.systemUptime + 30
                 Task { [weak self] in _ = await self?.sink?.replaceRequest(nil) }
                 return
             }
@@ -299,16 +416,13 @@ final class MeetingRecorder: NSObject, ObservableObject {
 
     private func commitFinishedWindows() {
         // Old callbacks cannot commit twice: remove the window before calling the store.
-        while let id = windowOrder.first, let window = windows[id], window.finished {
+        while let id = windowOrder.first, id != commitBarrierID, let window = windows[id], window.finished {
             windowOrder.removeFirst()
             windows.removeValue(forKey: id)
             window.timeout?.cancel()
             window.task?.cancel()
             guard let snapshot = window.latest, !snapshot.text.isEmpty else { continue }
-            let currentTime =
-                isStopping
-                ? Double(elapsedMs) / 1000
-                : max(Double(elapsedMs) / 1000, ProcessInfo.processInfo.systemUptime - startedAt)
+            let currentTime = max(Double(elapsedMs) / 1000, sink?.progress.duration ?? 0)
             let endLimit = max(window.offset, window.end ?? currentTime)
             let start = min(max(window.offset, window.offset + snapshot.start), endLimit)
             let estimatedEnd = snapshot.end > snapshot.start ? window.offset + snapshot.end : endLimit
@@ -320,10 +434,66 @@ final class MeetingRecorder: NSObject, ObservableObject {
     private func startClock() {
         clockTask?.cancel()
         clockTask = Task { [weak self] in
+            var lastStorageCheck = ProcessInfo.processInfo.systemUptime
+            var lastFrames: Int64 = 0
+            var lastProgress = ProcessInfo.processInfo.systemUptime
             while !Task.isCancelled {
-                do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
+                do { try await Task.sleep(nanoseconds: 125_000_000) } catch { return }
                 guard let self, self.isRecording, !self.isStopping else { return }
-                self.elapsedMs = Int((ProcessInfo.processInfo.systemUptime - self.startedAt) * 1000)
+                guard let progress = self.sink?.progress else { return }
+                let now = ProcessInfo.processInfo.systemUptime
+                let elapsed = Int(progress.duration * 1000)
+                reportSavedAudio(durationMs: elapsed)
+                if elapsed / 1000 != self.elapsedMs / 1000 { self.elapsedMs = elapsed }
+                let level =
+                    UIAccessibility.isReduceMotionEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
+                    ? 0 : progress.level
+                if abs(self.telemetry.level - level) >= 0.02 { self.telemetry.level = level }
+                if progress.receivedFrames > lastFrames {
+                    lastFrames = progress.receivedFrames
+                    lastProgress = now
+                }
+                if !self.engine.isRunning || now - lastProgress >= 2 {
+                    self.recovery.request(at: now)
+                    self.stopForInterruption(
+                        String(localized: "No new microphone audio arrived. Saving and trying to resume recording…"))
+                    return
+                }
+                if now - lastStorageCheck >= 10 {
+                    lastStorageCheck = now
+                    if let capacity = try? await RecordingStorage.availableBytes(at: Self.audioDirectory) {
+                        guard !Task.isCancelled, self.isRecording, !self.isStopping else { return }
+                        if capacity <= RecordingStorage.reserveBytes {
+                            self.cancelAutomaticResume()
+                            self.stopForInterruption(
+                                String(
+                                    localized:
+                                        "Storage is full. Recording stopped and was saved. Export and delete older recordings to continue."
+                                ))
+                            return
+                        }
+                        let minutes = RecordingStorage.minutesRemaining(
+                            capacity: capacity, bytesPerSecond: self.bytesPerSecond)
+                        self.storageMessage =
+                            minutes < 30
+                            ? String(
+                                localized:
+                                    "Storage is low: about \(minutes) minutes of recording remain. Export and delete older recordings soon."
+                            ) : nil
+                    }
+                }
+                if progress.duration >= 10 { self.recovery.markHealthy() }
+                if let retry = self.speechRetryAt, now >= retry {
+                    self.speechRetryAt = now + 30
+                    if self.recognizer?.isAvailable == true {
+                        self.speechRetryAt = nil
+                        self.speechEnabled = true
+                        self.consecutiveRecognitionErrors = 0
+                        self.errorMessage = nil
+                        self.statusMessage = String(localized: "On-device transcription resumed")
+                        await self.beginRecognitionWindow()
+                    }
+                }
                 if let id = self.activeWindowID, let window = self.windows[id],
                     Double(self.elapsedMs) / 1000 - window.offset >= 45
                 {
@@ -356,7 +526,60 @@ final class MeetingRecorder: NSObject, ObservableObject {
         if isPreparing { preparationID = nil }
         guard isRecording, !isStopping else { return }
         stopMessage = message
+        warningAfterStop = true
         Task { [weak self] in await self?.stop() }
+    }
+
+    func cancelAutomaticResume() { recovery.cancel() }
+
+    private func takeAutomaticResume() -> Bool {
+        guard onResumeRequested != nil, !isPreparing else { return false }
+        let wasReady = recovery.requestedAt != nil && recovery.allowed
+        let resume = recovery.takeResume(
+            at: ProcessInfo.processInfo.systemUptime, active: UIApplication.shared.applicationState == .active)
+        if wasReady && !resume && recovery.attempts >= 2 {
+            errorMessage = String(
+                localized: "Could not resume automatically. Check the microphone, then tap Resume recording.")
+        }
+        return resume
+    }
+
+    private func resumeIfPossible() {
+        guard !isRecording, !isStopping, !isPreparing else { return }
+        if takeAutomaticResume() { onResumeRequested?() }
+    }
+
+    private func prefersBuiltInInput(_ session: AVAudioSession) -> Bool {
+        let inputs: [RecordingInputKind] = session.currentRoute.inputs.map {
+            switch $0.portType {
+            case .headsetMic, .bluetoothHFP: return .headset
+            case .usbAudio, .lineIn: return .external
+            case .builtInMic: return .builtIn
+            default: return .other
+            }
+        }
+        return RecordingRunPolicy.preferBuiltIn(over: inputs)
+    }
+
+    private func reportSavedAudio(durationMs: Int) {
+        guard !didReportAudio, RecordingRunPolicy.keepAudio(durationMs: durationMs), let recordingURL else { return }
+        didReportAudio = true
+        onAudioSaved?(recordingURL.lastPathComponent, durationMs)
+    }
+
+    private func finishAudioFile() {
+        if RecordingRunPolicy.keepAudio(durationMs: elapsedMs) {
+            reportSavedAudio(durationMs: elapsedMs)
+        } else if let url = recordingURL {
+            try? FileManager.default.removeItem(at: url)
+            recordingURL = nil
+        }
+    }
+
+    func reportAutomaticResume() {
+        if isRecording {
+            statusMessage = String(localized: "Recording resumed automatically after an audio interruption")
+        }
     }
 
     private func observe(
@@ -392,11 +615,17 @@ final class MeetingRecorder: NSObject, ObservableObject {
 }
 
 private enum RecorderError: LocalizedError {
-    case microphoneDenied, noInput
+    case microphoneDenied, noInput, lowStorage
     var errorDescription: String? {
         switch self {
-        case .microphoneDenied: return "请在系统设置 → 隐私与安全性 → 麦克风中允许 Chumi 录音。"
-        case .noInput: return "未找到可用的麦克风，请检查音频设备后重试。"
+        case .microphoneDenied:
+            return String(localized: "Allow Chumi to record in Settings → Privacy & Security → Microphone.")
+        case .lowStorage:
+            return String(
+                localized:
+                    "Not enough storage to record. Export and delete older recordings to free up a few minutes of space, then try again."
+            )
+        case .noInput: return String(localized: "No microphone is available. Check your audio devices and try again.")
         }
     }
 }
@@ -426,17 +655,25 @@ private final class RecognitionWindow {
     init(offset: Double) { self.offset = offset }
 }
 
-/// All file and recognizer-buffer operations run in one FIFO queue. At most eight
+/// All file and recognizer-buffer operations run in one FIFO queue. At most 64
 /// copied buffers can be pending; an overloaded writer stops instead of growing RAM.
 private final class RecordingSink: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.chumi.recording", qos: .userInitiated)
-    private let capacity = DispatchSemaphore(value: 8)
+    private let capacity = DispatchSemaphore(value: 64)
     private let admissionLock = NSLock()
     private var accepting = true
     private var reportedFailure = false
     private var file: AVAudioFile?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var framesWritten: AVAudioFramePosition = 0
+    private let progressLock = NSLock()
+    private var writtenDuration: Double = 0
+    private var receivedFrames: Int64 = 0
+    private var level: Float = 0
+    var progress: (duration: Double, receivedFrames: Int64, level: Float) {
+        progressLock.lock(); defer { progressLock.unlock() }
+        return (writtenDuration, receivedFrames, level)
+    }
     private let sampleRate: Double
     private let onFailure: @Sendable (String) -> Void
 
@@ -455,18 +692,27 @@ private final class RecordingSink: @unchecked Sendable {
     func enqueue(_ source: AVAudioPCMBuffer) {
         admissionLock.lock()
         guard accepting else { admissionLock.unlock(); return }
+        progressLock.lock()
+        receivedFrames += Int64(source.frameLength)
+        progressLock.unlock()
         guard capacity.wait(timeout: .now()) == .success else {
             let shouldReport = !reportedFailure
             reportedFailure = true
             accepting = false
             admissionLock.unlock()
-            if shouldReport { onFailure("音频写入未能跟上录音速度，已安全停止；请检查存储空间后重试。") }
+            if shouldReport {
+                onFailure(
+                    String(
+                        localized:
+                            "Audio could not be saved fast enough, so recording stopped safely. Check your storage and try again."
+                    ))
+            }
             return
         }
         guard let copy = AVAudioPCMBuffer(pcmFormat: source.format, frameCapacity: source.frameLength) else {
             capacity.signal()
             admissionLock.unlock()
-            fail("无法分配录音缓冲区，当前录音将停止。")
+            fail(String(localized: "Could not allocate an audio buffer. Recording will stop."))
             return
         }
         copy.frameLength = source.frameLength
@@ -483,9 +729,22 @@ private final class RecordingSink: @unchecked Sendable {
             do {
                 try file.write(from: copy)
                 framesWritten += AVAudioFramePosition(copy.frameLength)
+                var rms: Float = 0
+                if let samples = copy.floatChannelData?[0], copy.frameLength > 0 {
+                    var count: Float = 0
+                    for index in stride(from: 0, to: Int(copy.frameLength), by: 4) {
+                        rms += samples[index] * samples[index]
+                        count += 1
+                    }
+                    rms = sqrt(rms / max(1, count))
+                }
+                progressLock.lock()
+                level = min(1, max(0, (20 * log10(max(rms, 0.00001)) + 60) / 60))
+                writtenDuration = Double(framesWritten) / sampleRate
+                progressLock.unlock()
                 request?.append(copy)
             } catch {
-                fail("保存录音失败：\(error.localizedDescription)")
+                fail(String(localized: "Could not save audio: \(error.localizedDescription)"))
             }
         }
         admissionLock.unlock()
@@ -527,4 +786,12 @@ private final class RecordingSink: @unchecked Sendable {
         admissionLock.unlock()
         if shouldReport { onFailure(message) }
     }
+}
+
+/// Fast-changing capture feedback is observed only by the readout and live transcript.
+@MainActor
+final class RecordingTelemetry: ObservableObject {
+    @Published var elapsedMs = 0
+    @Published var partialText = ""
+    @Published var level: Float = 0
 }

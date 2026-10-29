@@ -3,15 +3,13 @@ import SwiftUI
 /// The transcript as one panel, like the desktop: a time column, finalized lines and the live partial.
 struct TranscriptPanel: View {
     let segments: [TranscriptSegment]
-    let partialText: String
+    let telemetry: RecordingTelemetry
     let isRecording: Bool
     let canAddNote: Bool
     let onAddNote: () -> Void
 
-    private var showsPartial: Bool { isRecording && !partialText.isEmpty }
-
     var body: some View {
-        if segments.isEmpty && !showsPartial {
+        if segments.isEmpty && !isRecording {
             emptyState
         } else {
             Card(padding: 10) {
@@ -19,13 +17,7 @@ struct TranscriptPanel: View {
                     ForEach(segments) { segment in
                         SegmentRow(segment: segment)
                     }
-                    if showsPartial {
-                        Line(time: nil) {
-                            Text(partialText)
-                                .italic()
-                                .foregroundStyle(ChumiTheme.partial)
-                        }
-                    }
+                    LiveTranscript(telemetry: telemetry, isRecording: isRecording)
                 }
             }
         }
@@ -35,14 +27,31 @@ struct TranscriptPanel: View {
         Card(padding: 20) {
             VStack(alignment: .leading, spacing: 10) {
                 IconTile(systemName: "text.alignleft")
-                Text("对话从这里开始").font(.headline).foregroundStyle(ChumiTheme.text)
-                Text("录音后，识别出的文字会按时间保存在这里。也可以先添加一段文字笔记。")
-                    .font(.subheadline)
-                    .foregroundStyle(ChumiTheme.muted)
-                Button("添加笔记", systemImage: "square.and.pencil", action: onAddNote)
+                Text(String(localized: "The conversation starts here")).font(.headline).foregroundStyle(ChumiTheme.text)
+                Text(
+                    String(
+                        localized:
+                            "Recognized speech appears here in order as you record. You can also add a text note first."
+                    )
+                )
+                .font(.subheadline)
+                .foregroundStyle(ChumiTheme.muted)
+                Button(String(localized: "Add note"), systemImage: "square.and.pencil", action: onAddNote)
                     .buttonStyle(.chumi(.secondary, compact: true))
                     .disabled(!canAddNote)
                     .padding(.top, 4)
+            }
+        }
+    }
+}
+
+private struct LiveTranscript: View {
+    @ObservedObject var telemetry: RecordingTelemetry
+    let isRecording: Bool
+    var body: some View {
+        if isRecording && !telemetry.partialText.isEmpty {
+            Line(time: nil) {
+                Text(telemetry.partialText).italic().foregroundStyle(ChumiTheme.partial)
             }
         }
     }
@@ -54,7 +63,7 @@ private struct SegmentRow: View {
     var body: some View {
         Line(time: segment.tStart) {
             VStack(alignment: .leading, spacing: 4) {
-                if segment.isNote { TagLabel(text: "笔记") }
+                if segment.isNote { TagLabel(text: String(localized: "Note")) }
                 Text(segment.displayText)
                     .foregroundStyle(ChumiTheme.text)
                     .textSelection(.enabled)

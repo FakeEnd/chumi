@@ -10,7 +10,7 @@
 # (needs MinGW-w64 g++). The Windows desktop app includes it; see docs\windows.md.
 param(
   [string]$Proxy = '',
-  [string]$ModelBaseUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main',
+  [string]$ModelBaseUrl = '',
   # whisper.cpp publishes its Windows builds with the numbered release tags.
   [string]$WhisperRelease = 'b5454',
   # SHA-256 of the whisper.cpp zip, needed only with another -WhisperRelease (the default's are pinned below).
@@ -21,7 +21,7 @@ $ProgressPreference = 'SilentlyContinue'
 Set-Location (Split-Path $PSScriptRoot -Parent)
 function Step($text) { Write-Host "`n==> $text" -ForegroundColor Cyan }
 function Download($url, $out) {
-  $args = @('-L', '--fail', '--progress-bar', '-o', $out, $url)
+  $args = @('-L', '--fail', '--retry', '3', '-C', '-', '--progress-bar', '-o', $out, $url)
   if ($Proxy) { $args = @('-x', $Proxy) + $args }
   & curl.exe @args
   if ($LASTEXITCODE -ne 0) { throw "Download failed: $url" }
@@ -78,7 +78,10 @@ if ($Proxy) { $npmArgs += @('--proxy', $Proxy, '--https-proxy', $Proxy) }
 & npm @npmArgs
 if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
 
-$model = node --input-type=module -e "import('./server/asr/models.ts').then((m) => console.log(m.recommendModel()))"
+$ModelBaseUrl = node scripts/setup-model.ts base $ModelBaseUrl
+if ($LASTEXITCODE -ne 0) { throw 'Could not save the model download source.' }
+$model = node scripts/setup-model.ts model
+if ($LASTEXITCODE -ne 0) { throw 'Could not read the configured speech model.' }
 Step "Downloading the speech model $model (once; other sizes are in Settings > Transcription)"
 $models = if ($env:CHUMI_MODELS_DIR) { $env:CHUMI_MODELS_DIR } else { Join-Path $env:LOCALAPPDATA 'Chumi\models' }
 New-Item -ItemType Directory -Force $models | Out-Null

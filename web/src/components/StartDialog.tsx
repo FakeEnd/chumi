@@ -18,20 +18,15 @@ export function StartDialog() {
   const samples = useStore((s) => s.samples);
   const helperBuilt = useStore((s) => s.helperBuilt);
   const windows = useStore((s) => s.platform) === 'win32';
-  const [title, setTitle] = useState('');
-  const [type, setType] = useState(() => (settings?.sessionTypes ?? DEFAULT_SESSION_TYPES).find((o) => !o.archived)?.id ?? 'lab_meeting');
-  const [source, setSource] = useState<string>(settings?.audio.source ?? 'mic');
-  const [file, setFile] = useState(samples[0]?.path ?? '');
-  const [speed, setSpeed] = useState(1);
-  const [busy, setBusy] = useState(false);
-  const [capture, setCapture] = useState(false);
-  const [win, setWin] = useState<WindowInfo | null>(null);
-  const [projectId, setProjectId] = useState<string | null>(() => {
+  const [draft, setDraft] = useState(() => {
     const s = getState();
-    return s.projects.some((p) => p.id === s.startProjectId && !p.archived_at) ? s.startProjectId : null;
+    const draft = s.startDraft ?? { title: '', type: (settings?.sessionTypes ?? DEFAULT_SESSION_TYPES).find((o) => !o.archived)?.id ?? 'lab_meeting', source: settings?.audio.source ?? 'mic', file: samples[0]?.path ?? '', speed: 1, capture: false, win: null as WindowInfo | null, projectId: s.projects.some((p) => p.id === s.startProjectId && !p.archived_at) ? s.startProjectId : null, record: settings?.audio.saveRawAudio ?? false };
+    const projectId = s.startProjectId ?? draft.projectId;
+    return { ...draft, source: s.startSource ?? draft.source, projectId: s.projects.some((p) => p.id === projectId && !p.archived_at) ? projectId : null };
   });
-  useEffect(() => { setState({ startProjectId: null }); }, []);
-  const [record, setRecord] = useState(settings?.audio.saveRawAudio ?? false);
+  const { title, type, source, file, speed, capture, win, projectId, record } = draft;
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setState({ startDraft: draft, startProjectId: null, startSource: null }); }, [draft]);
   const blocked = busy || (source !== 'file' && !helperBuilt) || (capture && !win);
   const go = async () => {
     if (blocked) return;
@@ -41,38 +36,38 @@ export function StartDialog() {
   };
   return (
     <Dialog title={t('Start a session')} footer={<><span className="spacer" /><button className="btn primary" disabled={blocked} onClick={go}>{busy ? t('Starting…') : t('Start listening')}</button></>}>
-      <label className="field"><span>{t('Title')}</span><input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('e.g. Lab meeting: enhancer model')} onKeyDown={onEnter(go)} /></label>
+      <label className="field"><span>{t('Title')}</span><input autoFocus value={title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder={t('e.g. Lab meeting: enhancer model')} onKeyDown={onEnter(go)} /></label>
       <label className="field"><span>{t('Session type')}</span>
-        <SessionTypeSelect value={type} onChange={setType} />
+        <SessionTypeSelect manage value={type} onChange={(type) => setDraft({ ...draft, type })} />
       </label>
       <label className="field"><span>{t('Project (optional): the folder where this work continues in your coding agent')}</span>
-        <ProjectSelect value={projectId} onChange={setProjectId} />
+        <ProjectSelect value={projectId} onChange={(projectId) => setDraft({ ...draft, projectId })} />
       </label>
       <fieldset className="field">
-        <span>{t('Audio source')}</span>
+        <legend>{t('Audio source')}</legend>
         <div className="radio-list">
-          <label><input type="radio" checked={source === 'mic'} onChange={() => setSource('mic')} /> <b>{t('Microphone')}</b>: {t('in-person meetings and lectures')}</label>
-          <label><input type="radio" checked={source === 'system'} onChange={() => setSource('system')} /> <b>{t('Computer audio')}</b>: {t('Zoom/Teams/recorded lectures, works with headphones')}</label>
-          <label><input type="radio" checked={source === 'both'} onChange={() => setSource('both')} /> <b>{t('Both')}</b>: {windows ? t('hybrid meetings (microphone + computer audio, with duplicate filtering)') : t('hybrid meetings (echo cancellation + duplicate filtering)')}</label>
-          {devMode && <label><input type="radio" checked={source === 'file'} onChange={() => setSource('file')} /> <b>{t('Audio file')}</b>: {t('test/demo: stream a WAV through the live pipeline')}</label>}
+          <label><input type="radio" checked={source === 'mic'} onChange={() => setDraft({ ...draft, source: 'mic' })} /> <b>{t('Microphone')}</b>: {t('in-person meetings and lectures')}</label>
+          <label><input type="radio" checked={source === 'system'} onChange={() => setDraft({ ...draft, source: 'system' })} /> <b>{t('Computer audio')}</b>: {t('Zoom/Teams/recorded lectures, works with headphones')}</label>
+          <label><input type="radio" checked={source === 'both'} onChange={() => setDraft({ ...draft, source: 'both' })} /> <b>{t('Both')}</b>: {windows ? t('hybrid meetings (microphone + computer audio, with duplicate filtering)') : t('hybrid meetings (echo cancellation + duplicate filtering)')}</label>
+          {devMode && <label><input type="radio" checked={source === 'file'} onChange={() => setDraft({ ...draft, source: 'file' })} /> <b>{t('Audio file')}</b>: {t('test/demo: stream a WAV through the live pipeline')}</label>}
         </div>
       </fieldset>
       {source === 'file' && (
         <div className="field-row">
           <label className="field grow"><span>{t('File')}</span>
-            <select value={file} onChange={(e) => setFile(e.target.value)}>{samples.map((s) => <option key={s.path} value={s.path}>{s.name} ({s.sizeMb} MB)</option>)}</select>
+            <select value={file} onChange={(e) => setDraft({ ...draft, file: e.target.value })}>{samples.map((s) => <option key={s.path} value={s.path}>{s.name} ({s.sizeMb} MB)</option>)}</select>
           </label>
           <label className="field"><span>{t('Speed')}</span>
-            <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>{[1, 2, 4, 8].map((x) => <option key={x} value={x}>{x}×</option>)}</select>
+            <select value={speed} onChange={(e) => setDraft({ ...draft, speed: Number(e.target.value) })}>{[1, 2, 4, 8].map((x) => <option key={x} value={x}>{x}×</option>)}</select>
           </label>
         </div>
       )}
       <fieldset className="field">
-        <label className="check-inline"><input type="checkbox" checked={capture} onChange={(e) => setCapture(e.target.checked)} /><span><b>{t('Also capture a window')}</b>: {t('Zoom/Teams screen share, a lecture video or slides, so answers can refer to what is shown')}</span></label>
-        {capture && <WindowPicker value={win} onChange={setWin} />}
+        <label className="check-inline"><input type="checkbox" checked={capture} onChange={(e) => setDraft({ ...draft, capture: e.target.checked })} /><span><b>{t('Also capture a window')}</b>: {t('Zoom/Teams screen share, a lecture video or slides, so answers can refer to what is shown')}</span></label>
+        {capture && <WindowPicker value={win} onChange={(win) => setDraft({ ...draft, win })} />}
       </fieldset>
       <fieldset className="field">
-        <label className="check-inline"><input type="checkbox" checked={record} onChange={(e) => setRecord(e.target.checked)} /><span><b>{t('Record audio')}</b>: {t('keep the audio on this computer to play it back from any line and export it (about 115 MB per hour per source)')}</span></label>
+        <label className="check-inline"><input type="checkbox" checked={record} onChange={(e) => setDraft({ ...draft, record: e.target.checked })} /><span><b>{t('Record audio')}</b>: {t('keep the audio on this computer to play it back from any line and export it (about 115 MB per hour per source)')}</span></label>
       </fieldset>
       {source !== 'file' && !helperBuilt && (windows
         ? <p className="error-text">{t('The audio component is missing. Reinstall Chumi to restore it.')}</p>

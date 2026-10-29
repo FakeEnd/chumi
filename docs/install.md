@@ -86,15 +86,15 @@ Chumi never switches to a paid API on its own. Paid API keys are optional and of
 npm run doctor
 ```
 
-Run it in the Chumi folder. It checks each part (macOS, Node.js, whisper.cpp, the speech model, the app build, the AI sign-in, the microphone) and prints the exact fix for anything missing. It changes nothing.
+Run it in the Chumi folder. It checks each part (macOS, Node.js, whisper.cpp, the speech model, the app build, the AI sign-in) and prints the exact fix for anything missing. Microphone permission is checked inside Chumi when you first listen; a Terminal check cannot report the app’s permission.
 
 ## Troubleshooting
 
 | What you see | What to do |
 |---|---|
 | `brew: command not found` right after installing Homebrew | Run the two "Next steps" commands Homebrew printed, or open a new Terminal window. |
-| The speech model download is slow or blocked | Run `bash scripts/setup.sh --mirror`. For downloads from inside Chumi, start it with `CHUMI_MODEL_BASE_URL=https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main npm start`. |
-| Installing JavaScript packages (`npm ci`) is slow in mainland China | Run `npm config set registry https://registry.npmmirror.com`, then run setup again. |
+| The speech model download is slow or blocked | Run `bash scripts/setup.sh --mirror`; the source is saved for in-app downloads too. After a failed download, Home offers **Retry** and **Use the hf-mirror.com copy**. Retries resume partial downloads. **Settings → Transcription → Download source** shows the source and lets you switch back to Hugging Face. |
+| Installing JavaScript packages (`npm ci`) is slow in mainland China | Run `bash scripts/setup.sh --mirror`; it uses npmmirror for this install without changing your npm configuration. |
 | Setup says Node.js 24 is needed, but you installed it | A version manager such as nvm may be picking an older Node. Run `nvm install 24`, or put Homebrew's Node first in your PATH. |
 | The AI pill on Home says *not signed in* | Run `codex login` or `claude auth login`, then click **Check again**. |
 | The transcript stays empty | Check **System Settings → Privacy & Security → Microphone** (and **System Audio Recording** for computer audio). To test capture, run `node scripts/check-audio.ts mic 6`. |
@@ -103,10 +103,25 @@ Run it in the Chumi folder. It checks each part (macOS, Node.js, whisper.cpp, th
 
 ## Uninstall
 
-Quit Chumi, then:
+Before deleting Chumi, export any meetings you want to keep. In **Settings → Coding agents**, click **Disconnect** for every connected agent (Claude Code, Codex, opencode, Qwen Code, Antigravity and DeepSeek Harness). Resolve any error shown there before deleting the app; restart the agents afterward so they stop using the old MCP registration.
+
+Use **Remove key** in **Settings → AI provider** and **Settings → Transcription** for any API keys saved in Chumi. Then quit Chumi and run:
 
 ```bash
 rm -rf ~/Chumi "$HOME/Library/Application Support/Chumi" "$HOME/Library/Logs/Chumi"
 ```
 
-The second path holds your meetings and the speech models, so export anything you want to keep first. If you connected coding agents, also run `claude mcp remove chumi` and `codex mcp remove chumi`. `brew uninstall whisper-cpp` removes whisper.cpp if nothing else uses it.
+The second path holds your meetings and the speech models. `brew uninstall whisper-cpp` removes whisper.cpp if nothing else uses it.
+
+If Chumi is already deleted or Disconnect could not finish, back up the relevant agent config and remove only Chumi’s entry:
+
+| Agent | Cleanup |
+|---|---|
+| Claude Code | `claude mcp remove chumi -s user` |
+| Codex | `codex mcp remove chumi` |
+| opencode | Remove `mcp.chumi` from `~/.config/opencode/opencode.json` and/or `opencode.jsonc` (under `$XDG_CONFIG_HOME/opencode` if set). Chumi does not edit commented JSONC files. |
+| Qwen Code | `qwen mcp remove --scope user chumi`, or remove `mcpServers.chumi` from `~/.qwen/settings.json`. |
+| Antigravity | `agy mcp remove chumi`, or remove `mcpServers.chumi` from `~/.gemini/config/mcp_config.json`. Also remove only `mcp(chumi/chumi_connection_check)` from `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`. |
+| DeepSeek Harness | Remove the block from `# >>> chumi` through `# <<< chumi` in `$DSH_HOME/cordis.patch.yml` (default `~/.dsh/cordis.patch.yml`). |
+
+Deleting Chumi’s data folder does not remove macOS Keychain items. If keys were not removed in the app, open **Keychain Access** and remove the saved items with services **Chumi Anthropic API key**, **Chumi compatible API key** and **Chumi speech API key**. Keep other apps’ credentials and agent sign-ins.

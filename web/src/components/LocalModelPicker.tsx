@@ -18,8 +18,8 @@ function SetupGuide({ preset, downloadOnly = false }: { preset: LocalModelPreset
   </div>;
 }
 
-export function LocalModelPicker({ preset, baseUrl, value, onChange, refreshKey }: {
-  preset: LocalModelPreset; baseUrl: string; value: string; onChange: (model: string) => void; refreshKey: number;
+export function LocalModelPicker({ preset, baseUrl, value, onChange, refreshKey, contextTokens, onContextChange }: {
+  preset: LocalModelPreset; baseUrl: string; value: string; onChange: (model: string) => void; refreshKey: number; contextTokens: number; onContextChange: (tokens: number) => void;
 }) {
   const [attempt, setAttempt] = useState(0);
   const downloaded = useCallback(() => setAttempt((n) => n + 1), []);
@@ -70,5 +70,5 @@ export function LocalModelPicker({ preset, baseUrl, value, onChange, refreshKey 
     {(result?.state === 'unreachable' || result?.state === 'empty') && <SetupGuide preset={preset} downloadOnly={result.state === 'empty'} />}
     {result?.state === 'ready' && <details className="small"><summary>{t('Get more models')}</summary><SetupGuide preset={preset} downloadOnly /></details>}
   </div><LocalModelAdvice preset={preset} baseUrl={baseUrl} serviceReady={result?.state === 'ready' || result?.state === 'empty'}
-    installedIds={result?.models.map((model) => model.id) ?? []} onDownloaded={downloaded} /></>;
+    installedIds={result?.models.map((model) => model.id) ?? []} onDownloaded={downloaded} context={contextTokens} onContextChange={onContextChange} /></>;
 }

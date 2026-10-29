@@ -27,10 +27,18 @@ struct ConnectionView: View {
                     manualCard
                     Card {
                         VStack(alignment: .leading, spacing: 12) {
-                            HintRow(systemImage: "wifi", text: "首次连接时，请允许 iPhone 访问本地网络。手机与 Mac 先连接同一个 Wi-Fi。")
+                            HintRow(
+                                systemImage: "wifi",
+                                text: String(
+                                    localized:
+                                        "Allow Local Network access when connecting for the first time. Connect your iPhone and Mac to the same Wi-Fi."
+                                ))
                             HintRow(
                                 systemImage: "lock.shield",
-                                text: "连接信息加密保存在 iPhone 钥匙串中。同步只发送会议文字；AI 请求可能由 Mac 转交给你配置的模型服务。")
+                                text: String(
+                                    localized:
+                                        "Connection details are encrypted in iPhone Keychain. Sync sends only the transcript. Your Mac may send AI requests to your configured model provider."
+                                ))
                         }
                     }
                     if let error { Notice(message: error) }
@@ -41,11 +49,11 @@ struct ConnectionView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .background(ChumiBackground())
-            .navigationTitle("连接 Mac")
+            .navigationTitle(String(localized: "Connect Mac"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button(String(localized: "Done")) { dismiss() }
                 }
             }
             .onAppear {
@@ -69,11 +77,17 @@ struct ConnectionView: View {
                 .frame(width: 52, height: 52)
                 .background(ChumiTheme.gradient, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                 .shadow(color: ChumiTheme.indigo.opacity(0.25), radius: 8, y: 4)
-            Text("你的 Mac，随身可达。").font(.title2.weight(.bold)).foregroundStyle(ChumiTheme.text)
-            Text("手机记录会议，Mac 使用已配置的 Codex 或 Claude 处理提问和总结。电脑需要保持开机并运行 Chumi。")
-                .font(.subheadline)
-                .foregroundStyle(ChumiTheme.muted)
-                .fixedSize(horizontal: false, vertical: true)
+            Text(String(localized: "Your Mac, within reach.")).font(.title2.weight(.bold)).foregroundStyle(
+                ChumiTheme.text)
+            Text(
+                String(
+                    localized:
+                        "Record meetings on your phone. Your Mac uses its configured Codex or Claude to answer questions and summarize. Keep your Mac awake with Chumi running."
+                )
+            )
+            .font(.subheadline)
+            .foregroundStyle(ChumiTheme.muted)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 4)
     }
@@ -84,16 +98,21 @@ struct ConnectionView: View {
                 IconTile(systemName: "desktopcomputer", tint: ChumiTheme.ok)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        Text("已配对").font(.subheadline.weight(.semibold)).foregroundStyle(ChumiTheme.text)
-                        Badge(text: "可用", tone: .ok)
+                        Text(String(localized: "Paired")).font(.subheadline.weight(.semibold)).foregroundStyle(
+                            ChumiTheme.text)
+                        Badge(text: String(localized: "Available"), tone: .ok)
                     }
                     Text(saved.url)
                         .font(.footnote.monospaced())
                         .foregroundStyle(ChumiTheme.text)
                         .textSelection(.enabled)
-                    Text(saved.certificateSHA256 == nil ? "使用系统信任的 HTTPS 证书" : "使用已配对的 Mac 证书指纹")
-                        .font(.caption)
-                        .foregroundStyle(ChumiTheme.muted)
+                    Text(
+                        saved.certificateSHA256 == nil
+                            ? String(localized: "Using a system-trusted HTTPS certificate")
+                            : String(localized: "Using your paired Mac certificate fingerprint")
+                    )
+                    .font(.caption)
+                    .foregroundStyle(ChumiTheme.muted)
                 }
             }
         }
@@ -102,20 +121,27 @@ struct ConnectionView: View {
     private var pairingCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 14) {
-                SectionTitle(title: "配对你的 Mac")
+                SectionTitle(title: String(localized: "Pair your Mac"))
                 VStack(alignment: .leading, spacing: 12) {
-                    SetupStep(number: 1, title: "在 Mac 的 Chumi 项目目录运行", command: "npm run mobile:setup")
-                    SetupStep(number: 2, title: "启动手机连接服务", command: "npm run start:mobile")
-                    SetupStep(number: 3, title: "复制终端里的配对 JSON，粘贴到下方")
+                    SetupStep(
+                        number: 1, title: String(localized: "Run in the Chumi project directory on your Mac"),
+                        command: "npm run mobile:setup")
+                    SetupStep(
+                        number: 2, title: String(localized: "Start the mobile companion service"),
+                        command: "npm run start:mobile")
+                    SetupStep(
+                        number: 3, title: String(localized: "Copy the pairing JSON from Terminal and paste it below"))
                 }
-                SecureField("粘贴 Mac 生成的配对码", text: $pairingCode)
+                SecureField(String(localized: "Paste the pairing code from your Mac"), text: $pairingCode)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .chumiField()
                     .accessibilityIdentifier("pairingCodeField")
-                Text("配对码包含访问令牌，请只粘贴你自己的 Mac 生成的内容。")
-                    .font(.caption)
-                    .foregroundStyle(ChumiTheme.muted)
+                Text(
+                    String(localized: "The pairing code contains an access token. Only paste a code from your own Mac.")
+                )
+                .font(.caption)
+                .foregroundStyle(ChumiTheme.muted)
             }
         }
     }
@@ -130,19 +156,22 @@ struct ConnectionView: View {
                         .autocorrectionDisabled()
                         .chumiField()
                         .accessibilityIdentifier("serverURLField")
-                    SecureField("访问令牌", text: $token)
+                    SecureField(String(localized: "Access token"), text: $token)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .chumiField()
-                    TextField("证书 SHA-256 指纹（自签名证书必填）", text: $pin)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.caption.monospaced())
-                        .chumiField()
+                    TextField(
+                        String(localized: "Certificate SHA-256 fingerprint (required for self-signed certificates)"),
+                        text: $pin
+                    )
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.caption.monospaced())
+                    .chumiField()
                 }
                 .padding(.top, 12)
             } label: {
-                Label("手动输入连接信息", systemImage: "keyboard")
+                Label(String(localized: "Enter connection details manually"), systemImage: "keyboard")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(ChumiTheme.text)
             }
@@ -154,14 +183,14 @@ struct ConnectionView: View {
             Button(action: connect) {
                 HStack(spacing: 8) {
                     if busy { ProgressView().tint(.white) }
-                    Text(busy ? "正在验证…" : "验证连接并保存")
+                    Text(busy ? String(localized: "Verifying…") : String(localized: "Verify and save"))
                 }
             }
             .buttonStyle(.chumi(.primary, fullWidth: true))
             .disabled(!canConnect)
             .accessibilityIdentifier("verifyConnectionButton")
             if connection.credentials != nil {
-                Button("断开配对", role: .destructive) {
+                Button(String(localized: "Unpair"), role: .destructive) {
                     do {
                         try connection.disconnect()
                         dismiss()

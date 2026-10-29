@@ -93,3 +93,8 @@ button.open { border: 0; background: none; padding: 0; color: #4f46e5; font: 700
   .card .md button.ref { background: rgba(165, 180, 252, .16); }
   .list-head { background: rgba(40, 41, 52, .9); color: #b8bccd; box-shadow: 0 3px 12px rgba(0, 0, 0, .35), 0 0 0 .5px rgba(255, 255, 255, .12); }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .spin, .rec .dot { animation: none; }
+  .tip { transition: none; }
+}

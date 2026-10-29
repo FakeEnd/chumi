@@ -7,7 +7,7 @@ import type { HandoffDestination } from '../handoffDestination.ts';
 import type { Handoff } from '../types.ts';
 
 /** A handoff the pet can hand on: confirmed, and for the meeting's current project. */
-export const canContinue = (h: Handoff | null | undefined): h is Handoff => !!h && h.status === 'confirmed' && !!h.project && !h.project_mismatch;
+export const canContinue = (h: Handoff | null | undefined): h is Handoff => !!h && h.status === 'confirmed' && !!h.project && !h.project_mismatch && !h.freshness.stale;
 
 /** The destination as Chumi's Continue in menu names it (pass it through t()). */
 export function placeName(d: HandoffDestination): string {

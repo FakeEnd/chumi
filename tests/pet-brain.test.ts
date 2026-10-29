@@ -101,3 +101,15 @@ test('taps get a hop every time and a word every other time; petting speaks rare
   assert.equal(b.petted(25), null);
   assert.ok(b.petted(31));
 });
+
+test('answer bubbles retain their meeting and handoff destination across meeting switches', () => {
+  const b = new PetBrain();
+  b.live(recording, 0);
+  b.live({ status: 'recording', session: { id: 's2' } }, 1);
+  for (const kind of ['answer', 'final_summary', 'handoff', 'auto_explain']) {
+    const line = b.ai({ id: kind, kind, status: 'done', session_id: 's1' }, 2)!;
+    assert.equal(line.session, 's1');
+    assert.equal(line.output, kind);
+    assert.equal(line.dialog, kind === 'handoff' ? 'handoff' : undefined);
+  }
+});

@@ -11,8 +11,8 @@ import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { Store } from '../server/db.ts';
 import { findAudioHelper, findClaude, findHotkeyTool, findScreenTool, REPO_ROOT, WEB_DIST, which } from '../server/paths.ts';
-import { isInstalled } from '../server/asr/models.ts';
-import { speakerRuntime } from '../server/speakers/runtime.ts';
+import { appleSiliconHardware, isInstalled } from '../server/asr/models.ts';
+import { commandLineTools, javascriptPackages } from './doctor-checks.ts';
 
 const BRIEF = process.argv.includes('--brief');
 const color = process.stdout.isTTY;
@@ -24,13 +24,19 @@ const add = (level: Level, text: string, fix?: string) => results.push({ level, 
 const run = (cmd: string, args: string[]) => { const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 15_000, stdio: ['ignore', 'pipe', 'pipe'] }); return r.error ? null : `${r.stdout ?? ''}${r.stderr ?? ''}`; };
 const versionAtLeast = (v: string, min: number[]) => { const p = v.split('.').map(Number); for (let i = 0; i < min.length; i++) { if ((p[i] ?? 0) !== min[i]) return (p[i] ?? 0) > min[i]; } return true; };
 
+const packagesReady = javascriptPackages(REPO_ROOT);
+add(packagesReady ? 'ok' : 'problem', 'JavaScript packages installed and up to date', packagesReady ? undefined : 'bash scripts/setup.sh   (or npm ci)');
+
 // This Mac
+const appleSilicon = appleSiliconHardware();
 const os = run('/usr/bin/sw_vers', ['-productVersion'])?.trim() ?? '';
-if (os && versionAtLeast(os, [14, 4])) add('ok', `macOS ${os}${process.arch === 'arm64' ? ' on Apple Silicon' : ' (Intel: speech recognition is slower)'}`);
+if (os && versionAtLeast(os, [14, 4])) add('ok', `macOS ${os}${appleSilicon ? ' on Apple Silicon' : ' (Intel: speech recognition is slower)'}`);
 else add('problem', `macOS ${os || 'unknown'}: Chumi needs 14.4 or later`, 'System Settings → General → Software Update');
 const node = Number(process.versions.node.split('.')[0]);
 add(node >= 24 ? 'ok' : 'problem', `Node.js ${process.version}`, node >= 24 ? undefined : 'brew install node   (Chumi needs Node 24 or later)');
-add(which('swiftc') ? 'ok' : 'problem', 'Xcode Command Line Tools', which('swiftc') ? undefined : 'xcode-select --install');
+if (appleSilicon && process.arch !== 'arm64') add('problem', 'Node.js is running under Rosetta on Apple Silicon', 'Use arm64 Homebrew: /opt/homebrew/bin/brew install node; put /opt/homebrew/bin first on PATH, then rerun setup');
+const tools = commandLineTools();
+add(tools.ready ? 'ok' : 'problem', 'Xcode Command Line Tools', tools.fix);
 
 // Speech recognition and the app
 const store = new Store();
@@ -43,12 +49,18 @@ add(helper ? 'ok' : 'problem', 'Audio helper built', helper ? undefined : 'bash 
 const app = join(REPO_ROOT, 'build', 'Chumi.app');
 add(existsSync(app) ? 'ok' : 'problem', 'Chumi.app built', existsSync(app) ? undefined : 'bash native/build.sh');
 // A binary built for the other CPU fails with "Bad CPU type" (hw.optional.arm64 is 1 on Apple Silicon, even under Rosetta).
-const cpu = run('/usr/sbin/sysctl', ['-in', 'hw.optional.arm64'])?.trim() === '1' ? 'arm64' : 'x86_64';
+const cpu = appleSilicon ? 'arm64' : 'x86_64';
 const archsOf = (b: string) => [...(run('/usr/bin/file', ['-b', b]) ?? '').matchAll(/executable (\w+)/g)].map((m) => m[1]);
 const wrongCpu = [join(app, 'Contents', 'MacOS', 'Chumi'), helper, findHotkeyTool(), findScreenTool()]
   .filter((b): b is string => !!b && existsSync(b))
   .filter((b) => { const archs = archsOf(b); return archs.length > 0 && !archs.some((a) => a.startsWith(cpu)); });
-if (wrongCpu.length) add('problem', `Built for another CPU (this Mac is ${cpu}): ${wrongCpu.map((b) => basename(b)).join(', ')}`, 'bash native/build.sh');
+if (wrongCpu.length) add('problem', `Built for another CPU (this Mac is ${cpu}): ${wrongCpu.map((b) => basename(b)).join(', ')}`, `CHUMI_TARGET=${cpu}-apple-macos14.4 bash native/build.sh`);
+
+const whisperServer = which('whisper-server');
+if (appleSilicon && whisperServer) {
+  const archs = archsOf(whisperServer);
+  if (archs.length && !archs.some((a) => a.startsWith('arm64'))) add('problem', 'whisper.cpp is running under Rosetta on Apple Silicon', 'Use arm64 Homebrew: /opt/homebrew/bin/brew install whisper-cpp; put /opt/homebrew/bin first on PATH, then rerun setup');
+}
 
 // AI
 const provider = settings.ai.provider;
@@ -74,15 +86,14 @@ if (provider === 'codex') {
 // Profile, permissions and optional features
 const p = store.getProfile();
 add(p.background.trim() || p.domains.length ? 'ok' : 'note', 'Your background', p.background.trim() || p.domains.length ? undefined : 'Open Chumi and click Describe your background (explanations are pitched to it)');
-if (helper) {
-  const perms = run(helper, ['--check-permissions']);
-  const mic = perms ? (JSON.parse(perms) as { microphone?: string }).microphone : 'unknown';
-  if (mic === 'granted') add('ok', 'Microphone allowed');
-  else if (mic === 'denied' || mic === 'restricted') add('problem', 'Microphone access is off for Chumi', 'System Settings → Privacy & Security → Microphone');
-  else add('note', 'Microphone: macOS asks the first time you listen');
+add('note', 'Microphone: Chumi checks its own permission the first time you listen. Terminal access does not tell us whether Chumi.app has access.');
+if (settings.asr.diarization && packagesReady) {
+  try {
+    const { speakerRuntime } = await import('../server/speakers/runtime.ts');
+    const speakers = speakerRuntime();
+    add(speakers.ready ? 'ok' : 'problem', 'Speaker labels (optional)', speakers.ready ? undefined : speakers.setupCommand);
+  } catch { add('problem', 'Could not check speaker labels: JavaScript packages may be incomplete', 'npm ci'); }
 }
-const speakers = speakerRuntime();
-if (settings.asr.diarization) add(speakers.ready ? 'ok' : 'problem', 'Speaker labels (optional)', speakers.ready ? undefined : speakers.setupCommand);
 store.close();
 
 // Report

@@ -1,4 +1,5 @@
 import { once } from 'node:events';
+import { setImmediate } from 'node:timers/promises';
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { Transcriber, type FinalPiece, type TranscriberConfig } from '../server/asr/transcriber.ts';
@@ -141,4 +142,71 @@ test('reset clears recent language so the next session retries using its prior',
     [{ session: 'meeting', lang: 'en', text: 'The first meeting is in English.' }],
     [{ session: 'next-meeting', lang: 'zh', text }],
   ]);
+});
+
+test('queued finals keep their session and do not carry context into the next meeting', { timeout: 5000 }, async (t) => {
+  const calls: Array<{ options: SpeechOptions; resolve: (result: WhisperResult) => void }> = [];
+  const speech: Pick<SpeechService, 'transcribe' | 'partials'> = {
+    partials: false,
+    transcribe: (_samples, options) => new Promise((resolve) => { calls.push({ options, resolve }); }),
+  };
+  const transcriber = new Transcriber(speech, () => ({ language: 'auto', glossary: [], chineseScript: 'simplified', prior: 'en' }));
+  const finals: FinalPiece[] = [];
+  transcriber.on('final', (pieces) => { finals.push(...pieces); });
+  t.after(() => transcriber.stop());
+  transcriber.reset('A');
+  for (let id = 1; id <= 3; id++) transcriber.pushFinal('mic', utterance(id));
+  assert.equal(await transcriber.drain(0), false);
+  transcriber.reset('B');
+  transcriber.pushFinal('mic', utterance(1));
+  for (let i = 0; i < 3; i++) {
+    calls[i].resolve(result(`这是上一场会议的内容${i + 1}。`, 'chinese'));
+    await setImmediate();
+  }
+  assert.equal(calls[3].options.prompt, '');
+  calls[3].resolve(spanish());
+  await setImmediate();
+  assert.equal(calls[4].options.language, 'en');
+  assert.equal(calls[4].options.prompt, '');
+  calls[4].resolve(result('The next meeting starts in English.', 'english'));
+  assert.equal(await transcriber.drain(), true);
+  assert.deepEqual(finals.map(({ session, uttId, lang }) => ({ session, uttId, lang })), [
+    { session: 'A', uttId: 1, lang: 'zh' }, { session: 'A', uttId: 2, lang: 'zh' }, { session: 'A', uttId: 3, lang: 'zh' },
+    { session: 'B', uttId: 1, lang: 'en' },
+  ]);
+});
+
+test('resetting the same session isolates old finals from new previews and language context', { timeout: 5000 }, async (t) => {
+  const calls: Array<{ options: SpeechOptions; resolve: (result: WhisperResult) => void }> = [];
+  const speech: Pick<SpeechService, 'transcribe' | 'partials'> = {
+    partials: true,
+    transcribe: (_samples, options) => new Promise((resolve) => { calls.push({ options, resolve }); }),
+  };
+  const transcriber = new Transcriber(speech, () => ({ language: 'auto', glossary: [], chineseScript: 'simplified', prior: 'en' }));
+  const partials: string[] = [];
+  transcriber.on('partial', (_source, _id, _start, text) => { partials.push(text); });
+  t.after(() => transcriber.stop());
+  transcriber.reset('A');
+  transcriber.pushFinal('mic', utterance(10));
+  transcriber.pushFinal('mic', utterance(11));
+  transcriber.reset('A');
+  transcriber.pushProgress('mic', utterance(1, false));
+  calls[0].resolve(result('这是恢复录音之前的内容。', 'chinese'));
+  await setImmediate();
+  assert.equal(calls[1].options.prompt, '这是恢复录音之前的内容。');
+  calls[1].resolve(result('这是同一场录音的后续内容。', 'chinese'));
+  await setImmediate();
+  assert.equal(calls.length, 3, 'old finals do not hide the new preview');
+  assert.equal(calls[2].options.prompt, '');
+  calls[2].resolve(result('A preview from the resumed recording.', 'english'));
+  await setImmediate();
+  assert.deepEqual(partials, ['A preview from the resumed recording.']);
+  transcriber.pushFinal('mic', utterance(1));
+  assert.equal(calls[3].options.prompt, '');
+  calls[3].resolve(spanish());
+  await setImmediate();
+  assert.equal(calls[4].options.language, 'en');
+  assert.equal(calls[4].options.prompt, '');
+  calls[4].resolve(result('The resumed recording is in English.', 'english'));
+  assert.equal(await transcriber.drain(), true);
 });

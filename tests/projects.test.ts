@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -198,6 +198,16 @@ test('exports carry the project, stable ids, frames and only a confirmed handoff
   for (const i of store.handoffItems(h.id)) svc.updateItem(i.id, { review: 'confirmed' });
   svc.confirm(h.id);
   assert.equal(lines().find((l) => l.type === 'handoff').items[0].text, 'Add a noise ceiling');
+  store.assignSession('s_x', 'p_b');
+  assert.equal(lines()[0].project.id, 'p_b');
+  assert.ok(!lines().some((l) => l.type === 'handoff'), 'old-project work is not exported into the new project');
+  store.updateHandoff(h.id, { project_id: 'p_b' });
+  assert.ok(!lines().some((l) => l.type === 'handoff'), 'mixed-project items still require explicit retargeting');
+  svc.retarget(h.id);
+  svc.confirm(h.id);
+  assert.equal(lines().find((l) => l.type === 'handoff').items.length, 1);
+  store.addSegment({ session_id: 's_x', t_start: 5000, t_end: 6000, text: 'Changed since review', source: 'mic', lang: 'en', run: 1 });
+  assert.equal(lines().find((l) => l.type === 'handoff').freshness.stale, true);
   store.close();
 });
 
@@ -213,6 +223,7 @@ test('MCP server: an agent reads a confirmed handoff, passages and frames, and t
   const h = svc.generate('s_m');
   for (const i of store.handoffItems(h.id)) svc.updateItem(i.id, { review: 'confirmed' });
   svc.confirm(h.id);
+  meeting(store, 's_paging', Array.from({ length: 60 }, (_, i) => [750000 + i * 1000, `Passage ${i}`] as [number, string]), 'p_a');
   store.close();
 
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
@@ -222,6 +233,20 @@ test('MCP server: an agent reads a confirmed handoff, passages and frames, and t
   try {
     const call = async (name: string, args: Record<string, unknown>) => client.callTool({ name, arguments: args }) as Promise<{ isError?: boolean; content: Array<{ type: string; text?: string; data?: string }> }>;
     const json = (r: { content: Array<{ type: string; text?: string }> }) => JSON.parse(r.content[0].text!);
+    const listed = await client.listTools();
+    const input = listed.tools.find((tool) => tool.name === 'chumi_get_passages')!.inputSchema;
+    for (const field of ['from', 'to']) {
+      const schema = input.properties![field] as Record<string, unknown>;
+      assert.equal(schema.type, 'string', `${field} advertises one plain type for strict clients`);
+      assert.equal(schema.anyOf, undefined);
+      assert.equal(schema.oneOf, undefined);
+    }
+    const singleTypes = (schema: unknown) => {
+      if (!schema || typeof schema !== 'object') return;
+      assert.ok(!Array.isArray((schema as Record<string, unknown>).type), 'no tool input advertises a type array');
+      for (const value of Object.values(schema)) if (Array.isArray(value)) value.forEach(singleTypes); else singleTypes(value);
+    };
+    listed.tools.forEach((tool) => singleTypes(tool.inputSchema));
     const handoff = json(await call('chumi_get_handoff', { handoff_id: h.id }));
     assert.equal(handoff.actionable, true);
     assert.equal(handoff.actions[0].text, 'Add a noise ceiling');
@@ -230,6 +255,16 @@ test('MCP server: an agent reads a confirmed handoff, passages and frames, and t
     const passages = json(await call('chumi_get_passages', { meeting_id: 's_m', segment_ids: segIds, project_id: 'p_a' }));
     assert.equal(passages.passages[0].text, 'Let us add a noise ceiling to the plot.');
     assert.equal(passages.passages[0].source, 'transcript');
+    const ref = handoff.actions[0].evidence[0];
+    const numeric = json(await call('chumi_get_passages', { meeting_id: 's_m', from: ref.from_ms, to: ref.to_ms, limit: 100 }));
+    assert.deepEqual(numeric.passages, passages.passages);
+    const page = json(await call('chumi_get_passages', { meeting_id: 's_paging', from: 750000, to: 820000, limit: 100 }));
+    assert.equal(page.passages.length, 50);
+    assert.equal(page.next_cursor, '50');
+    assert.equal(json(await call('chumi_get_passages', { meeting_id: 's_paging', from: '12:30', to: '820000', cursor: page.next_cursor, limit: 100 })).passages.length, 10);
+    const search = await call('chumi_search_meetings', { project_id: 'p_a', limit: 100 });
+    assert.notEqual(search.isError, true);
+    assert.ok(json(search).meetings.length <= 50);
     const frame = await call('chumi_get_frame', { frame_id: f.id });
     assert.equal(frame.content[1]?.type, 'image');
     assert.equal(json(await call('chumi_get_frame', { frame_id: gone.id })).available, false);
@@ -269,4 +304,67 @@ test('a handoff drafting when the app stopped is not stuck after a restart', () 
   assert.equal(svc.generate('s_new').status, 'draft');
   svc.updateItem('hi_kept', { text: 'Add a noise ceiling line' });
   store.close();
+});
+
+test('wide and merged evidence retains every segment and pages beyond 200 ids', () => {
+  const store = new Store(':memory:');
+  try {
+    meeting(store, 'wide', Array.from({ length: 650 }, (_, i) => [i * 1000, `Evidence ${i}`]));
+    const svc = new HandoffService(store, fakeAssistant(store, {
+      decisions: [], actions: [{ text: 'Review the full discussion', evidence: ['0:00–5:00', '4:55–10:53'] }], open_questions: [],
+    }) as never, () => {});
+    const h = svc.generate('wide');
+    for (const item of store.handoffItems(h.id)) svc.updateItem(item.id, { review: 'confirmed' });
+    svc.confirm(h.id);
+    const view = handoffForAgent(store, store.getHandoff(h.id)!, link);
+    const refs = view.actions[0].evidence;
+    assert.equal(refs.length, 1);
+    const ref = refs[0];
+    assert.equal(ref.kind, 'transcript');
+    const expected = store.segments('wide').map((s) => s.id);
+    const stored = JSON.parse(store.handoffItems(h.id)[0].evidence_json!)[0];
+    assert.deepEqual(stored.segment_ids, expected, 'stored evidence keeps every id');
+    assert.deepEqual(ref.segment_ids, expected.slice(0, 20), 'the agent gets a bounded preview');
+    assert.equal(ref.segment_count, 650);
+    assert.equal(ref.segment_ids_complete, false);
+    assert.equal(ref.from_ms, 0);
+    assert.equal(ref.to_ms, 653000);
+    const evidence = new Evidence(store, link), received: number[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = evidence.passages({ meeting_id: 'wide', from: ref.from_ms, to: ref.to_ms, limit: 50, cursor });
+      received.push(...page.passages.map((p) => p.segment_id));
+      cursor = page.next_cursor ?? undefined;
+    } while (cursor);
+    assert.deepEqual(received, expected);
+    assert.equal(evidence.passages({ meeting_id: 'wide', segment_ids: [...stored.segment_ids, expected[0]], limit: 50, cursor: '600' }).passages.length, 50);
+    assert.match(view.how_to_get_evidence, /segment_ids is a preview capped at 20/);
+    store.updateHandoffItem(store.handoffItems(h.id)[0].id, { evidence_json: JSON.stringify([{ ...stored, segment_ids: expected.slice(0, 20) }]) });
+    const legacy = handoffForAgent(store, store.getHandoff(h.id)!, link).actions[0].evidence[0];
+    assert.equal(legacy.segment_count, 650, 'legacy truncated ids do not understate the range');
+    assert.equal(legacy.segment_ids_complete, false);
+  } finally { store.close(); }
+});
+
+test('project lookup follows symlinks, on-disk letter case and the longest workspace boundary', () => {
+  const store = new Store(':memory:');
+  const dir = mkdtempSync(join(DATA, 'paths-'));
+  const physical = join(dir, 'MixedCase'), alias = join(dir, 'alias');
+  mkdirSync(join(physical, 'nested'), { recursive: true });
+  symlinkSync(physical, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  try {
+    store.createProject({ id: 'outer', name: 'Outer', workspace: alias });
+    store.createProject({ id: 'inner', name: 'Inner', workspace: join(physical, 'nested') });
+    const evidence = new Evidence(store, link);
+    assert.equal(evidence.listProjects(realpathSync.native(physical)).project_for_cwd, 'outer');
+    assert.equal(evidence.projectForPath(join(alias, 'nested', 'new-folder'))!.id, 'inner');
+    assert.equal(evidence.projectForPath(`${physical}-sibling`), null);
+    if (existsSync(join(dir, 'mixedcase'))) {
+      store.updateProject('outer', { workspace: join(dir, 'mixedcase') });
+      assert.equal(evidence.projectForPath(physical)!.id, 'outer');
+    } else {
+      mkdirSync(join(dir, 'mixedcase'));
+      assert.equal(evidence.projectForPath(join(dir, 'mixedcase')), null, 'distinct case-sensitive folders stay distinct');
+    }
+  } finally { store.close(); }
 });

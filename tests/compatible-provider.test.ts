@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CompatibleProvider } from '../server/ai/compatible.ts';
+import { CompatibleProvider, estimateContextTokens } from '../server/ai/compatible.ts';
 import { compatibleKeyAccount } from '../server/ai/compatible-credentials.ts';
 import { ProviderError, type CompletionRequest } from '../server/ai/provider.ts';
-import { defaultCompatibleSettings, type CompatiblePreset, type CompatibleSettings } from '../shared/compatible-provider.ts';
+import { defaultCompatibleSettings, validateCompatibleSettings, type CompatiblePreset, type CompatibleSettings } from '../shared/compatible-provider.ts';
 
 // Every test injects credentials; none accesses the real macOS Keychain.
 class TestProvider extends CompatibleProvider {
@@ -207,7 +207,7 @@ test('Ollama verifies local model metadata and blocks remotely-backed aliases be
   const calls: string[] = [];
   const provider = new TestProvider(() => settings('ollama'), { fetch: async (url) => {
     calls.push(String(url));
-    return String(url).endsWith('/api/show') ? Response.json({ model_info: { 'general.architecture': 'qwen3' }, capabilities: ['completion'] }) : jsonAnswer();
+    return String(url).endsWith('/api/show') ? Response.json({ model_info: { 'general.architecture': 'qwen3' }, capabilities: ['completion'] }) : Response.json({ message: { content: 'Complete answer' }, done: true, done_reason: 'stop' });
   } });
   assert.equal((await provider.complete(request)).text, 'Complete answer');
   assert.equal(calls.length, 2);
@@ -353,8 +353,8 @@ test('active requests obey aborts and timeouts even while transport is stalled',
   controller.abort();
   await rejected;
 
-  const timed = new TestProvider(() => settings('lmstudio'), { timeoutMs: 15, fetch: async () => new Promise<Response>(() => {}) });
-  await assert.rejects(timed.complete(request), /timed out/);
+  const timed = new TestProvider(() => settings('lmstudio'), { timeoutMs: 15, firstByteMs: 15, fetch: async () => new Promise<Response>(() => {}) });
+  await assert.rejects(timed.complete(request), /did not start answering/);
 });
 
 test('already cancelled requests and shutdown do not leave local work running or queued', async () => {
@@ -408,7 +408,7 @@ test('small-model quirks: fenced JSON, a finished stream without [DONE], a last 
 
 test('waiting for another local request does not count toward the timeout; a stalled stream still times out', async () => {
   const slow = (ms: number) => new Promise<Response>((r) => setTimeout(() => r(jsonAnswer('ok')), ms));
-  const provider = new TestProvider(() => settings('lmstudio'), { timeoutMs: 150, fetch: () => slow(100) });
+  const provider = new TestProvider(() => settings('lmstudio'), { timeoutMs: 150, firstByteMs: 150, fetch: () => slow(100) });
   const [a, b] = await Promise.all([provider.complete(request), provider.complete(request)]);
   assert.equal(a.text, 'ok'); assert.equal(b.text, 'ok');
 
@@ -416,4 +416,236 @@ test('waiting for another local request does not count toward the timeout; a sta
     start(c) { c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(chunk('partial'))}\n\n`)); },
   }), { headers: { 'content-type': 'text/event-stream' } }) });
   await assert.rejects(stalled.complete(request), /timed out/);
+});
+
+
+test('local context limits migrate old profiles and reject oversized Latin and CJK prompts before sending', async () => {
+  const old = JSON.parse(JSON.stringify(settings('lmstudio')));
+  delete old.profiles.lmstudio.contextTokens;
+  assert.equal(validateCompatibleSettings(old).profiles.lmstudio.contextTokens, 8192);
+  for (const invalid of [null, 0, 1000, 1.5, 1048577, '8192']) {
+    old.profiles.lmstudio.contextTokens = invalid;
+    assert.throws(() => validateCompatibleSettings(old), /Context tokens/);
+  }
+  assert.ok(estimateContextTokens('中文'.repeat(4000)) > estimateContextTokens('ab'.repeat(4000)) * 2);
+  let calls = 0;
+  const config = settings('lmstudio');
+  const provider = new TestProvider(() => config, { fetch: async () => { calls++; return jsonAnswer(); } });
+  for (const input of ['中文'.repeat(10000), 'English '.repeat(4000)]) await assert.rejects(provider.complete({ ...request, input }), /context limit/);
+  assert.equal(calls, 0);
+  config.profiles.lmstudio.contextTokens = 32768;
+  await provider.complete({ ...request, input: '中文'.repeat(10000) });
+  assert.equal(calls, 1);
+});
+
+test('Ollama native chat sets context, keeps schema and reads split UTF-8 NDJSON without exposing reasoning', async () => {
+  const config = settings('ollama');
+  config.profiles.ollama.structuredOutput = 'json_schema';
+  config.profiles.ollama.contextExplicit = true;
+  const provider = new TestProvider(() => config, { fetch: async (url, init) => {
+    if (String(url).endsWith('/api/show')) return Response.json({ model_info: { architecture: 'qwen3' } });
+    assert.equal(String(url), 'http://127.0.0.1:11434/api/chat');
+    const body = JSON.parse(String(init?.body));
+    assert.deepEqual(body.options, { num_ctx: 8192, num_predict: 2048 });
+    assert.deepEqual(body.format, schema);
+    assert.ok(body.messages[0].content.includes(request.instructions));
+    const bytes = new TextEncoder().encode([
+      { message: { thinking: 'private', content: '' }, done: false },
+      { message: { content: '{"cards":["你好"]}' }, done: false },
+      { message: { content: '' }, done: true, done_reason: 'stop' },
+    ].map((v) => JSON.stringify(v)).join('\n'));
+    let i = 0;
+    return new Response(new ReadableStream({ pull(c) { if (i === bytes.length) c.close(); else c.enqueue(bytes.subarray(i, ++i)); } }));
+  } });
+  const deltas: string[] = [];
+  assert.equal((await provider.complete({ ...request, jsonSchema: schema, onDelta: (d) => deltas.push(d) })).text, '{"cards":["你好"]}');
+  assert.deepEqual(deltas, ['{"cards":["你好"]}']);
+});
+
+
+test('structured HTTP codes distinguish credit, model and context errors without echoing server text', async () => {
+  for (const [status, body, kind, hint] of [
+    [429, { error: { code: 'insufficient_quota' } }, 'quota', /billing console/],
+    [400, { code: 'Arrearage' }, 'quota', /billing console/],
+    [404, { error: { type: 'model_not_found' } }, 'bad_response', /model ID/],
+    [400, { error: { code: 'context_length_exceeded', param: 'messages' } }, 'bad_response', /context length/],
+    [400, { error: { code: 'max_tokens_exceeded' } }, 'bad_response', /Reduce Max output tokens/],
+    [429, { error: { code: 'rate_limit_exceeded' } }, 'rate_limit', /rate limit/],
+    [400, { error: { code: 'private-test-token' } }, 'bad_response', /HTTP 400/],
+  ] as const) {
+    const provider = new TestProvider(() => settings(), { readKey: async () => 'private-test-token', fetch: async () => Response.json({ ...body, message: 'private-test-token' }, { status }) });
+    await assert.rejects(provider.complete(request), (e: unknown) => {
+      assert.ok(e instanceof ProviderError); assert.equal(e.kind, kind); assert.match(e.message, hint);
+      assert.ok(!e.message.includes('private-test-token')); return true;
+    });
+  }
+});
+
+test('oversized and malformed HTTP bodies are cancelled and never shown', async () => {
+  let cancelled = false;
+  const provider = new TestProvider(() => settings('lmstudio'), { fetch: async () => new Response(new ReadableStream({
+    start(c) { c.enqueue(new TextEncoder().encode(JSON.stringify({ error: { code: 'insufficient_quota', message: 'secret'.repeat(2000) } }))); },
+    cancel() { cancelled = true; },
+  }), { status: 400 }) });
+  await assert.rejects(provider.complete(request), /HTTP 400/);
+  assert.equal(cancelled, true);
+});
+
+
+test('local connection failures explain how to start the selected runtime without leaking transport details', async () => {
+  for (const preset of ['ollama', 'lmstudio'] as const) {
+    const provider = new TestProvider(() => settings(preset), { fetch: async () => { throw new TypeError('fetch failed secret-token', { cause: { code: 'ECONNREFUSED' } }); } });
+    await assert.rejects(provider.complete(request), (e: unknown) => {
+      assert.ok(e instanceof ProviderError); assert.equal(e.kind, 'unavailable');
+      assert.match(e.message, preset === 'ollama' ? /ollama serve/ : /Developer.*Start server/);
+      assert.ok(!e.message.includes('secret-token')); return true;
+    });
+    const status = await provider.status(true);
+    assert.equal(status.ready, false);
+    assert.match(status.message ?? '', preset === 'ollama' ? /ollama serve/ : /Developer.*Start server/);
+  }
+  const cloud = new TestProvider(() => settings(), { readKey: async () => 'key', fetch: async () => { throw new TypeError('fetch failed'); } });
+  await assert.rejects(cloud.complete(request), isKind('network'));
+});
+
+
+test('manual local work preempts running and queued background requests', async () => {
+  const entered = deferred<void>();
+  const tasks: string[] = [];
+  let runningSignal: AbortSignal | null = null;
+  const provider = new TestProvider(() => settings('lmstudio'), { fetch: async (_url, init) => {
+    const input = JSON.parse(String(init?.body)).messages[1].content;
+    tasks.push(input);
+    if (input === 'background') { runningSignal = init!.signal!; entered.resolve(); return new Promise<Response>(() => {}); }
+    return jsonAnswer();
+  } });
+  const first = provider.complete({ ...request, task: 'overview', priority: 2, input: 'background' });
+  const a = assert.rejects(first, isKind('aborted'));
+  await entered.promise;
+  const b = assert.rejects(provider.complete({ ...request, task: 'auto_explain', priority: 1 }), isKind('aborted'));
+  assert.equal((await provider.complete({ ...request, priority: 10, input: 'manual' })).text, 'Complete answer');
+  await Promise.all([a, b]);
+  assert.equal((runningSignal as unknown as AbortSignal).aborted, true);
+  assert.deepEqual(tasks, ['background', 'manual']);
+});
+
+test('queued local work honors priority without interrupting another manual request', async () => {
+  const entered = deferred<void>(), gate = deferred<Response>();
+  const order: string[] = [];
+  const provider = new TestProvider(() => settings('lmstudio'), { fetch: async (_url, init) => {
+    const input = JSON.parse(String(init?.body)).messages[1].content;
+    order.push(input);
+    if (input === 'first') { entered.resolve(); return gate.promise; }
+    return jsonAnswer();
+  } });
+  const first = provider.complete({ ...request, priority: 10, input: 'first' });
+  await entered.promise;
+  const low = provider.complete({ ...request, priority: 8, input: 'summary' });
+  const high = provider.complete({ ...request, priority: 10, input: 'manual' });
+  gate.resolve(jsonAnswer());
+  await Promise.all([first, low, high]);
+  assert.deepEqual(order, ['first', 'manual', 'summary']);
+});
+
+
+test('local prefill gets ten minutes, then streaming uses the two-minute idle timeout', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const entered = deferred<void>(), response = deferred<Response>();
+  const provider = new TestProvider(() => settings('lmstudio'), { fetch: async () => { entered.resolve(); return response.promise; } });
+  const result = provider.complete(request);
+  const rejected = assert.rejects(result, /server stopped sending/);
+  await entered.promise;
+  t.mock.timers.tick(180_000);
+  let stream!: ReadableStreamDefaultController<Uint8Array>;
+  response.resolve(new Response(new ReadableStream({ start(c) { stream = c; } }), { headers: { 'content-type': 'text/event-stream' } }));
+  stream.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(chunk('partial'))}\n\n`));
+  await new Promise<void>((r) => setImmediate(r));
+  t.mock.timers.tick(120_000);
+  await rejected;
+});
+
+test('stalled local loading has a distinct deadline; steady streaming still hits the overall ceiling', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const entered = deferred<void>();
+  const loading = new TestProvider(() => settings('lmstudio'), { fetch: async () => { entered.resolve(); return new Promise<Response>(() => {}); } });
+  const result = loading.complete(request);
+  const rejected = assert.rejects(result, /may still be loading/);
+  await entered.promise;
+  t.mock.timers.tick(600_000);
+  await rejected;
+  let stream!: ReadableStreamDefaultController<Uint8Array>;
+  const streaming = new TestProvider(() => settings('lmstudio'), { fetch: async () => new Response(new ReadableStream({ start(c) { stream = c; } }), { headers: { 'content-type': 'text/event-stream' } }) });
+  const capped = assert.rejects(streaming.complete(request), /overall time limit/);
+  await new Promise<void>((r) => setImmediate(r));
+  for (let i = 0; i < 15; i++) {
+    stream.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(chunk('progress'))}\n\n`));
+    await new Promise<void>((r) => setImmediate(r));
+    t.mock.timers.tick(60_000);
+  }
+  await capped;
+});
+
+
+test('GLM business codes distinguish account credit, wrong models and long prompts from rate limits', async () => {
+  // https://docs.bigmodel.cn/cn/api/api-code
+  for (const [code, status, kind, hint] of [
+    ['1113', 429, 'quota', /billing console/], [1113, 429, 'quota', /billing console/],
+    ['1211', 400, 'bad_response', /model ID/], ['1261', 400, 'bad_response', /context length/],
+    ['1302', 429, 'rate_limit', /rate limit/],
+  ] as const) {
+    const provider = new TestProvider(() => settings('glm'), { readKey: async () => 'synthetic-key', fetch: async () => Response.json({ error: { code, message: 'synthetic-key' } }, { status }) });
+    await assert.rejects(provider.complete(request), (e: unknown) => {
+      assert.ok(e instanceof ProviderError); assert.equal(e.kind, kind); assert.match(e.message, hint); return true;
+    });
+  }
+});
+
+test('migrated Ollama profiles plan within 8K without overriding the server context', async () => {
+  const config = JSON.parse(JSON.stringify(settings('ollama')));
+  delete config.profiles.ollama.contextTokens;
+  delete config.profiles.ollama.contextExplicit;
+  const provider = new TestProvider(() => config, { fetch: async (url, init) => {
+    if (String(url).endsWith('/api/show')) return Response.json({ model_info: { architecture: 'qwen3' } });
+    const body = JSON.parse(String(init?.body));
+    assert.deepEqual(body.options, { num_predict: 2048 });
+    return new Response(JSON.stringify({ message: { content: 'OK' }, done: true }));
+  } });
+  assert.equal((await provider.testConnection()).ready, true);
+});
+
+test('local status distinguishes hanging headers and bodies from stopped and crashed servers', async () => {
+  for (const fetcher of [async () => new Promise<Response>(() => {}), async () => new Response(new ReadableStream())]) {
+    const provider = new TestProvider(() => settings('lmstudio'), { statusMs: 30, fetch: fetcher });
+    const keepAlive = setTimeout(() => {}, 1000);
+    try {
+      const status = await provider.status(true);
+      assert.equal(status.state, 'error');
+      assert.match(status.message ?? '', /took too long/);
+      assert.doesNotMatch(status.message ?? '', /cancelled|Start server/);
+    } finally { clearTimeout(keepAlive); }
+  }
+  const provider = new TestProvider(() => settings('ollama'), { fetch: async () => { throw new TypeError('secret', { cause: { code: 'ECONNRESET' } }); } });
+  await assert.rejects(provider.complete(request), /crash, loading error/);
+  assert.match((await provider.status(true)).message ?? '', /crash, loading error/);
+});
+
+test('promoted shared digest requests keep their local slot and move ahead in the wait queue', async () => {
+  let priority = 2;
+  const gate = deferred<Response>(), entered = deferred<void>();
+  const order: string[] = [];
+  const provider = new TestProvider(() => settings('lmstudio'), { fetch: async (_url, init) => {
+    const input = JSON.parse(String(init?.body)).messages[1].content; order.push(input);
+    if (input === 'running') { entered.resolve(); return gate.promise; }
+    return jsonAnswer();
+  } });
+  const running = provider.complete({ ...request, input: 'running', priority: 10 });
+  await entered.promise;
+  const digest = provider.complete({ ...request, task: 'digest', input: 'shared digest', get priority() { return priority; } });
+  const other = provider.complete({ ...request, input: 'other', priority: 5 });
+  const cancelledOther = assert.rejects(other, isKind('aborted'));
+  priority = 10;
+  const manual = provider.complete({ ...request, input: 'manual', priority: 8 });
+  gate.resolve(jsonAnswer());
+  await Promise.all([running, digest, manual, cancelledOther]);
+  assert.deepEqual(order, ['running', 'shared digest', 'manual']);
 });

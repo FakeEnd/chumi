@@ -1,3 +1,4 @@
+import { useDialogDraft } from '../dialogDraft.ts';
 import { useEffect, useRef, useState } from 'react';
 import type { ActionProgress as Progress, ProjectAgenda, ProjectBrief, ProjectBriefItem, ProjectWorkItem } from '../../../shared/project-work.ts';
 import { getState, notify, setState, useStore } from '../store.ts';
@@ -14,6 +15,7 @@ function AgendaEditor({ projectId, agenda, onSaved, onRefresh }: {
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(agenda);
+  useDialogDraft(editing && draft.text !== agenda.text);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -60,19 +62,27 @@ function AgendaEditor({ projectId, agenda, onSaved, onRefresh }: {
   </section>;
 }
 
-function SourceLinks({ item }: { item: ProjectBriefItem }) {
+function SourceLinks({ item }: { item: Pick<ProjectBriefItem, 'sessionId' | 'sessionTitle'> & Partial<Pick<ProjectBriefItem, 'sessionStartedAt' | 'stale'>> }) {
   const show = async (handoff: boolean) => {
-    setState({ dialog: null });
+    if (!setState({ dialog: null })) return;
     try {
       await openSession(item.sessionId);
       if (handoff && getState().viewId === item.sessionId) setState({ dialog: 'handoff' });
     } catch (e) { notify('error', e instanceof Error ? e.message : t('Could not open the source meeting.')); }
   };
   return <div className="brief-source small">
-    <span className="muted">{item.sessionTitle}{item.sessionStartedAt !== null ? ` · ${fmtDate(item.sessionStartedAt)}` : ''}</span>
+    <span className="muted">{item.sessionTitle}{item.sessionStartedAt != null ? ` · ${fmtDate(item.sessionStartedAt)}` : ''}</span>
     <button className="link-btn small" onClick={() => void show(false)}>{t('Open source meeting')}</button>
     <button className="link-btn small" onClick={() => void show(true)}>{t('Open source handoff')}</button>
     {item.stale && <span className="tag tag-warn">{t('Meeting changed since review')}</span>}
+  </div>;
+}
+
+function ReviewNeeded({ entries }: { entries: ProjectBrief['reviewNeeded'] }) {
+  const reasons = { unconfirmed: t('Handoff not confirmed'), changed: t('Meeting changed since review'), moved: t('Moved here from another project after review'), failed: t('Handoff draft failed') };
+  return <div className="warn-box small">
+    <p>{plural(entries.length, '{n} handoff is unconfirmed or its meeting changed. Check the source handoff before relying on it.', '{n} handoffs are unconfirmed or their meetings changed. Check the source handoffs before relying on them.')}</p>
+    <ul>{entries.map((entry) => <li key={entry.sessionId}><span>{reasons[entry.reason]}</span><SourceLinks item={{ sessionId: entry.sessionId, sessionTitle: entry.title }} /></li>)}</ul>
   </div>;
 }
 
@@ -137,9 +147,9 @@ function BriefBody({ projectId }: { projectId: string }) {
     {brief && <>
       {brief.latestMeeting && <div className="brief-latest small"><b>{t('Latest meeting')}</b><span>{brief.latestMeeting.title}</span>
         {brief.latestMeeting.startedAt !== null && <span className="muted">{fmtDate(brief.latestMeeting.startedAt)}</span>}
-        <button className="link-btn small" onClick={() => { setState({ dialog: null }); void openSession(brief.latestMeeting!.id).catch((e: unknown) => notify('error', e instanceof Error ? e.message : t('Could not open the source meeting.'))); }}>{t('Open meeting')}</button>
+        <button className="link-btn small" onClick={() => { if (!setState({ dialog: null })) return; void openSession(brief.latestMeeting!.id).catch((e: unknown) => notify('error', e instanceof Error ? e.message : t('Could not open the source meeting.'))); }}>{t('Open meeting')}</button>
       </div>}
-      {brief.reviewNeededCount > 0 && <p className="warn-box small">{plural(brief.reviewNeededCount, '{n} handoff is unconfirmed or its meeting changed. Check the source handoff before relying on it.', '{n} handoffs are unconfirmed or their meetings changed. Check the source handoffs before relying on them.')}</p>}
+      {brief.reviewNeeded.length > 0 && <ReviewNeeded entries={brief.reviewNeeded} />}
       <AgendaEditor projectId={projectId} agenda={brief.agenda} onSaved={(agenda) => setBrief((current) => current && current.agenda.version <= agenda.version ? { ...current, agenda } : current)} onRefresh={refresh} />
       {/* Keep all action cards in one keyed list: moving between unfinished and completed on a
           background refresh must not unmount an editor and discard its draft. */}

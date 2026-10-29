@@ -38,12 +38,16 @@ Apple references: [Developer Mode](https://developer.apple.com/documentation/xco
 
 ## Connect to the Mac
 
-First configure and sign in to an AI provider in the existing Mac Chumi app. Then quit that app/server before starting the companion-enabled instance so port 4777 is available.
+Run from the source checkout with Node 24+ and dependencies installed.
+First configure your AI provider in Chumi.app, then quit it: the companion shares its data and port.
 
 ```bash
 npm run mobile:setup
 npm run start:mobile
 ```
+
+Keep the terminal open; use the desktop UI at `http://127.0.0.1:4777` in a browser.
+Stop with Ctrl-C before reopening Chumi.app, which does not start the companion.
 
 The setup command writes private credentials and a self-signed TLS certificate under `~/Library/Application Support/Chumi/mobile/` (or `CHUMI_DATA_DIR/mobile/`). It prints a JSON pairing code containing the Mac URL, a random bearer token, and the certificate's SHA-256 fingerprint. It does **not** start a listener by itself. Keep this code private.
 
@@ -55,7 +59,12 @@ If the default `.local` hostname does not resolve, choose the Mac's reachable LA
 npm run mobile:setup -- --rotate --address 192.168.1.20
 ```
 
-Restart `npm run start:mobile` and pair again. `--rotate` changes both the token and certificate; the old phone pairing stops working after the server restarts. Keep this local companion off the public internet. It is a personal, single-owner connection, not a multi-user cloud gateway.
+Restart `npm run start:mobile` and pair again; rotation revokes the old pairing.
+Changing `--address` or `--port` requires `--rotate`; setup without options reprints the existing pairing.
+Keep this personal companion off the public internet.
+
+Certificates expire after 365 days. Invalid pairing disables only phone access; the desktop shows a notice.
+For missing pairing, run setup. Otherwise rotate as above (include `--port` if customized), restart, and pair again.
 
 The desktop web API still binds to `127.0.0.1:4777`. The explicit `CHUMI_MOBILE=1` mode additionally enables an authenticated HTTPS companion on port 4778, with a small allowlist of mobile endpoints. It does not expose desktop settings, arbitrary shell commands, or unrestricted mybot endpoints. No Codex or Claude login credentials are transferred to iPhone. Only the meeting text you explicitly sync is sent to the Mac; AI prompts then follow the Mac's selected provider configuration. Original audio remains on the phone.
 

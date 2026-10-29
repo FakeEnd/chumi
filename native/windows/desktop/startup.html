@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <title>Chumi</title>
@@ -8,12 +8,18 @@
   main { width:min(580px,85vw); text-align:center; }
   h1 { font-size:36px; font-weight:600; letter-spacing:-1px; }
   p { line-height:1.7; white-space:pre-wrap; }
+  button { border:0; border-radius:8px; padding:10px 20px; background:#29324a; color:white; font:inherit; cursor:pointer; }
   .muted { color:#68738a; font-size:13px; overflow-wrap:anywhere; }
 </style>
-<main><h1>Chumi</h1><p id="message"></p><p class="muted" id="log"></p></main>
+<main><h1>Chumi</h1><p id="message"></p><button id="restart" hidden></button><p class="muted" id="log"></p></main>
 <script>
   const query = new URLSearchParams(location.search);
   document.getElementById('message').textContent = query.get('message');
-  if (!query.get('message')?.startsWith('正在')) document.getElementById('log').textContent = '菜单 → Chumi → 查看日志\n' + query.get('log');
+  document.documentElement.lang = query.get('language') === 'zh' ? 'zh-CN' : 'en';
+  const restart = document.getElementById('restart');
+  restart.textContent = query.get('restartLabel');
+  restart.hidden = !restart.textContent;
+  restart.addEventListener('click', () => { restart.disabled = true; window.chumiShell.postMessage({ type: 'restart' }); });
+  document.getElementById('log').textContent = [query.get('logLabel'), query.get('log')].filter(Boolean).join('\n');
 </script>
 </html>

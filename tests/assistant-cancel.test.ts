@@ -32,7 +32,7 @@ function setup(t: TestContext) {
     store.createSession({ id, title: `Meeting ${id}`, type: 'advisor', audio_source: 'mic' });
     store.addSegment({ session_id: id, t_start: 0, t_end: 4000, text: 'We agreed to rerun the experiment with the chromosome holdout.', lang: 'en', source: 'mic', run: 1 });
   };
-  return { store, assistant, calls, release, meeting };
+  return { store, registry, assistant, calls, release, meeting };
 }
 
 async function until(cond: () => boolean, ms = 2000): Promise<void> {
@@ -97,4 +97,54 @@ test('deleting a meeting stops its running and queued AI work', { timeout: 5000 
   await until(() => !inflight.has('s_gone'));
   assert.equal(assistant.cancel(recap), false, 'the queued recap settled');
   assert.equal(calls.length, 2, 'queued work for the deleted meeting never reached the provider');
+});
+
+test('a speaker rename during digest generation keeps the explanation and allows a retry', { timeout: 5000 }, async (t) => {
+  const { store, assistant, calls, release, meeting } = setup(t);
+  meeting('s_long');
+  store.addSegment({ session_id: 's_long', t_start: 5000, t_end: 10_000, text: 'Discussion. '.repeat(6000), lang: 'en', source: 'mic', run: 1 });
+  store.addSegment({ session_id: 's_long', t_start: 900_000, t_end: 904_000, text: 'Closing remarks.', lang: 'en', source: 'mic', run: 1 });
+  store.setSpeakerAnalysis('s_long', { status: 'running', generation: 'first', error: null, updated_at: Date.now() });
+  store.applySpeakerTurns('s_long', 'first', [{ source: 'mic', speaker: '0', start_ms: 0, end_ms: 10_000 }], [{ source: 'mic', start_ms: 0, end_ms: 10_000 }]);
+
+  const summary = assistant.summary('s_long');
+  await until(() => calls.length === 1);
+  assert.equal(calls[0].task, 'digest');
+  store.renameSpeaker('s_long', store.speakers('s_long')[0].id, 'Maya');
+  release();
+  await until(() => store.getOutput(summary)!.status !== 'streaming');
+  const failed = store.getOutput(summary)!;
+  assert.equal(failed.status, 'error');
+  assert.equal(failed.error, 'Speaker labels changed. Regenerate the response to use the updated names.');
+  assert.equal(JSON.parse(failed.data_json!).errorKind, 'aborted');
+  assert.equal(failed.stale_reason, 'speaker_labels_changed');
+  assert.equal(store.outputs('s_long', ['digest']).length, 0, 'the old-label digest is not saved');
+
+  const retry = assistant.refresh(summary);
+  assert.ok(retry);
+  await until(() => calls.length === 2);
+  assert.match(calls[1].input, /Maya/);
+  while (store.getOutput(retry)!.status === 'streaming' || store.getOutput(retry)!.status === 'pending') { release(); await sleep(5); }
+  assert.equal(store.getOutput(retry)!.status, 'done');
+});
+
+test('a user-cancelled summary retains the cancelled status and message', { timeout: 5000 }, async (t) => {
+  const { store, assistant, calls, meeting } = setup(t);
+  meeting('s_cancel');
+  const id = assistant.summary('s_cancel');
+  await until(() => calls.length === 1);
+  assert.equal(assistant.cancel(id), true);
+  await until(() => store.getOutput(id)!.status === 'cancelled');
+  assert.equal(store.getOutput(id)!.error, 'Cancelled.');
+  assert.equal(JSON.parse(store.getOutput(id)!.data_json!).errorKind, 'aborted');
+});
+
+test('an unsolicited provider abort is an error, not a cancellation', { timeout: 5000 }, async (t) => {
+  const { store, registry, assistant, meeting } = setup(t);
+  meeting('s_abort');
+  t.mock.method(registry, 'complete', async () => { throw new ProviderError('aborted', 'Provider stopped unexpectedly.'); });
+  const id = assistant.summary('s_abort');
+  await until(() => store.getOutput(id)!.status === 'error' || store.getOutput(id)!.status === 'cancelled');
+  assert.equal(store.getOutput(id)!.status, 'error');
+  assert.equal(store.getOutput(id)!.error, 'Provider stopped unexpectedly.');
 });

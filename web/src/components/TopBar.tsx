@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { setState, useStore } from '../store.ts';
 import { assignProject, catchup, endSession, goHome, openSession, pauseSession, quickStart, renameSession, resumeLive, saveProfile, saveSettings, setCompact, summarize } from '../actions.ts';
 import { ProjectSelect } from './Projects.tsx';
 import { SessionTypeSelect } from './SessionTypes.tsx';
-import { fmtDate, fmtT, sourceLabel } from '../util.ts';
+import { fmtDate, fmtT, screenLabel, sourceLabel } from '../util.ts';
 import { locale, msg, t } from '../i18n.ts';
 import type { Depth } from '../types.ts';
 import { IconBolt, IconClock, IconCompact, IconExpand, IconGear, IconSpark, IconUser, IconWave, IconWindow } from './icons.tsx';
 import { AudioPlayer } from './AudioPlayer.tsx';
+import { ResumeRecording } from './ResumeRecording.tsx';
 import { HandoffButton } from './Handoff.tsx';
 import { compactShortcutLabel, inMacShell } from '../compactMode.ts';
-import { onEnter } from '../keys.ts';
+import { composing, onEnter } from '../keys.ts';
 
 export const DEPTH_LABEL: Record<Depth, string> = { quick: msg('Quick'), standard: msg('Standard'), deep: msg('Deep') };
 
@@ -58,7 +59,7 @@ export function ProviderBadge() {
   const text = p.state === 'ready' ? <>{name}<span className="badge-extra"> · {billingWord(p.billing)}</span>{nearLimit ? ` · ${t('{n}% used', { n: maxUsed })}` : ''}</>
     : p.state === 'quota_blocked' ? `${t('AI paused: limit')}${reset ? ` · ${t('resets {date}', { date: new Date(reset).toLocaleDateString(locale(), { month: 'short', day: 'numeric' }) })}` : ''}`
     : p.state === 'signed_out' ? t('AI: not signed in') : p.state === 'disabled' ? t('AI: disabled') : t('AI: unavailable');
-  return <button className={cls} title={`${p.label}\n${p.billingLabel}\n${p.quota.summary}${p.message ? `\n${p.message}` : ''}`} onClick={() => setState({ dialog: 'settings', settingsTab: 'ai' })}><span className="dot" /><span className="badge-label">{text}</span></button>;
+  return <button className={cls} title={`${t(p.label)}\n${t(p.billingLabel)}\n${t(p.quota.summary)}${p.message ? `\n${t(p.message)}` : ''}`} onClick={() => setState({ dialog: 'settings', settingsTab: 'ai' })}><span className="dot" /><span className="badge-label">{text}</span></button>;
 }
 
 function AsrBadge() {
@@ -69,7 +70,21 @@ function AsrBadge() {
     : asr.state === 'starting' ? t('Speech: loading…') : asr.state === 'missing_model' || asr.state === 'missing_binary' ? t('Speech: not installed')
     : asr.state === 'missing_key' ? t('Speech: API key needed') : asr.state === 'error' ? local ? t('Speech: restarting…') : t('Speech: service error') : t('Speech: idle');
   const cls = asr.state === 'ready' ? (asr.backlogSec > 10 ? 'badge warn' : 'badge ok') : asr.state === 'starting' || asr.state === 'stopped' ? 'badge muted' : 'badge bad';
-  return <span className={`${cls} speech-badge`} aria-label={label} title={asr.message ?? (local ? t('Local speech recognition. No audio leaves this computer.') : t('A speech service transcribes the meeting (Settings → Transcription).'))}><span className="dot" /><span className="badge-label">{label}</span></span>;
+  return <span className={`${cls} speech-badge`} aria-label={label} title={asr.message ? t(asr.message) : (local ? t('Local speech recognition. No audio leaves this computer.') : t('A speech service transcribes the meeting (Settings → Transcription).'))}><span className="dot" /><span className="badge-label">{label}</span></span>;
+}
+
+function SessionTitleInput({ id, saved }: { id: string; saved: string }) {
+  const [title, setTitle] = useState(saved);
+  const cancelled = useRef(false);
+  useEffect(() => setTitle(saved), [saved]);
+  return <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => {
+    const next = cancelled.current ? saved : title.trim().slice(0, 200).trimEnd() || saved;
+    cancelled.current = false; setTitle(next);
+    if (next !== saved) void renameSession(id, { title: next });
+  }} onKeyDown={(e) => {
+    if (e.key === 'Escape' && !composing(e.nativeEvent)) { e.preventDefault(); cancelled.current = true; setTitle(saved); e.currentTarget.blur(); }
+    else onEnter((event) => (event.target as HTMLInputElement).blur())(e);
+  }} aria-label={t('Session title')} />;
 }
 
 /** Tier 1: brand, session, recording controls, status, navigation. */
@@ -80,8 +95,6 @@ export function TopBar() {
   const status = live?.status ?? 'idle';
   const activeSession = live?.session;
   const viewingLive = !!activeSession && data?.session.id === activeSession.id;
-  const [title, setTitle] = useState('');
-  useEffect(() => { setTitle(data?.session.title ?? ''); }, [data?.session.id, data?.session.title]);
   const recording = status === 'recording';
 
   return (
@@ -91,7 +104,7 @@ export function TopBar() {
         {data ? (
           <>
             <span className="crumb-sep">/</span>
-            <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== data.session.title && renameSession(data.session.id, { title })} onKeyDown={onEnter((e) => (e.target as HTMLInputElement).blur())} aria-label={t('Session title')} />
+            <SessionTitleInput key={data.session.id} id={data.session.id} saved={data.session.title} />
             <SessionTypeSelect className="type-select" value={data.session.type} manage onChange={(type) => void renameSession(data.session.id, { type })} />
             <ProjectSelect className="type-select project-select" value={data.session.project_id ?? null}
               onChange={(id) => { if (!data.handoff?.items.length || confirm(t('Move this meeting to another project? Its handoff will need to be reviewed again for the new project.'))) void assignProject(data.session.id, id); }} />
@@ -163,7 +176,7 @@ function SessionActions({ sep }: { sep?: boolean }) {
     <div className="session-actions">
       <button className="btn small catchup" onClick={() => catchup(scope)} disabled={!data.segments.length}>{t('Catch me up')}</button>
       <div className="seg-control small" role="group" aria-label={t('Catch-up scope')}>
-        {([['2m', msg('2 min'), msg('The last 2 minutes')], ['5m', msg('5 min'), msg('The last 5 minutes')], ['all', msg('So far'), msg('The whole session so far')]] as const).map(([k, l, tip]) => <button key={k} className={scope === k ? 'on' : ''} title={t(tip)} onClick={() => setState({ catchupScope: k })}>{t(l)}</button>)}
+        {([['2m', msg('2 min'), msg('The last 2 minutes')], ['5m', msg('5 min'), msg('The last 5 minutes')], ['all', msg('So far'), msg('The whole session so far')]] as const).map(([k, l, tip]) => <button key={k} className={scope === k ? 'on' : ''} aria-pressed={scope === k} title={t(tip)} onClick={() => setState({ catchupScope: k })}>{t(l)}</button>)}
       </div>
       <HandoffButton />
       {sep && <span className="toolbar-sep" aria-hidden="true" />}
@@ -186,7 +199,7 @@ export function SessionToolbar({ hidden = false }: { hidden?: boolean }) {
   const src = live?.source ?? settings.audio.source;
   const ended = data.session.status === 'ended' || data.session.status === 'interrupted';
   const saved = `${t('Saved session')} · ${fmtDate(data.session.started_at ?? data.session.created_at)} · ${fmtT(data.session.duration_ms)}${data.session.status === 'interrupted' ? ` · ${t('recording was interrupted (see gap markers)')}` : ''}`;
-  const canSummarize = live?.session?.id !== data.session.id && ended && data.segments.length > 0 && !data.outputs.some((o) => o.kind === 'final_summary' && o.status !== 'error');
+  const canSummarize = live?.session?.id !== data.session.id && ended && data.segments.length > 0 && !data.outputs.some((o) => o.kind === 'final_summary' && o.status !== 'error' && o.status !== 'cancelled');
   return (
     <div className="toolbar" hidden={hidden}>
       <div className={`toolbar-left ${!isLive && !data.hasAudio ? 'text-only' : ''}`}>
@@ -198,12 +211,13 @@ export function SessionToolbar({ hidden = false }: { hidden?: boolean }) {
             {src === 'file' && <Meter label={t('File')} source="file" />}
             {!!data.session.record_audio && <span className="tag tag-muted audio-tag" title={t('This meeting’s audio is saved on this computer, so you can play it back and export it after it ends.')}><IconWave width={11} height={11} /> {t('Saving audio')}</span>}
             <button className={`btn small ${live?.screen ? 'win-on' : ''}`} onClick={() => setState({ dialog: 'window' })} title={t('Capture a window (slides, shared screen, video)')}>
-              <IconWindow width={14} height={14} /> {live?.screen ? `${live.screen.app}${live.screen.frames ? ` · ${live.screen.frames}` : ''}` : t('Capture window')}
+              <IconWindow width={14} height={14} /> {live?.screen ? `${screenLabel(live.screen)}${live.screen.frames ? ` · ${live.screen.frames}` : ''}` : t('Capture window')}
             </button>
           </>
         ) : !active && (
           <>
             <span className="saved-info" title={saved}>{saved}</span>
+            <ResumeRecording session={data.session} />
             {data.hasAudio && <AudioPlayer key={data.session.id} sessionId={data.session.id} />}
           </>
         )}
@@ -217,13 +231,13 @@ export function SessionToolbar({ hidden = false }: { hidden?: boolean }) {
         </label>
         <div className="seg-control" role="group" aria-label={t('Default explanation depth')} title={t('Default explanation depth (does not change your profile)')}>
           {(['quick', 'standard', 'deep'] as Depth[]).map((d) => (
-            <button key={d} className={settings.assist.defaultDepth === d ? 'on' : ''} onClick={() => saveSettings({ assist: { defaultDepth: d } })}>{t(DEPTH_LABEL[d])}</button>
+            <button key={d} className={settings.assist.defaultDepth === d ? 'on' : ''} aria-pressed={settings.assist.defaultDepth === d} onClick={() => saveSettings({ assist: { defaultDepth: d } })}>{t(DEPTH_LABEL[d])}</button>
           ))}
         </div>
         {profile && (
           <div className="seg-control" role="group" aria-label={t('AI answer language')} title={t('Language of AI explanations, catch-ups and summaries')}>
             {([['Simplified Chinese', '中文'], ['English', 'EN']] as const).map(([v, l]) => (
-              <button key={v} className={profile.explanationLanguage === v ? 'on' : ''} onClick={() => profile.explanationLanguage !== v && void saveProfile({ ...profile, explanationLanguage: v }, true)}>{l}</button>
+              <button key={v} className={profile.explanationLanguage === v ? 'on' : ''} aria-pressed={profile.explanationLanguage === v} onClick={() => profile.explanationLanguage !== v && void saveProfile({ ...profile, explanationLanguage: v }, true)}>{l}</button>
             ))}
           </div>
         )}

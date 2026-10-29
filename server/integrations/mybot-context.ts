@@ -12,8 +12,8 @@ import { log } from '../util.ts';
 
 export const DEFAULT_MYBOT_URL = 'http://127.0.0.1:8788';
 
-/** mybot's own search budget is 25 s; a busy index (refreshing after new sessions) can need most of it. */
-const SEARCH_TIMEOUT_MS = 25_000;
+/** Bound all project-context work before the model request, including reads. */
+const LOOKUP_TIMEOUT_MS = 15_000;
 const READ_TIMEOUT_MS = 6_000;
 const HEALTH_TIMEOUT_MS = 2_500;
 const MAX_SOURCES = 4;
@@ -29,6 +29,7 @@ const LAST_EVENT = 1_000_000_000;
 /** Enough of a session's end that its last message comes back whole, even after long tool output. */
 const TAIL_READ_CHARS = 24_000;
 const CACHE_MS = 10 * 60_000;
+const EMPTY_CACHE_MS = 60_000;
 
 export interface ContextSource { n: number; ref: string; agent: string; title: string; updated_at: string | null; cwd: string }
 export type ContextStatus = 'used' | 'none_found' | 'no_project' | 'unavailable' | 'timeout' | 'error';
@@ -122,13 +123,18 @@ export class MybotContext {
 
   private async call(route: string, body: unknown | null, ms: number, signal?: AbortSignal): Promise<any> {
     const timeout = AbortSignal.timeout(ms);
+    const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     const res = await this.fetchImpl(`${this.url()}${route}`, {
       method: body === null ? 'GET' : 'POST',
       headers: body === null ? undefined : { 'content-type': 'application/json' },
       body: body === null ? undefined : JSON.stringify(body),
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      signal: requestSignal,
     });
-    const json = await res.json().catch(() => null) as any;
+    const json = await res.json().catch((error: unknown) => {
+      requestSignal.throwIfAborted();
+      if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) throw error;
+      return null;
+    }) as any;
     if (!res.ok || !json || json.ok === false) throw new Error(json?.error ? String(json.error) : `mybot answered ${res.status}`);
     return json;
   }
@@ -149,12 +155,15 @@ export class MybotContext {
   }
 
   async lookup(project: { name: string; workspace: string }, query: string, o: { signal?: AbortSignal; excludeSession?: string } = {}): Promise<ProjectContextResult> {
+    o.signal?.throwIfAborted();
     const q = query.replace(/\s+/g, ' ').trim().slice(0, 300);
     const url = this.url();
     const key = JSON.stringify([url, project.workspace, q.toLowerCase(), o.excludeSession ?? null]);
     const hit = this.cache.get(key);
-    if (hit && Date.now() - hit.at < CACHE_MS) return { ...hit.value, meta: { ...hit.value.meta, cached: true, ms: 0 } };
+    if (hit && Date.now() - hit.at < (hit.value.meta.status === 'none_found' ? EMPTY_CACHE_MS : CACHE_MS)) return { ...hit.value, meta: { ...hit.value.meta, cached: true, ms: 0 } };
     const started = Date.now();
+    const deadline = AbortSignal.timeout(LOOKUP_TIMEOUT_MS);
+    const signal = o.signal ? AbortSignal.any([o.signal, deadline]) : deadline;
     const meta = (status: ContextStatus, extra: Partial<ContextMeta> = {}): ContextMeta => ({ status, project: project.name, url, sources: [], ms: Date.now() - started, ...extra });
     const roots = folderVariants(project.workspace);
     const inProject = (m: Match) => !!m.cwd && roots.some((r) => insideFolder(m.cwd!, r))
@@ -163,16 +172,27 @@ export class MybotContext {
       const found: Match[] = [];
       const seen = new Set<string>();
       const add = (ms: Match[]) => { for (const m of ms) if (m.source_ref && !seen.has(m.source_ref) && inProject(m)) { seen.add(m.source_ref); found.push(m); } };
-      add((await this.call('/trajectory/search', { query: q, limit: 20, compact: true }, SEARCH_TIMEOUT_MS, o.signal)).matches ?? []);
-      // Few hits inside the folder: the indexed text includes each session's folder, so naming it helps.
-      if (found.length < 2) add((await this.call('/trajectory/search', { query: `${q} ${path.basename(project.workspace)}`, limit: 20, compact: true }, SEARCH_TIMEOUT_MS, o.signal)).matches ?? []);
+      // Start the folder query alongside the question so a slow fallback cannot double the wait.
+      const fallback = new AbortController();
+      const search = (query: string, signal: AbortSignal) => this.call('/trajectory/search', { query, limit: 20, compact: true }, LOOKUP_TIMEOUT_MS, signal)
+        .then((r) => ({ matches: (r.matches ?? []) as Match[], error: null }), (error: unknown) => ({ matches: [] as Match[], error }));
+      const primary = search(q, signal);
+      const secondary = search(`${q} ${path.basename(project.workspace)}`, AbortSignal.any([signal, fallback.signal]));
+      const first = await primary;
+      add(first.matches);
+      let error = first.error;
+      if (found.length < 2) { const second = await secondary; add(second.matches); error ??= second.error; }
+      else fallback.abort();
+      o.signal?.throwIfAborted();
+      if (!found.length && error) throw error;
       const top = found.slice(0, MAX_SOURCES);
       if (!top.length) {
         const value = { text: '', meta: meta('none_found') };
         this.cache.set(key, { at: Date.now(), value });
+        if (this.cache.size > 100) this.cache.delete(this.cache.keys().next().value!);
         return value;
       }
-      const read = (body: Record<string, unknown>) => this.call('/trajectory/read', body, READ_TIMEOUT_MS, o.signal).catch((e) => { if (o.signal?.aborted) throw e; return null; });
+      const read = (body: Record<string, unknown>) => this.call('/trajectory/read', body, READ_TIMEOUT_MS, signal).catch((e) => { if (o.signal?.aborted) throw e; return null; });
       const windowReads = Promise.all(top.map((m, i) => (i < READ_TOP && m.metadata?.chunk_id != null
         ? read({ source_ref: m.source_ref, chunk_id: m.metadata.chunk_id, query: q, max_chars: PER_SOURCE_CHARS, events_before: 2, events_after: 4 })
           .then((r) => (r ? r.trajectory?.snippets ?? [] : null) as string[] | null)

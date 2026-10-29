@@ -33,6 +33,7 @@ interface PendingTurn {
   text: string;
   turnId: string | null;
   onDelta?: (t: string) => void;
+  alive: () => void;
   resolve: (text: string) => void;
   reject: (e: Error) => void;
   lastError: { message: string; info: unknown } | null;
@@ -84,6 +85,7 @@ export class CodexProvider implements AIProvider {
   private proc: ChildProcess | null = null;
   private ready: Promise<void> | null = null;
   private nextId = 1;
+  private generation = 0;
   private pending = new Map<number, { resolve: (v: Json) => void; reject: (e: Error) => void }>();
   private turns = new Map<string, PendingTurn>();
   private rate: RateLimits | null = null;
@@ -104,12 +106,32 @@ export class CodexProvider implements AIProvider {
 
   // ------------------------------------------------------------------ process / JSON-RPC
   private ensure(): Promise<void> {
-    if (this.proc && this.ready) return this.ready;
-    this.ready = this.start().catch((e) => { this.ready = null; throw e; });
-    return this.ready;
+    if (this.ready) return this.ready;
+    const ready = this.start(++this.generation);
+    this.ready = ready;
+    void ready.catch(() => { if (this.ready === ready) this.ready = null; });
+    return ready;
   }
 
-  private async start(): Promise<void> {
+  private stopChild(proc: ChildProcess): void {
+    if (proc.exitCode !== null || proc.signalCode !== null) return;
+    stopProcess(proc);
+    const kill = setTimeout(() => stopProcess(proc, 'SIGKILL'), 2000);
+    kill.unref();
+    proc.once('close', () => clearTimeout(kill));
+  }
+
+  private processFailed(proc: ChildProcess, error: Error): void {
+    if (this.proc !== proc) return;
+    this.proc = null; this.ready = null;
+    const pending = [...this.pending.values()], turns = [...this.turns.values()];
+    this.pending.clear(); this.turns.clear();
+    for (const request of pending) request.reject(error);
+    for (const turn of turns) turn.reject(error);
+    this.stopChild(proc);
+  }
+
+  private async start(generation: number): Promise<void> {
     const bin = which('codex');
     if (!bin) throw new ProviderError('unavailable', 'Codex CLI not found. Install it (brew install codex) and run "codex login".');
     const env = { ...process.env };
@@ -118,14 +140,17 @@ export class CodexProvider implements AIProvider {
     // An older Codex refuses to start when asked to disable a feature it doesn't know, and a feature it doesn't know
     // can't be on. Disable the ones this version lists; if the list can't be read, ask for all of them as before.
     const listed = await runCommand(bin, ['features', 'list'], { env, timeoutMs: 15_000 });
+    if (generation !== this.generation) throw new ProviderError('aborted', 'Request cancelled.');
     const known = new Set(listed.code === 0 ? listed.out.split('\n').map((l) => l.trim().split(/\s+/)[0]).filter(Boolean) : []);
     const disable = known.size ? DISABLED_FEATURES.filter((f) => known.has(f)) : DISABLED_FEATURES;
     const args = ['app-server', ...disable.flatMap((f) => ['--disable', f]), '-c', 'web_search="disabled"'];
     const proc = spawnCommand(bin, args, { cwd: aiWorkdir(), stdio: ['pipe', 'pipe', 'pipe'], env, windowsHide: true });
     this.proc = proc;
     let buf = '';
-    proc.stdout!.on('data', (d: Buffer) => {
-      buf += d.toString('utf8');
+    proc.stdout!.setEncoding('utf8');
+    proc.stdout!.on('data', (d: string) => {
+      if (this.proc !== proc) return;
+      buf += d;
       let i;
       while ((i = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, i); buf = buf.slice(i + 1);
@@ -133,21 +158,31 @@ export class CodexProvider implements AIProvider {
       }
     });
     let errTail = '';
-    proc.stderr!.on('data', (d: Buffer) => { errTail = (errTail + d.toString()).slice(-3000); });
+    proc.stderr!.setEncoding('utf8');
+    proc.stderr!.on('data', (d: string) => { errTail = (errTail + d).slice(-3000); });
+    proc.on('error', () => this.processFailed(proc, new ProviderError('unavailable', 'Could not start Codex app-server. Check the Codex installation and try again.', true)));
+    proc.stdin!.on('error', () => this.processFailed(proc, new ProviderError('unavailable', 'The connection to Codex app-server closed. Try again.', true)));
     proc.on('exit', (code) => {
+      if (this.proc !== proc) return;
       log('codex', `app-server exited (code ${code}) ${errTail.slice(-400)}`);
-      this.proc = null; this.ready = null;
-      const err = new ProviderError('unavailable', `Codex app-server stopped (code ${code}).`, true);
-      for (const p of this.pending.values()) p.reject(err);
-      this.pending.clear();
-      for (const t of this.turns.values()) t.reject(err);
-      this.turns.clear();
+      this.processFailed(proc, new ProviderError('unavailable', `Codex app-server stopped (code ${code}).`, true));
     });
-    await this.request('initialize', { clientInfo: { name: 'chumi', title: 'Chumi listening companion', version: '0.1.0' }, capabilities: null }, 20000);
-    this.notify('initialized', undefined);
+    try {
+      await this.request('initialize', { clientInfo: { name: 'chumi', title: 'Chumi listening companion', version: '0.1.0' }, capabilities: null }, 20000);
+      if (this.proc !== proc) throw new ProviderError('unavailable', 'Codex app-server is not running', true);
+      this.notify('initialized', undefined);
+    } catch (error) {
+      this.processFailed(proc, error as Error);
+      throw error;
+    }
   }
 
-  private send(msg: Json): void { this.proc?.stdin?.write(JSON.stringify(msg) + '\n'); }
+  private send(msg: Json): void {
+    const proc = this.proc;
+    if (!proc) return;
+    try { proc.stdin?.write(JSON.stringify(msg) + '\n'); }
+    catch { this.processFailed(proc, new ProviderError('unavailable', 'The connection to Codex app-server closed. Try again.', true)); }
+  }
   private notify(method: string, params: unknown): void { this.send(params === undefined ? { method } : { method, params }); }
 
   private request(method: string, params: unknown, timeoutMs = 30000): Promise<Json> {
@@ -182,6 +217,7 @@ export class CodexProvider implements AIProvider {
     const params = (m.params ?? {}) as Json;
     const threadId = params.threadId as string | undefined;
     const turn = threadId ? this.turns.get(threadId) : undefined;
+    if (m.method) turn?.alive();
     switch (m.method) {
       case 'item/agentMessage/delta': {
         if (turn && typeof params.delta === 'string') { turn.text += params.delta; turn.onDelta?.(params.delta); }
@@ -312,7 +348,7 @@ export class CodexProvider implements AIProvider {
         void this.request('turn/interrupt', { threadId, turnId: pt.turnId }).catch(() => {});
       };
       const cleanup = () => {
-        clearTimeout(timer);
+        clearTimeout(idle); clearTimeout(cap);
         req.signal?.removeEventListener('abort', onAbort);
         if (threadId) this.turns.delete(threadId);
         unsubscribe();
@@ -331,7 +367,13 @@ export class CodexProvider implements AIProvider {
         fail(error);
       };
       const onAbort = () => stop(new ProviderError('aborted', 'Request cancelled.'));
-      const timer = setTimeout(() => stop(new ProviderError('network', 'ChatGPT did not finish within 3 minutes.', true)), 180_000);
+      const deep = req.effort === 'xhigh' || req.effort === 'max';
+      const idleMs = deep ? 10 * 60_000 : 5 * 60_000;
+      const capMs = deep ? 30 * 60_000 : req.effort === 'high' ? 20 * 60_000 : 15 * 60_000;
+      let idle: NodeJS.Timeout;
+      const alive = () => { clearTimeout(idle); idle = setTimeout(() => stop(new ProviderError('network', 'ChatGPT stopped sending progress and the request was cancelled. Try again.', true)), idleMs); };
+      const cap = setTimeout(() => stop(new ProviderError('network', 'ChatGPT reached the time limit for this effort level. Try a shorter request or lower effort.', true)), capMs);
+      alive();
       req.signal?.addEventListener('abort', onAbort, { once: true });
       if (req.signal?.aborted) { onAbort(); return; }
 
@@ -343,6 +385,7 @@ export class CodexProvider implements AIProvider {
         if (!st.ready) throw new ProviderError('unavailable', st.message ?? 'Codex is not ready.', true);
         await this.ensure();
         if (settled) return;
+        alive();
         const model = this.pickModel();
         const effort = this.effortFor(model, req.effort ?? 'low');
         const started = await this.request('thread/start', {
@@ -352,7 +395,7 @@ export class CodexProvider implements AIProvider {
         threadId = String((started.thread as Json).id);
         if (settled) { unsubscribe(); return; }
         pt = {
-          text: '', turnId: null, onDelta: req.onDelta, lastError: null, reject: fail,
+          text: '', turnId: null, onDelta: req.onDelta, alive, lastError: null, reject: fail,
           resolve: (text) => {
             if (settled) return;
             settled = true;
@@ -376,9 +419,9 @@ export class CodexProvider implements AIProvider {
   }
 
   async shutdown(): Promise<void> {
+    this.generation++;
+    this.ready = null;
     const p = this.proc;
-    if (!p) return;
-    p.stdin?.end();
-    stopProcess(p);
+    if (p) this.processFailed(p, new ProviderError('aborted', 'Request cancelled.'));
   }
 }

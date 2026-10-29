@@ -5,6 +5,7 @@ import { fmtClock, fmtT, parseT } from '../util.ts';
 import { focusTime } from './Transcript.tsx';
 import { Markdown } from './Markdown.tsx';
 import { t } from '../i18n.ts';
+import { digestProgress } from '../ai-progress.ts';
 
 export function Overview() {
   const outs = useStore((s) => s.data?.outputs);
@@ -20,7 +21,7 @@ export function Overview() {
       <div className="overview-head">
         <button className="link-btn" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? '▾' : '▸'}</button>
         <span className="overview-topic">{d?.current_topic ? <>{t('Now:')} <strong>{d.current_topic}</strong></> : <span className="muted">{t('Overview appears after a minute or two of discussion.')}</span>}</span>
-        <span className="muted small">{busy ? t('updating…') : done ? t('updated {clock} · to {t}', { clock: fmtClock(done.completed_at ?? done.created_at), t: fmtT(done.covered_to) }) : ''}</span>
+        <span className="muted small">{busy ? digestProgress(ovs.find((o) => o.status === 'streaming')) ?? t('updating…') : done ? t('updated {clock} · to {t}', { clock: fmtClock(done.completed_at ?? done.created_at), t: fmtT(done.covered_to) }) : ''}</span>
         <button className="btn small" onClick={() => recap()} disabled={busy} title={t('Update the overview now')}>{t('Recap now')}</button>
       </div>
       {open && d && (

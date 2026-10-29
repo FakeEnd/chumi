@@ -31,7 +31,7 @@ export function WindowPicker({ value, onChange }: { value: WindowInfo | null; on
       <div className="field-row" style={{ marginBottom: 4 }}>
         <select className="grow" value={value?.id ?? ''} onChange={(e) => onChange(state.windows.find((w) => w.id === Number(e.target.value)) ?? null)}>
           <option value="">{t('Choose a window…')}</option>
-          {state.windows.map((w) => <option key={w.id} value={w.id}>{w.app}{w.title ? ` · ${w.title.slice(0, 70)}` : ''}{w.onScreen ? '' : ` ${t('(hidden)')}`}</option>)}
+          {state.windows.map((w) => <option key={w.id} value={w.id}>{w.app}{w.title ? `${w.app ? ' · ' : ''}${w.title.slice(0, 70)}` : ''}{w.onScreen ? '' : ` ${t('(hidden)')}`}</option>)}
         </select>
         <button className="btn small" onClick={load} title={t('Refresh the window list')}>↻</button>
       </div>

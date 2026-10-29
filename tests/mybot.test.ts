@@ -34,3 +34,27 @@ test('mybot export: chumi-transcript/1 JSONL, private by default, removed on del
   assert.equal(existsSync(file), false);
   store.close();
 });
+
+test('bulk export writes oldest first so recent meetings retain the newest mtimes', async () => {
+  const { exportMybotSessions } = await import('../server/mybot-export.ts');
+  const store = new Store(':memory:');
+  try {
+    for (const [id, at] of [['old', 1], ['middle', 2], ['new', 3]] as const) {
+      store.createSession({ id, title: id, type: 'other', audio_source: 'mic' });
+      // The oldest phone meeting was imported most recently. Order by recording date,
+      // as History does, rather than by its insertion date on this computer.
+      store.updateSession(id, { started_at: at, created_at: 4 - at });
+    }
+    store.saveSettings({ ...store.getSettings(), integrations: { mybot: { ...store.getSettings().integrations.mybot, exportDir: join(dir, 'order-exports') } } });
+    const writes: string[] = [];
+    const exporter = new MybotExporter(store);
+    exporter.sync = (id) => { writes.push(id); return true; };
+    assert.equal(exporter.exportAll().exported, 3);
+    assert.deepEqual(writes, ['old', 'middle', 'new']);
+    writes.length = 0;
+    const job = exportMybotSessions(store, exporter, true);
+    assert.deepEqual(writes, [], 'the deferred path does not write before returning');
+    assert.equal((await job).exported, 3);
+    assert.deepEqual(writes, ['old', 'middle', 'new']);
+  } finally { store.close(); }
+});

@@ -1,9 +1,11 @@
+import { useDialogDraft } from '../dialogDraft.ts';
 import { useEffect, useRef, useState } from 'react';
 import { setState, useStore } from '../store.ts';
 import { addHandoffItem, assignProject, confirmHandoff, continueHandoff, prepareHandoff, refreshSession, reopenHandoff, retargetHandoff, updateHandoffItem } from '../actions.ts';
 import { api } from '../api.ts';
 import { fmtClock, fmtT } from '../util.ts';
 import { msg, plural, t } from '../i18n.ts';
+import { digestProgress } from '../ai-progress.ts';
 import { Dialog } from './Dialog.tsx';
 import { focusTime } from './Transcript.tsx';
 import { ProjectSelect } from './Projects.tsx';
@@ -40,20 +42,27 @@ function Evidence({ ev }: { ev: EvidenceRef[] }) {
   return (
     <span className="evidence">
       {ev.map((e, i) => e.kind === 'transcript'
-        ? <button key={i} className="ref" title={t('Show in transcript')} onClick={() => { setState({ dialog: null }); focusTime(e.from_ms, e.to_ms); }}>{e.from_ms === e.to_ms ? fmtT(e.from_ms) : `${fmtT(e.from_ms)}–${fmtT(e.to_ms)}`}</button>
-        : <button key={i} className="ref" title={t('Open the screen capture')} onClick={() => setState({ dialog: 'frame', frameView: e.frame_id })}>▣ {fmtT(e.t)}</button>)}
+        ? <button key={i} className="ref" title={t('Show in transcript')} onClick={() => { if (setState({ dialog: null })) focusTime(e.from_ms, e.to_ms); }}>{e.from_ms === e.to_ms ? fmtT(e.from_ms) : `${fmtT(e.from_ms)}–${fmtT(e.to_ms)}`}</button>
+        : <button key={i} className="ref" title={t('Open the screen capture')} onClick={() => setState({ dialog: 'frame', dialogReturnTo: 'handoff', frameView: e.frame_id })}>▣ {fmtT(e.t)}</button>)}
     </span>
   );
 }
 
 const lines = (s: string) => s.split('\n').map((x) => x.trim()).filter(Boolean);
 
+const itemForm = (item: HandoffItem) => ({ text: item.text, rationale: item.rationale ?? '', conditions: item.conditions.join('\n'), acceptance: item.acceptance.join('\n'), owner: item.owner ?? '', due: item.due ?? '' });
+
 function ItemRow({ item, locked, trackProgress, refresh }: { item: HandoffItem; locked: boolean; trackProgress: boolean; refresh: () => Promise<unknown> }) {
   const [edit, setEdit] = useState(false);
-  const [f, setF] = useState({ text: item.text, rationale: item.rationale ?? '', conditions: item.conditions.join('\n'), acceptance: item.acceptance.join('\n'), owner: item.owner ?? '', due: item.due ?? '' });
+  const [f, setF] = useState(() => itemForm(item));
+  useDialogDraft(edit && JSON.stringify(f) !== JSON.stringify(itemForm(item)));
+  const [saving, setSaving] = useState(false);
   const save = async () => {
-    await updateHandoffItem(item.id, { text: f.text, rationale: f.rationale, ...(item.kind === 'action' ? { conditions: lines(f.conditions), acceptance: lines(f.acceptance), owner: f.owner, due: f.due } : {}) });
-    setEdit(false);
+    if (saving) return;
+    setSaving(true);
+    const saved = await updateHandoffItem(item.id, { text: f.text, rationale: f.rationale, ...(item.kind === 'action' ? { conditions: lines(f.conditions), acceptance: lines(f.acceptance), owner: f.owner, due: f.due } : {}) });
+    setSaving(false);
+    if (saved) setEdit(false);
   };
   const review = (r: HandoffItem['review']) => void updateHandoffItem(item.id, { review: r });
   return (
@@ -65,10 +74,10 @@ function ItemRow({ item, locked, trackProgress, refresh }: { item: HandoffItem; 
         {item.review === 'pending'
           ? <><button className="btn small primary" disabled={locked} onClick={() => review('confirmed')}>{t('Confirm')}</button><button className="btn small" disabled={locked} onClick={() => review('rejected')}>{t('Reject')}</button></>
           : <><span className={`tag ${item.review === 'confirmed' ? 'tag-ok' : 'tag-muted'}`}>{item.review === 'confirmed' ? t('Confirmed') : t('Rejected')}</span><button className="link-btn small" disabled={locked} onClick={() => review('pending')}>{t('Undo')}</button></>}
-        {!edit && <button className="link-btn small" disabled={locked} onClick={() => setEdit(true)}>{t('Edit')}</button>}
+        {!edit && <button className="link-btn small" disabled={locked} onClick={() => { setF(itemForm(item)); setEdit(true); }}>{t('Edit')}</button>}
       </div>
       {edit ? (
-        <div className="hitem-edit">
+        <fieldset className="hitem-edit" disabled={saving}>
           <textarea rows={2} value={f.text} onChange={(e) => setF({ ...f, text: e.target.value })} aria-label={t('Description')} />
           <label className="field"><span>{t('Why (as stated in the meeting)')}</span><textarea rows={2} value={f.rationale} onChange={(e) => setF({ ...f, rationale: e.target.value })} /></label>
           {item.kind === 'action' && (
@@ -82,7 +91,7 @@ function ItemRow({ item, locked, trackProgress, refresh }: { item: HandoffItem; 
             </>
           )}
           <div className="btn-row"><button className="btn small primary" onClick={() => void save()}>{t('Save')}</button><button className="btn small" onClick={() => setEdit(false)}>{t('Cancel')}</button></div>
-        </div>
+        </fieldset>
       ) : (
         <>
           <div className="hitem-text">{item.text}</div>
@@ -101,12 +110,20 @@ function ItemRow({ item, locked, trackProgress, refresh }: { item: HandoffItem; 
 function AddItem({ handoff, kind }: { handoff: Handoff; kind: HandoffItem['kind'] }) {
   const [text, setText] = useState('');
   const [open, setOpen] = useState(false);
-  const add = () => { if (!text.trim()) return; void addHandoffItem(handoff.id, kind, text); setText(''); setOpen(false); };
+  useDialogDraft(open && !!text);
+  const [saving, setSaving] = useState(false);
+  const add = async () => {
+    if (!text.trim() || saving) return;
+    setSaving(true);
+    const saved = await addHandoffItem(handoff.id, kind, text);
+    setSaving(false);
+    if (saved) { setText(''); setOpen(false); }
+  };
   if (!open) return <button className="link-btn small" onClick={() => setOpen(true)}>+ {t('Add your own')}</button>;
   return (
     <div className="field-row">
-      <input className="grow" autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={t('Describe it in one sentence')} onKeyDown={onEnter(add)} />
-      <button className="btn small" disabled={!text.trim()} onClick={add}>{t('Add')}</button>
+      <input className="grow" aria-label={t('Description')} disabled={saving} autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={t('Describe it in one sentence')} onKeyDown={onEnter(add)} />
+      <button className="btn small" disabled={saving || !text.trim()} onClick={add}>{t('Add')}</button>
     </div>
   );
 }
@@ -136,7 +153,7 @@ export function HandoffButton() {
         title={recording ? t('When the meeting ends, turn its decisions and actions into a reviewed handoff for your coding agent.') : t('Turn this meeting\'s decisions and actions into a reviewed handoff for your coding agent.')}>{t('Prepare handoff')}</button>
     );
   }
-  if (h.status === 'generating') return <button className="btn small handoff-btn" disabled><span className="spinner" /> {t('Drafting…')}</button>;
+  if (h.status === 'generating') return <button className="btn small handoff-btn" disabled><span className="spinner" /> {digestProgress(data.outputs.find((o) => o.id === h.output_id)) ?? t('Drafting…')}</button>;
   if (h.status === 'error') return <button className="btn small handoff-btn" title={h.error ?? ''} onClick={() => void prepareHandoff(data.session.id)}><span className="tag tag-warn">{t('Failed')}</span> {t('Try again')}</button>;
   const confirmed = h.status === 'confirmed';
   const pending = h.items.filter((i) => i.review === 'pending').length;
@@ -164,7 +181,7 @@ export function HandoffDialog() {
   const [destination, setDestination] = useState(loadHandoffDestination);
   const [manualPrompt, setManualPrompt] = useState('');
   const [deliveryError, setDeliveryError] = useState('');
-  /** What Continue did, shown next to it: a toast would be behind the dialog. */
+  /** Keep delivery feedback next to the action. */
   const [delivered, setDelivered] = useState('');
   const [others, setOthers] = useState<Array<{ agent: AgentId; name: string }>>([]);
   useEffect(() => {
@@ -183,7 +200,6 @@ export function HandoffDialog() {
     pendingDelivery.current = true; setBusy(true); setManualPrompt(''); setDeliveryError(''); setDelivered('');
     try {
       const r = await continueHandoff(h.id, agent);
-      if (!r) return;
       if (agent === 'copy') {
         try {
           if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
@@ -250,7 +266,7 @@ export function HandoffDialog() {
       {confirmed && selected === 'deepseek-harness' && <p className="small muted">{t('DeepSeek Harness cannot be handed a folder or a message. Chumi saves the handoff, copies a one-line instruction that points to it, and opens the app; you open the project folder there and paste it into a new session.')}</p>}
       {deliveryError && <p className="error-text small" role="alert">{t(deliveryError)}</p>}
       {manualPrompt && <label className="field"><span>{t('Handoff instructions')}</span><textarea readOnly rows={8} value={manualPrompt} onFocus={(e) => e.currentTarget.select()} /></label>}
-      {generating && <div className="pending"><span className="spinner" /> {t('Drafting from the transcript…')}</div>}
+      {generating && <div className="pending"><span className="spinner" /> {digestProgress(data.outputs.find((o) => o.id === h.output_id)) ?? t('Drafting from the transcript…')}</div>}
       <p className="muted small">{t('Review each item. Edit anything that is wrong, reject what should not be handed on. Owners and deadlines appear only if someone stated them.')}</p>
       {KINDS.map(([kind, label, hint]) => {
         const items = h.items.filter((i) => i.kind === kind);

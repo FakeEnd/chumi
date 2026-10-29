@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store.ts';
 import { saveSettings } from '../actions.ts';
 import { msg, t } from '../i18n.ts';
@@ -26,21 +26,58 @@ function Chips<T extends Topic>({ all, on, label, onChange }: { all: readonly T[
   );
 }
 
+const sizePercent = (value: string): number | null => {
+  const n = Number(value);
+  return value.trim() && Number.isFinite(n) ? Math.min(200, Math.max(50, Math.round(n / 5) * 5)) : null;
+};
+
 /** Settings → Desktop pet: the small Chumi that floats on the desktop in Chumi.app (docs/desktop-pet.md). */
 export function PetSettings() {
   const pet = useStore((s) => s.settings!.pet);
   const app = useStore((s) => s.appMode && (s.platform === 'darwin' || s.platform === 'win32'));
+  const windows = useStore((s) => s.platform === 'win32');
   const [moved, setMoved] = useState(false);
   const [pct, setPct] = useState(Math.round(pet.size * 100));
+  const [sizeDraft, setSizeDraft] = useState(String(pct));
+  const sizeFocused = useRef(false);
+  const sizeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const sizeEdit = useRef({ value: sizeDraft, dirty: false, pending: null as number | null, saved: pet.size });
+  sizeEdit.current.saved = pet.size;
   const S = (patch: Partial<Settings['pet']>) => void saveSettings({ pet: patch });
-  useEffect(() => setPct(Math.round(pet.size * 100)), [pet.size]);
-  // Save the size once the slider or the number stops changing.
   useEffect(() => {
-    const v = Math.min(200, Math.max(50, Math.round(pct / 5) * 5));
-    if (!Number.isFinite(pct) || v / 100 === pet.size) return;
-    const timer = setTimeout(() => S({ size: v / 100 }), 350);
-    return () => clearTimeout(timer);
-  }, [pct]);
+    const n = Math.round(pet.size * 100), edit = sizeEdit.current;
+    if (edit.pending !== null) return;
+    setPct(n);
+    if (!sizeFocused.current && !edit.dirty) { edit.value = String(n); setSizeDraft(edit.value); }
+  }, [pet.size]);
+  const saveSize = (n: number) => {
+    clearTimeout(sizeTimer.current);
+    sizeEdit.current.pending = null;
+    if (n / 100 !== sizeEdit.current.saved) S({ size: n / 100 });
+  };
+  // Closing Settings can remove the focused field before blur, or before the slider's timer fires.
+  useEffect(() => () => {
+    clearTimeout(sizeTimer.current);
+    const edit = sizeEdit.current, n = edit.dirty ? sizePercent(edit.value) : null;
+    if (n !== null) saveSize(n); else if (edit.pending !== null) saveSize(edit.pending);
+  }, []);
+  const changeSize = (n: number, debounce: boolean) => {
+    clearTimeout(sizeTimer.current);
+    const edit = sizeEdit.current;
+    edit.value = String(n); edit.dirty = false; edit.pending = n;
+    setPct(n); setSizeDraft(String(n));
+    if (debounce && n / 100 !== edit.saved) sizeTimer.current = setTimeout(() => saveSize(n), 350);
+    else saveSize(n);
+  };
+  const commitSize = () => {
+    sizeFocused.current = false;
+    const edit = sizeEdit.current, n = edit.dirty ? sizePercent(edit.value) : null;
+    if (n !== null) changeSize(n, false);
+    else {
+      edit.value = String(pct); edit.dirty = false; setSizeDraft(edit.value);
+      if (edit.pending !== null) saveSize(edit.pending);
+    }
+  };
   return (
     <section>
       <p className="small">{t('A small Chumi in the corner of your screen, above other windows. From its toolbar you start, pause or end a meeting, catch up and ask, and its cards show the latest answers, so you can follow along without leaving your call.')}</p>
@@ -50,10 +87,10 @@ export function PetSettings() {
       <fieldset className="field" disabled={!pet.enabled}>
         <span>{t('Size')}</span>
         <div className="field-row" style={{ alignItems: 'center', marginBottom: 0 }}>
-          <input type="range" min={50} max={200} step={5} value={pct} onChange={(e) => setPct(Number(e.target.value))} aria-label={t('Size')} style={{ flex: 1 }} />
-          <input type="number" min={50} max={200} step={5} value={pct} onChange={(e) => setPct(Number(e.target.value))} aria-label={t('Size in percent')} style={{ width: 72, flex: 'none' }} />
+          <input type="range" min={50} max={200} step={5} value={pct} onChange={(e) => changeSize(Number(e.target.value), true)} aria-label={t('Size')} style={{ flex: 1 }} />
+          <input type="number" min={50} max={200} step={5} value={sizeDraft} onFocus={() => { sizeFocused.current = true; }} onChange={(e) => { sizeEdit.current.value = e.target.value; sizeEdit.current.dirty = true; setSizeDraft(e.target.value); }} onBlur={commitSize} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} aria-label={t('Size in percent')} style={{ width: 72, flex: 'none' }} />
           <span>%</span>
-          {pct !== 100 && <button type="button" className="btn small" onClick={() => setPct(100)}>{t('Reset')}</button>}
+          {pct !== 100 && <button type="button" className="btn small" onClick={() => changeSize(100, false)}>{t('Reset')}</button>}
         </div>
       </fieldset>
 
@@ -80,7 +117,7 @@ export function PetSettings() {
 
       {app && <p><button type="button" className="btn small" disabled={!pet.enabled} onClick={() => setMoved(petShell('pet-reset'))}>{t('Move it back to the corner')}</button>{moved && <span className="small muted"> {t('Done.')}</span>}</p>}
       <ul className="small muted">
-        <li>{t('Also in the menu bar: Window → Desktop Pet.')}</li>
+        <li>{windows ? t('Press Alt to show the menu bar, then choose 窗口 → 桌宠.') : t('Also in the menu bar: Window → Desktop Pet.')}</li>
         <li>{t('Right-click the pet for Catch Me Up, Open Chumi, Pet Only and Hide. Drag it by the character to move it.')}</li>
       </ul>
     </section>

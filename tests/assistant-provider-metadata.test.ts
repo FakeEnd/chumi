@@ -47,3 +47,38 @@ for (const { name, metadata, expected } of cases) {
     assert.equal(JSON.parse(saved.data_json!).effort, expected);
   });
 }
+
+test('a manual question preempts local background work even when both assistant slots are occupied', { timeout: 3000 }, async (t) => {
+  const { CompatibleProvider } = await import('../server/ai/compatible.ts');
+  const store = new Store(':memory:');
+  const settings = store.getSettings();
+  settings.ai.provider = 'compatible'; settings.ai.compatible.preset = 'lmstudio';
+  Object.assign(settings.ai.compatible.profiles.lmstudio, { model: 'fixture', contextTokens: 32768 });
+  store.saveSettings(settings);
+  const registry = new ProviderRegistry(store);
+  let started!: () => void;
+  const entered = new Promise<void>((r) => { started = r; });
+  let calls = 0;
+  const provider = new CompatibleProvider(() => settings.ai.compatible, { readKey: async () => null, fetch: async () => {
+    calls++;
+    if (calls === 1) { started(); return new Promise<Response>(() => {}); }
+    return Response.json({ choices: [{ message: { content: 'The answer [0:01].' }, finish_reason: 'stop' }] });
+  } });
+  registry.providers.compatible = provider;
+  const assistant = new Assistant(store, registry, () => {});
+  const session = store.createSession({ id: 'local-priority', title: 'Fixture', type: 'advisor', audio_source: 'mic' });
+  store.addSegment({ session_id: session.id, t_start: 1000, t_end: 5000, text: 'The team agreed to repeat the experiment. '.repeat(2500), lang: 'en', source: 'mic', run: 1 });
+  t.after(async () => { assistant.cancelSession(session.id); await registry.shutdown(); store.close(); });
+  store.insertOutput({ id: 'previous-overview', session_id: session.id, kind: 'overview', status: 'done', content: 'Previous overview.', data_json: JSON.stringify({ current_topic: 'Previous topic', overview: ['Previous overview.'], topics: [], open_question: '', lastSegmentId: 0 }) });
+  const first = assistant.overview(session.id);
+  await entered;
+  const second = assistant.overview(session.id);
+  await new Promise<void>((r) => setImmediate(r));
+  const done = new Promise<OutputRow>((r) => { assistant.onOutputDone = r; });
+  const id = assistant.ask(session.id, 'What did we agree?', null, 'standard');
+  assert.equal((await done).id, id);
+  assert.equal(calls, 2, 'only the first background request and the manual answer reach the server');
+  assert.equal(store.getOutput(first)!.status, 'cancelled');
+  assert.equal(store.getOutput(second)!.status, 'cancelled');
+  assert.equal(store.latestOutput(session.id, 'overview')!.id, 'previous-overview');
+});

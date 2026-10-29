@@ -111,6 +111,7 @@ export function CompatibleProviderSettings() {
           </select>
         </label>
         {local && <LocalModelPicker preset={preset} baseUrl={profile.baseUrl} value={profile.model} refreshKey={discoveryRefresh}
+          contextTokens={profile.contextTokens} onContextChange={(contextTokens) => update({ contextTokens, contextExplicit: true })}
           onChange={(model) => update({ model, supportsImages: false, structuredOutput: 'prompt' })} />}
         <p className="small muted">{local
           ? t('Start the local model server and choose a model you have downloaded. A server on this computer can still route requests to a cloud service; check its model and routing settings.')
@@ -139,6 +140,9 @@ export function CompatibleProviderSettings() {
             <option value="json_schema">{t('JSON schema mode (requires server support)')}</option>
           </select>
         </label>
+        {local && <label className="field"><span>{t('Context length')}</span>
+          <input type="number" min={1024} max={1048576} step={1} value={Number.isNaN(profile.contextTokens) ? '' : profile.contextTokens} onChange={(e) => update({ contextTokens: e.target.valueAsNumber, contextExplicit: true })} />
+        </label>}
         <label className="field"><span>{t('Maximum output tokens per request')}</span>
           <input type="number" min={64} max={32768} step={1} value={Number.isNaN(profile.maxOutputTokens) ? '' : profile.maxOutputTokens} onChange={(e) => update({ maxOutputTokens: e.target.valueAsNumber })} />
         </label>

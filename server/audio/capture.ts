@@ -51,6 +51,11 @@ export class FrameParser {
   }
 }
 
+/** Permission probes and capture must use the same macOS privacy identity. */
+export function audioHelperArgs(args: string[], platform: NodeJS.Platform = process.platform, appMode = !!process.env.CHUMI_APP): string[] {
+  return platform === 'darwin' && !appMode ? [...args, '--self-responsible'] : [...args];
+}
+
 /** Live capture through the platform's native helper. Both use the same PCM/event protocol. */
 export class HelperCapture extends EventEmitter<CaptureEvents> implements AudioInput {
   readonly kind = 'helper';
@@ -63,10 +68,7 @@ export class HelperCapture extends EventEmitter<CaptureEvents> implements AudioI
     this.stopping = false;
     const helper = findAudioHelper();
     if (!helper) throw new Error(process.platform === 'win32' ? 'The audio component is missing. Reinstall Chumi to restore it.' : 'Audio helper not built. Run "npm run build:native" (see README).');
-    const args = ['--source', this.opts.source];
-    // Run from a terminal (npm start), the terminal app would own the privacy permissions, and most terminals can't
-    // request System Audio Recording at all. Give the helper its own identity there; inside Chumi.app the app owns them.
-    if (process.platform === 'darwin' && !process.env.CHUMI_APP) args.push('--self-responsible');
+    const args = audioHelperArgs(['--source', this.opts.source]);
     if (this.opts.micDeviceUid) args.push('--mic-device', this.opts.micDeviceUid);
     if (this.opts.source === 'both') args.push('--aec', this.opts.aec === false ? 'off' : 'on');
     log('audio', 'spawn', helper, args.join(' '));
@@ -181,7 +183,7 @@ export function listDevices(): Promise<unknown[]> {
 export function checkPermissions(): Promise<Record<string, string>> {
   const helper = findAudioHelper();
   if (!helper) return Promise.resolve({ microphone: 'unknown', systemAudio: 'unknown', helper: 'missing' });
-  return new Promise((resolve) => execFile(helper, ['--check-permissions'], { timeout: 5000, windowsHide: true }, (err, out) => {
+  return new Promise((resolve) => execFile(helper, audioHelperArgs(['--check-permissions']), { timeout: 5000, windowsHide: true }, (err, out) => {
     if (err) return resolve({ microphone: 'unknown', systemAudio: 'unknown' });
     try { resolve(JSON.parse(out)); } catch { resolve({ microphone: 'unknown', systemAudio: 'unknown' }); }
   }));

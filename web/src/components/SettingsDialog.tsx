@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { setState, useStore } from '../store.ts';
+import { notify, setState, useStore } from '../store.ts';
 import { refreshProvider, saveProfile, saveSettings } from '../actions.ts';
 import { api } from '../api.ts';
 import { locale, msg, plural, t, tn } from '../i18n.ts';
@@ -9,6 +9,8 @@ import { Dialog } from './Dialog.tsx';
 import { TranscriptionTab } from './TranscriptionTab.tsx';
 import { AgentsTab, ProjectsTab } from './Projects.tsx';
 import { MybotServerSettings } from './ProjectContext.tsx';
+import { AnthropicKeySettings } from './AnthropicKeySettings.tsx';
+import { ClaudeResume } from './ClaudeResume.tsx';
 import { CompatibleProviderSettings } from './CompatibleProviderSettings.tsx';
 import { speechPrivacy } from '../speechSettings.ts';
 import type { ProviderStatus } from '../types.ts';
@@ -42,7 +44,7 @@ function QuotaView({ p }: { p: ProviderStatus }) {
       </div>
       {p.quota.note && <div className={p.ready ? 'muted small' : 'warn-text small'}>{t(p.quota.note)}</div>}
       {p.message && p.message !== p.quota.note && <div className={p.ready ? 'muted small' : 'warn-text small'}>{t(p.message)}</div>}
-      {p.setupHint && <div className="hint"><b>{t('Setup:')}</b> <code>{p.setupHint}</code></div>}
+      {p.setupHint && <div className="hint"><b>{t('Setup:')}</b> <code>{t(p.setupHint)}</code></div>}
     </div>
   );
 }
@@ -55,14 +57,15 @@ export function SettingsDialog() {
   const hotkey = useStore((s) => s.hotkey);
   const devMode = useStore((s) => s.devMode);
   const dataDir = useStore((s) => s.dataDir);
+  const mybotExportRev = useStore((s) => s.mybotExportRev);
   const systemLanguage = useStore((s) => s.systemLanguage);
   const windows = useStore((s) => s.platform) === 'win32';
   const compatibleProfile = settings.ai.compatible.profiles[settings.ai.compatible.preset];
   const [devices, setDevices] = useState<Array<{ uid: string; name: string; isDefault: boolean }>>([]);
   const [perm, setPerm] = useState<Record<string, string>>({});
-  const [apiKey, setApiKey] = useState('');
   const [mybot, setMybot] = useState<{ enabled: boolean; dir: string; files: number; shareWithTeam: boolean } | null>(null);
   const [exportDir, setExportDir] = useState(settings.integrations.mybot.exportDir);
+  useEffect(() => setExportDir(settings.integrations.mybot.exportDir), [settings.integrations.mybot.exportDir]);
   const loadMybot = () => void api('/api/integrations/mybot').then(setMybot).catch(() => {});
   useEffect(() => {
     if (tab === 'audio') {
@@ -70,8 +73,8 @@ export function SettingsDialog() {
       void api('/api/audio/permissions').then(setPerm).catch(() => {});
     }
     if (tab === 'ai') void refreshProvider();
-    if (tab === 'integrations') loadMybot();
   }, [tab]);
+  useEffect(() => { if (tab === 'integrations') loadMybot(); }, [tab, mybotExportRev]);
   const S = saveSettings;
   const PERM: Record<string, string> = { granted: msg('granted'), denied: msg('denied'), restricted: msg('restricted'), undetermined: msg('not asked yet') };
 
@@ -82,7 +85,7 @@ export function SettingsDialog() {
         {GROUPS.map((g) => (
           <div key={g.label} className="settings-group">
             <div className="settings-group-label">{t(g.label)}</div>
-            {g.tabs.filter(([k]) => k !== 'pet' || !windows).map(([k, l, Icon]) => (
+            {g.tabs.map(([k, l, Icon]) => (
               <button key={k} className={tab === k ? 'on' : ''} aria-current={tab === k ? 'page' : undefined} onClick={() => setState({ settingsTab: k })}><Icon width={15} height={15} />{t(l)}</button>
             ))}
           </div>
@@ -170,7 +173,7 @@ export function SettingsDialog() {
               <option value="off">{t('Off')}</option>
             </select>
           </label>
-          <p className="small">{t('Status:')} {hotkey?.state === 'ready' ? <b className="ok-text">{t('{key} is active', { key: hotkey.shortcut })}</b> : hotkey?.state === 'off' ? t('off') : <span className="warn-text">{hotkey?.message ? t(hotkey.message) : hotkey?.state ?? t('unknown')}</span>}</p>
+          <p className="small">{t('Status:')} {hotkey?.state === 'ready' ? <b className="ok-text">{t('{key} is active', { key: hotkey.shortcut })}</b> : hotkey?.state === 'off' ? t('off') : <span className="warn-text">{hotkey?.message ? t(hotkey.message) : t(hotkey?.state ?? 'unknown')}</span>}</p>
           <ul className="small muted">
             <li>{t("First press starts listening. Pressing again pauses, and a third press resumes. End the session in Chumi when you're done.")}</li>
             <li>{t('The shortcut needs no extra permission. If another app already uses the combination, pick a different one.')}</li>
@@ -253,8 +256,9 @@ export function SettingsDialog() {
           <p className="muted small">{t("Higher effort makes the model think longer before answering. Answers usually get better on hard questions, but they take longer and use more of your plan's limit. If the model doesn't support a level, Chumi uses the closest lower one it does support. Claude Haiku has no effort setting.")}</p>
           </>}
           {provider && <><h3>{t('Status: {name}', { name: t(provider.label) })} <button className="btn small" onClick={() => void refreshProvider()}>{t('Refresh')}</button></h3><QuotaView p={provider} /></>}
-          {windows && settings.ai.provider === 'codex' && provider?.state === 'signed_out' && <div className="btn-row">
-            <button className="btn primary" onClick={() => void api('/api/provider/codex/login', { body: {} })}>{t('Sign in with ChatGPT')}</button>
+          {settings.ai.provider === 'claude-cli' && provider?.id === 'claude-cli' && provider.state === 'quota_blocked' && provider.overageBlocked && <ClaudeResume />}
+          {settings.ai.provider === 'codex' && provider?.state === 'signed_out' && <div className="btn-row">
+            <button className="btn primary" onClick={() => void api('/api/provider/codex/login', { body: {} }).catch((e) => notify('error', (e as Error).message))}>{t('Sign in with ChatGPT')}</button>
             <span className="muted small">{t('Sign-in opens in your browser. Return here when it is complete.')}</span>
           </div>}
           {settings.ai.provider === 'codex' && (
@@ -278,13 +282,7 @@ export function SettingsDialog() {
           )}
           <h3>{t('Paid API access (optional)')}</h3>
           <label className="field check"><input type="checkbox" checked={settings.ai.anthropicApi.enabled} onChange={(e) => { if (!e.target.checked || confirm(t('Enable paid Anthropic API access? Requests made with this provider are billed per token to your API account.'))) void S({ ai: { anthropicApi: { enabled: e.target.checked }, ...(e.target.checked ? {} : { provider: settings.ai.provider === 'anthropic-api' ? 'codex' : settings.ai.provider }) } }); }} /> {t('Enable the Anthropic API key provider (billed per request)')}</label>
-          {settings.ai.anthropicApi.enabled && (
-            <div className="field-row">
-              <input type="password" placeholder={windows ? t('sk-ant-… (encrypted for your Windows account)') : t('sk-ant-… (stored in macOS Keychain)')} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
-              <button className="btn small" onClick={() => void api('/api/provider/anthropic-key', { body: { key: apiKey } }).then(() => setApiKey(''))}>{t('Save key')}</button>
-              <button className="btn small" onClick={() => void api('/api/provider/anthropic-key', { method: 'DELETE' })}>{t('Remove key')}</button>
-            </div>
-          )}
+          {settings.ai.anthropicApi.enabled && <AnthropicKeySettings />}
         </section>
       )}
 
@@ -306,7 +304,7 @@ export function SettingsDialog() {
             </select>
           </label>
           <label className="field check"><input type="checkbox" checked={settings.assist.autoOverview} onChange={(e) => S({ assist: { autoOverview: e.target.checked } })} /> {t('Keep the running overview updated automatically at pauses and topic changes')}</label>
-          <label className="field check"><input type="checkbox" checked={settings.devMode} onChange={(e) => S({ devMode: e.target.checked })} /> {t('Developer mode (audio-file test source, offline test provider)')}</label>
+          <label className="field check"><input type="checkbox" checked={settings.devMode} onChange={(e) => S({ devMode: e.target.checked, ...(!e.target.checked && settings.ai.provider === 'mock' ? { ai: { provider: 'codex' } } : {}) })} /> {t('Developer mode (audio-file test source, offline test provider)')}</label>
         </section>
       )}
 
@@ -323,7 +321,7 @@ export function SettingsDialog() {
           </label>
           <label className="field check warn-box"><input type="checkbox" checked={settings.integrations.mybot.shareWithTeam} onChange={(e) => { if (!e.target.checked || confirm(t("Let mybot use your meeting transcripts when answering teammates? Meetings contain other people's words, so only do this if everyone is comfortable with it."))) void S({ integrations: { mybot: { shareWithTeam: e.target.checked } } }).then(loadMybot); }} /> {tn('Let mybot share meeting content with teammates (off: meetings are owner-only, marked {tag})', { tag: <code>visibility: private</code> })}</label>
           <div className="btn-row">
-            <button className="btn small" onClick={() => void api('/api/integrations/mybot/export-all', { body: {} }).then(loadMybot)}>{t('Export all sessions now')}</button>
+            <button className="btn small" onClick={() => void api('/api/integrations/mybot/export-all', { body: {} }).then(loadMybot).catch((e) => notify('error', (e as Error).message))}>{t('Export all sessions now')}</button>
             {mybot && <span className="muted small">{tn('{count} in {dir}', { count: plural(mybot.files, '{n} session file', '{n} session files'), dir: <code>{mybot.dir}</code> })}</span>}
           </div>
           <p className="muted small">{tn("One-time mybot setup: run {cmd} from the Chumi folder, add {src} to {var} in mybot's {env}, then restart mybot. Details: docs/mybot.md.", { cmd: <code>bash integrations/mybot/install.sh ~/Code/mybot</code>, src: <code>chumi</code>, var: <code>TRAJECTORY_SOURCES</code>, env: <code>.env</code> })}</p>

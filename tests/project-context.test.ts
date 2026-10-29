@@ -157,14 +157,14 @@ test('project context keeps sessions in the project folder, reads the best ones,
   assert.ok(r.text.includes(`in ${join(WS, 'sub')}`), 'a subfolder is named');
   assert.ok(!r.text.includes('codex:other') && !r.text.includes('chumi:s_meet') && !r.text.includes('claude:ccc'));
   assert.ok(!r.text.includes('Renamed the settings tab'), 'a last message that is not about the question is left out');
-  assert.equal(mybot.calls.filter((c) => c.route === '/trajectory/search').length, 1, 'no second search with two hits');
+  assert.equal(mybot.calls.filter((c) => c.route === '/trajectory/search').length, 2, 'both searches start in parallel');
   const reads = mybot.calls.filter((c) => c.route === '/trajectory/read').map((c) => c.body);
   assert.deepEqual(reads.filter((b) => b.chunk_id != null).map((b) => [b.source_ref, b.chunk_id]), [['claude:aaa', 7]], 'one window read, for the session with a chunk id');
   assert.deepEqual(reads.filter((b) => b.chunk_id == null).map((b) => b.source_ref).sort(), ['claude:aaa', 'codex:bbb'], 'the end of both top sessions is read');
 
   const again = await ctx.forSession('s_meet', '  Why chr8   holdout ');
   assert.equal(again.meta.cached, true);
-  assert.equal(mybot.calls.length, 4, 'the same question is answered from the cache');
+  assert.equal(mybot.calls.length, 5, 'the same question is answered from the cache');
   store.close(); await mybot.close();
 });
 
@@ -207,11 +207,11 @@ test('project context caches separately for each meeting so its own export is al
   const b = await ctx.forSession('s_other', 'experiment');
   assert.deepEqual(a.meta.sources.map((s) => s.ref), ['chumi:s_other', 'chumi:prior']);
   assert.deepEqual(b.meta.sources.map((s) => s.ref), ['chumi:s_meet', 'chumi:prior']);
-  assert.equal(calls, 2, 'different exclusions need different cached searches');
+  assert.equal(calls, 4, 'different exclusions need different cached searches');
   const again = await ctx.forSession('s_other', '  Experiment  ');
   assert.equal(again.meta.cached, true);
   assert.deepEqual(again.meta.sources, b.meta.sources);
-  assert.equal(calls, 2, 'the same meeting still reuses its normalized question cache');
+  assert.equal(calls, 4, 'the same meeting still reuses its normalized question cache');
 });
 
 test('Assistant.ask adds project context only when asked, and keeps it on retry', { timeout: 10_000 }, async (t) => {
@@ -253,4 +253,90 @@ test('Assistant.ask adds project context only when asked, and keeps it on retry'
   assert.equal(store.getOutput(again)!.scope, 'project', 'a retry keeps project context');
   assert.ok(requests[2].input.includes('PROJECT CONTEXT:'));
   assert.equal(mybot.calls.filter((c) => c.route === '/trajectory/search').length, searches, 'the retry reuses the cached lookup');
+});
+
+test('parallel searches and excerpt reads share one 15-second deadline', async (t) => {
+  const store = storeWith('http://fixture.invalid');
+  t.after(() => store.close());
+  const deadline = new AbortController(), timeout = AbortSignal.timeout;
+  t.mock.method(AbortSignal, 'timeout', (ms: number) => ms === 15_000 ? deadline.signal : timeout(ms));
+  const searches: Array<() => void> = [], reads: AbortSignal[] = [];
+  const ctx = new MybotContext(store, async (input, init) => {
+    const signal = init!.signal!;
+    if (String(input).endsWith('/trajectory/search')) {
+      await new Promise<void>((resolve) => searches.push(resolve));
+      return Response.json({ ok: true, matches: [match('claude:deadline', WS)] });
+    }
+    reads.push(signal);
+    return new Promise<Response>((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
+  });
+  const result = ctx.forSession('s_meet', 'deadline');
+  assert.equal(searches.length, 2, 'the folder search starts before the question search returns');
+  searches.forEach((resolve) => resolve());
+  for (let i = 0; i < 10 && !reads.length; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reads.length, 2);
+  deadline.abort(new DOMException('Lookup expired', 'TimeoutError'));
+  const value = await result;
+  assert.ok(reads.every((signal) => signal.aborted), 'the original deadline ends all reads');
+  assert.equal(value.meta.status, 'used', 'available snippets remain useful when reads time out');
+  assert.match(value.text, /snippet for claude:deadline/);
+});
+
+test('empty context expires after one minute and caller cancellation still propagates', async (t) => {
+  const store = storeWith('http://fixture.invalid');
+  t.after(() => store.close());
+  let now = Date.now(), calls = 0;
+  t.mock.method(Date, 'now', () => now);
+  const ctx = new MybotContext(store, async () => { calls++; return Response.json({ ok: true, matches: [] }); });
+  assert.equal((await ctx.forSession('s_meet', 'new meeting')).meta.status, 'none_found');
+  now += 30_000;
+  assert.equal((await ctx.forSession('s_meet', 'new meeting')).meta.cached, true);
+  now += 31_000;
+  assert.equal((await ctx.forSession('s_meet', 'new meeting')).meta.cached, undefined);
+  assert.equal(calls, 4);
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(ctx.forSession('s_meet', 'new meeting', controller.signal), { name: 'AbortError' });
+});
+
+test('a fast primary search does not wait for an unnecessary slow folder search', async (t) => {
+  const store = storeWith('http://fixture.invalid');
+  t.after(() => store.close());
+  let cancelled = false;
+  const ctx = new MybotContext(store, async (input, init) => {
+    if (String(input).endsWith('/trajectory/search')) {
+      const body = JSON.parse(String(init!.body));
+      if (body.query === 'quick answer') return Response.json({ ok: true, matches: [match('claude:a', WS), match('codex:b', WS)] });
+      return new Promise<Response>((_resolve, reject) => {
+        init!.signal!.addEventListener('abort', () => { cancelled = true; reject(init!.signal!.reason); }, { once: true });
+      });
+    }
+    return Response.json({ ok: true });
+  });
+  const result = await ctx.forSession('s_meet', 'quick answer');
+  assert.equal(result.meta.status, 'used');
+  assert.equal(cancelled, true);
+});
+
+test('non-JSON mybot failures retain their HTTP status and body aborts still propagate', async (t) => {
+  const store = storeWith('http://fixture.invalid');
+  t.after(() => store.close());
+  const unavailable = new MybotContext(store, async () => new Response('<html>Bad gateway</html>', { status: 502 }));
+  const result = await unavailable.forSession('s_meet', 'bad gateway');
+  assert.equal(result.meta.status, 'error');
+  assert.equal(result.meta.detail, 'mybot answered 502');
+  const controller = new AbortController();
+  const cancelled = new MybotContext(store, async () => {
+    const response = new Response('');
+    t.mock.method(response, 'json', async () => { controller.abort(); throw controller.signal.reason; });
+    return response;
+  });
+  await assert.rejects(cancelled.forSession('s_meet', 'abort body', controller.signal), { name: 'AbortError' });
+  const timeout = new MybotContext(store, async () => {
+    const response = new Response('');
+    t.mock.method(response, 'json', async () => { throw new DOMException('Body timed out', 'TimeoutError'); });
+    return response;
+  });
+  assert.equal((await timeout.forSession('s_meet', 'timeout body')).meta.status, 'timeout');
 });

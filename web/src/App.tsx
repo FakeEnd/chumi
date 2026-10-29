@@ -37,7 +37,7 @@ export function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  if (!loaded) return <div className="boot">{t('Connecting to Chumi…')}</div>;
+  if (!loaded) return <div className="boot"><div>{t('Connecting to Chumi…')}<Notices /></div></div>;
   return (
     <div className={`app ${compact ? 'compact' : ''}`} key={lang}>
       {compact ? <CompactBar /> : <TopBar />}

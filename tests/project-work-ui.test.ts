@@ -2,54 +2,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { test } from 'node:test';
-import { transformWithOxc } from 'vite';
-import { ACTION_STATUSES, isActionResultUrl, type ActionProgress, type ProjectAgenda } from '../shared/project-work.ts';
-import { AGENT_NAMES } from '../shared/agents.ts';
+import { type ActionProgress, type ProjectAgenda } from '../shared/project-work.ts';
+import { AGENTS, AGENT_NAMES } from '../shared/agents.ts';
 
-type Element = { type: any; props: Record<string, any>; children: any[] };
-const h = (type: any, props: any, ...children: any[]): Element => ({ type, props: props ?? {}, children: children.flat(Infinity) });
-const words = (node: any): string => node == null || typeof node === 'boolean' ? '' : typeof node !== 'object' ? String(node) : (node.children ?? []).map(words).join('');
-const all = (node: any): Element[] => !node || typeof node !== 'object' ? [] : [node, ...[...(node.children ?? []), node.props?.footer].flatMap(all)];
-const defer = <T>() => { let resolve!: (value: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; };
-const tick = () => new Promise((r) => setImmediate(r));
+import { componentHarness, defer, tick, words } from './helpers/web-ui.ts';
+
 const baseProgress = (): ActionProgress => ({ status: 'not_started', note: '', results: [], updatedAt: null, version: 0 });
-
-// Run the actual component event handlers with small deterministic hook/JSX adapters.
-// This exercises draft ownership and request ordering without a browser or live services.
-async function componentHarness(file: string, name: string, props: Record<string, any>, adapters: Record<string, any> = {}) {
-  const cells: any[] = [];
-  let cursor = 0, dirty = false, tree: Element, effects: Array<() => void> = [];
-  const useState = (initial: any) => {
-    const index = cursor++;
-    if (!cells[index]) cells[index] = { value: typeof initial === 'function' ? initial() : initial };
-    return [cells[index].value, (value: any) => { cells[index].value = typeof value === 'function' ? value(cells[index].value) : value; dirty = true; }];
-  };
-  const useRef = (value: any) => { const index = cursor++; return cells[index] ??= { current: value }; };
-  const useEffect = (fn: () => void, deps: any[]) => {
-    const index = cursor++, previous = cells[index];
-    if (!previous || deps.some((value, i) => !Object.is(value, previous[i]))) { cells[index] = deps; effects.push(fn); }
-  };
-  const source = readFileSync(new URL(`../web/src/components/${file}`, import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
-  const transformed = await transformWithOxc(source, file, { jsx: { runtime: 'classic', pragma: '_testJsx', pragmaFrag: 'Fragment' } });
-  const deps = { useState, useRef, useEffect, _testJsx: h, Fragment: 'fragment', t: (s: string) => s, msg: (s: string) => s, fmtDate: String, ACTION_STATUSES, isActionResultUrl, ...adapters };
-  const renderComponent = new Function(...Object.keys(deps), `${transformed.code}\nreturn ${name};`)(...Object.values(deps));
-  const render = (next = props) => {
-    props = next;
-    for (let tries = 0; tries < 20; tries++) {
-      cursor = 0; dirty = false; effects = []; tree = renderComponent(props);
-      for (const effect of effects) effect();
-      if (!dirty) return tree;
-    }
-    throw new Error('Component did not settle');
-  };
-  const find = (predicate: (element: Element) => boolean) => { const result = all(tree).find(predicate); assert.ok(result, 'Element not found'); return result; };
-  render();
-  return { render, find, button: (label: string) => find((e) => e.type === 'button' && words(e) === label),
-    input: (label: string) => {
-      const field = find((e) => e.type === 'label' && words(e).startsWith(label));
-      const input = all(field).find((e) => ['input', 'textarea', 'select'].includes(e.type)); assert.ok(input); return input;
-    }, text: () => words(tree), elements: () => all(tree) };
-}
 
 test('progress refresh preserves the draft and requires an explicit version comparison', async () => {
   const calls: any[] = [];
@@ -151,4 +109,77 @@ test('handoff destination defaults to Codex app, remembers valid choices, and ha
   const unavailable = create({ getItem: () => { throw new Error('Disabled'); }, setItem: () => { throw new Error('Disabled'); } });
   assert.equal(unavailable.loadHandoffDestination(), 'codex-app');
   assert.doesNotThrow(() => unavailable.saveHandoffDestination('copy'));
+});
+
+test('review warnings identify the meeting and open its handoff', async () => {
+  const entries = [{ sessionId: 's', title: 'Seminar', reason: 'unconfirmed' }];
+  const warning = await componentHarness('ProjectBrief.tsx', 'ReviewNeeded', { entries }, { plural: () => '1 handoff needs review' });
+  assert.match(warning.text(), /Handoff not confirmed/);
+  const source = warning.elements().find((e) => typeof e.type === 'function')!;
+  assert.equal(source.props.item.sessionTitle, 'Seminar');
+  const opened: string[] = [], states: unknown[] = [];
+  const ui = await componentHarness('ProjectBrief.tsx', 'SourceLinks', source.props, {
+    openSession: async (id: string) => { opened.push(id); }, getState: () => ({ viewId: 's' }), setState: (state: unknown) => states.push(state),
+  });
+  assert.match(ui.text(), /Seminar/);
+  ui.button('Open source handoff').props.onClick(); await tick();
+  assert.deepEqual(opened, ['s']);
+  assert.deepEqual(states, [{ dialog: null }, { dialog: 'handoff' }]);
+});
+
+test('a moved handoff warning describes its arrival in the current project', async () => {
+  const ui = await componentHarness('ProjectBrief.tsx', 'ReviewNeeded', { entries: [{ sessionId: 'moved', title: 'Imported meeting', reason: 'moved' }] }, { plural: () => '1 handoff needs review' });
+  assert.match(ui.text(), /Moved here from another project after review/);
+});
+
+test('agent cards show each reconnect reason together with a disabled notice', async () => {
+  const ui = await componentHarness('Projects.tsx', 'AgentsTab', {}, { api: async (path: string) => {
+    if (path === '/api/agents/info') return { commands: {}, exports: {} };
+    if (path === '/api/agents/local') return { ok: true, detail: 'Local server works' };
+    if (path === '/api/agents/codex/status') return {
+      agent: 'codex', name: 'Codex', cli: '/fixture/codex', registered: true, outdated: true, clientHealth: 'unknown',
+      outdatedReasons: ['connected to another Chumi location', 'Connected to another Chumi data folder. Reconnect to use this folder.'],
+      detail: 'Registered but disabled in Codex.', verifiedAt: null, lastRead: null,
+    };
+    throw new Error('This agent check failed');
+  }, tn: (s: string) => s, AGENTS, AGENT_NAMES });
+  await tick(); ui.render();
+  assert.match(ui.text(), /connected to another Chumi location/);
+  assert.match(ui.text(), /Connected to another Chumi data folder/);
+  assert.match(ui.text(), /Registered but disabled in Codex/);
+  const codex = ui.find((e) => e.props.className === 'agent-card' && words(e).includes('Codex'));
+  assert.doesNotMatch(words(codex), /This agent check failed/);
+  assert.match(ui.text(), /This agent check failed/);
+});
+
+test('DeepSeek Harness offers Choose whenever its desktop app is missing, even with dsh on PATH', async () => {
+  let appFound = false;
+  const ui = await componentHarness('Projects.tsx', 'AgentsTab', {}, { api: async (path: string) => {
+    if (path === '/api/agents/info') return { commands: {}, exports: {} };
+    if (path === '/api/agents/local') return { ok: true, detail: 'Local server works' };
+    if (path === '/api/agents/deepseek-harness/status') return {
+      agent: 'deepseek-harness', name: 'DeepSeek Harness', cli: '/fixture/npm/bin/dsh', registered: false, outdated: false, outdatedReasons: [],
+      clientHealth: 'unknown', detail: null, verifiedAt: null, lastRead: null, appFound,
+    };
+    throw new Error('not part of this test');
+  }, tn: (s: string) => s, AGENTS, AGENT_NAMES });
+  await tick(); ui.render();
+  const card = () => ui.find((e) => e.props.className === 'agent-card' && words(e).includes('DeepSeek Harness'));
+  assert.match(words(card()), /desktop app was not found/);
+  assert.ok(ui.button('Choose DeepSeek Harness…'), 'Choose is offered next to Connect');
+  assert.ok(ui.button('Connect'));
+  ui.unmount();
+  appFound = true;
+  const found = await componentHarness('Projects.tsx', 'AgentsTab', {}, { api: async (path: string) => {
+    if (path === '/api/agents/info') return { commands: {}, exports: {} };
+    if (path === '/api/agents/local') return { ok: true, detail: 'Local server works' };
+    if (path === '/api/agents/deepseek-harness/status') return {
+      agent: 'deepseek-harness', name: 'DeepSeek Harness', cli: '/fixture/app/dsh', registered: false, outdated: false, outdatedReasons: [],
+      clientHealth: 'unknown', detail: null, verifiedAt: null, lastRead: null, appFound,
+    };
+    throw new Error('not part of this test');
+  }, tn: (s: string) => s, AGENTS, AGENT_NAMES });
+  await tick(); found.render();
+  assert.equal(found.elements().find((e) => e.type === 'button' && words(e) === 'Choose DeepSeek Harness…'), undefined, 'no Choose once the app is found');
+  found.unmount();
 });
