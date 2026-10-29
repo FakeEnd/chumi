@@ -36,15 +36,18 @@ const clock = () => performance.now() / 1000;
 const clamp = (v: number, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 
 // ------------------------------------------------------------------ Settings → Desktop pet
-type PetSettings = { enabled: boolean; size: number; toolbar: boolean; cards: Cards; tags: Tag[]; say: Topic[]; inRecordings: boolean };
-let pet: PetSettings = { enabled: true, size: 1, toolbar: true, cards: 'latest', tags: [...TAGS], say: [...TOPICS], inRecordings: false };
+type PetSettings = { enabled: boolean; size: number; toolbar: boolean; cards: Cards; tags: Tag[]; say: Topic[]; inRecordings: boolean; lowKey: boolean };
+let pet: PetSettings = { enabled: true, size: 1, toolbar: true, cards: 'latest', tags: [...TAGS], say: [...TOPICS], inRecordings: false, lowKey: false };
 const compact = () => !pet.toolbar && pet.cards === 'none';
 function applyPet(p: Partial<PetSettings> | undefined): void {
   if (!p) return;
   pet = { ...pet, ...p };
+  const wasLowKey = brain.lowKey;
+  brain.lowKey = pet.lowKey;
+  if (!wasLowKey && brain.quiet && !said?.important) view.hush(clock());
   app.hidden = !pet.enabled;
   wake();
-  companion.configure({ toolbar: pet.enabled && pet.toolbar, cards: pet.cards, tags: pet.tags });
+  companion.configure({ toolbar: pet.enabled && pet.toolbar, cards: pet.cards, tags: pet.tags, lowKey: pet.lowKey });
   report();
 }
 const savePet = (patch: Partial<PetSettings>) => {
@@ -72,7 +75,7 @@ view.bubble.addEventListener('click', () => {
 // report()'s state, declared before the companion: it reports its first layout while it is constructed.
 let last = '', queued = false;
 const companion = new Companion({
-  say: (text, tone = 'info') => say({ text, tone, hold: tone === 'warn' ? 5 : 3, important: tone === 'warn' }),
+  say: (text, tone = 'info', important = false) => say({ text, tone, hold: tone === 'warn' ? 5 : 3, important: important || tone === 'warn' }),
   open: (where) => post({ type: 'open', ...where }),
   keyboard: (on) => post({ type: 'keyboard', on }),
   changed: () => report(),
@@ -135,9 +138,9 @@ subscribe({
   level: (d) => {
     // RMS level in dBFS → 0–1 loudness, roughly −58 dB (room tone) to −18 dB (close speech).
     levels.set(String(d.source), { v: clamp(((Number(d.rms) || -120) + 58) / 40), at: clock() });
-    if (brain.status === 'recording' && !motion.matches) wake();
+    if (brain.status === 'recording' && !pet.lowKey && !motion.matches) wake();
   },
-  segment: () => { view.rig.note(clock()); wake(); },
+  segment: () => { if (!pet.lowKey) { view.rig.note(clock()); wake(); } },
   ai: (o) => { companion.ai(o); say(brain.ai(o, clock())); },
   'ai-delta': (d) => companion.delta(d),
   notice: (n) => say(brain.notice(n, clock())),
@@ -252,13 +255,13 @@ const loop = new PetLoop((t) => {
   if (!pet.enabled || document.hidden) return Infinity;
   const mood = dragging ? 'held' : brain.mood(t);
   if (mood !== view.rig.current) animateUntil = Math.max(animateUntil, t + 0.3);
-  view.rig.level = brain.status === 'recording' ? loudness(t) : 0;
+  view.rig.level = brain.status === 'recording' && !pet.lowKey ? loudness(t) : 0;
   if (samples.length || view.rig.petting) updatePetting(t);
   view.rig.setMood(mood, t);
   if (view.saying && t >= bubbleUntil) { view.hush(t); report(); }
   view.draw(t, motion.matches, motion.matches);
   if (!motion.matches) {
-    if (!['idle', 'paused', 'sleep'].includes(mood) || t < animateUntil || view.hasBubble) return 1 / 30;
+    if (!['idle', 'hush', 'paused', 'sleep'].includes(mood) || t < animateUntil || view.hasBubble) return 1 / 30;
     return mood === 'sleep' ? 1 / 15 : 1 / 12;
   }
   // Reduced motion needs no animation loop, but bubbles and temporary moods still expire.

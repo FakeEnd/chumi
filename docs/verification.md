@@ -1,5 +1,18 @@
 # Verification log
 
+## Low-key desktop pet while recording — 2026-10-29
+
+Settings → Desktop pet → **Low-key while recording** (off by default): during a meeting the pet looks idle, with a soft star glow as the only cue, a toolbar that keeps the same plain icons in every state, and no listening pose, sound bars, note-taking or announcements.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 795 / 795 tests. New tests cover moods and lines in every meeting state with low-key on and off (including work that finishes after End), the toolbar's identical layout across states with the clock only in tooltips, card display, the setting's validation and persistence, the shortcut notifications (skipped only while the pet is shown; errors and "still busy" kept) and the Windows recovery toast. |
+| Existing look | All 11 existing moods render the same frames as before and all existing pet lines are unchanged, so the promo video is unaffected. |
+| Builds | `npm run build:web` and `native/build.sh app` pass. A preview Chumi.app built from this branch started its own server from the branch. |
+| Review | Two independent reviews and a re-check; their findings (a think pose while the summary was written after End, a toolbar that changed shape when a meeting started, cards appearing with recording, ambiguous Chinese help text, and others) are fixed. |
+
+Not verified: the pet's look and clicks on a real screen in macOS or Windows (covered by the existing harnesses only).
+
 ## Audit fixes — 2026-10-28
 
 A code audit of main (ten area reviewers, each checked by a second reviewer) reported 123 distinct issues. All are fixed here: the 7 high-priority ones first, then the rest in 14 batches by area. Codex (gpt-6-astra) wrote each batch; a separate Claude review read every diff, reran the checks outside Codex's sandbox and sent problems back before the batch was committed.

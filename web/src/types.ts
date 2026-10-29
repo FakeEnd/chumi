@@ -44,7 +44,7 @@ export interface Settings {
   integrations: { mybot: { enabled: boolean; exportDir: string; shareWithTeam: boolean; serverUrl: string } };
   screen: { sendImagesToAI: boolean; intervalSec: number };
   ui: { language: 'auto' | 'en' | 'zh'; setupDismissed: boolean };
-  pet: { enabled: boolean; size: number; toolbar: boolean; cards: 'none' | 'latest' | 'recent'; tags: Tag[]; say: Topic[]; inRecordings: boolean };
+  pet: { enabled: boolean; size: number; toolbar: boolean; cards: 'none' | 'latest' | 'recent'; tags: Tag[]; say: Topic[]; inRecordings: boolean; lowKey: boolean };
   devMode: boolean;
 }
 

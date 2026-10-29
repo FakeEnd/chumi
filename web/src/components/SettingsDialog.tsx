@@ -190,6 +190,7 @@ export function SettingsDialog() {
             <SessionTypeSelect value={settings.quickStart.type} onChange={(type) => void S({ quickStart: { type } })} />
           </label>
           <label className="field check"><input type="checkbox" checked={settings.quickStart.notify} onChange={(e) => S({ quickStart: { notify: e.target.checked } })} /> {t('Show a system notification when the shortcut starts, pauses or resumes listening')}</label>
+          {settings.pet.enabled && settings.pet.lowKey && <p className="small muted">{t('Skipped while the desktop pet is low-key.')}</p>}
         </section>
       )}
 
