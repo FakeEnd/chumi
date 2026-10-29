@@ -10,7 +10,7 @@ test('iOS recording keeps the screen awake only while capture is running', () =>
   const start = recorder.slice(recorder.indexOf('    func start('), recorder.indexOf('    func stop()'));
   assert.match(start, /try engine\.start\(\)[\s\S]*?isRecording = true\s+UIApplication\.shared\.isIdleTimerDisabled = true/);
   assert.match(start, /\} catch \{\s+UIApplication\.shared\.isIdleTimerDisabled = false/);
-  const stop = recorder.slice(recorder.indexOf('    func stop()'), recorder.indexOf('    private func beginRecognitionWindow()'));
+  const stop = recorder.slice(recorder.indexOf('    func stop()'), recorder.indexOf('    private func beginRecognitionWindow('));
   assert.match(stop, /guard isRecording else \{ return \}\s+isStopping = true\s+UIApplication\.shared\.isIdleTimerDisabled = false/);
   assert.ok(stop.indexOf('isIdleTimerDisabled = false') < stop.indexOf('await sink.finish()'));
 });
@@ -20,6 +20,6 @@ test('interruptions, backgrounding and leaving the view use the recording stop p
     const observer = recorder.slice(recorder.indexOf(`observe(${notification})`));
     assert.match(observer.slice(0, observer.indexOf('\n        }')), /stopForInterruption\(/, notification);
   }
-  assert.match(recorder, /private func stopForInterruption[\s\S]*?Task \{ \[weak self\] in await self\?\.stop\(\) \}/);
+  assert.match(recorder, /private func stopForInterruption[\s\S]*?Task \{ \[weak self\] in\s+await self\?\.stop\(\)/);
   assert.match(view, /\.onDisappear \{[\s\S]*?await recorder\.stop\(\)/);
 });

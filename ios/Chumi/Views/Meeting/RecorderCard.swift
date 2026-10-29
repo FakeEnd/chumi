@@ -3,7 +3,9 @@ import SwiftUI
 /// The recording control: elapsed time, live status, recognition language and start / stop.
 struct RecorderCard: View {
     @ObservedObject var recorder: MeetingRecorder
-    let displayMs: Int
+    let baseDuration: Int
+    let storedDuration: Int
+    let runActive: Bool
     @Binding var locale: String
     let audioFiles: [String]
     let isStarting: Bool
@@ -16,31 +18,21 @@ struct RecorderCard: View {
     var body: some View {
         Card(padding: 18) {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            if recorder.isRecording { LiveDot() }
-                            Text(recorder.isRecording ? "录音中" : "录音")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(recorder.isRecording ? ChumiTheme.rec : ChumiTheme.muted)
-                        }
-                        Text(durationLabel(displayMs))
-                            .font(.system(size: 44, weight: .light, design: .rounded).monospacedDigit())
-                            .foregroundStyle(ChumiTheme.text)
-                            .contentTransition(.numericText())
-                        Text(recorder.statusMessage)
-                            .font(.footnote)
-                            .foregroundStyle(ChumiTheme.muted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                    WaveBars(active: recorder.isRecording, height: 52)
-                }
+                RecordingReadout(
+                    telemetry: recorder.telemetry, isRecording: recorder.isRecording,
+                    status: recorder.statusMessage, baseDuration: baseDuration, storedDuration: storedDuration,
+                    runActive: runActive)
                 controls
-                Label("使用 Apple 设备端语音识别，中英混合效果需实测。离线识别不可用时仍会保存录音；第一版请保持 App 在前台，录音时屏幕会保持亮起。", systemImage: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(ChumiTheme.muted)
-                    .lineSpacing(2)
+                if let message = recorder.storageMessage { Notice(message: message) }
+                Label(
+                    String(
+                        localized:
+                            "Uses Apple on-device speech recognition. Mixed-language accuracy may vary. Audio is saved even when offline recognition is unavailable. Keep the app in the foreground; the screen stays awake while recording."
+                    ), systemImage: "info.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(ChumiTheme.muted)
+                .lineSpacing(2)
                 if !audioFiles.isEmpty { exportMenu }
             }
         }
@@ -49,7 +41,9 @@ struct RecorderCard: View {
     @ViewBuilder private var controls: some View {
         if recorder.isRecording {
             Button(action: onStop) {
-                Label(recorder.isStopping ? "正在保存…" : "结束并保存这段录音", systemImage: "stop.fill")
+                Label(
+                    recorder.isStopping ? String(localized: "Saving…") : String(localized: "Stop and save recording"),
+                    systemImage: "stop.fill")
             }
             .buttonStyle(.chumi(.record, fullWidth: true))
             .disabled(recorder.isStopping)
@@ -57,7 +51,7 @@ struct RecorderCard: View {
             HStack(spacing: 10) {
                 SegmentedControl(
                     selection: $locale,
-                    options: [SegmentOption("zh-CN", "中文"), SegmentOption("en-US", "English")],
+                    options: [SegmentOption("zh-CN", String(localized: "Chinese")), SegmentOption("en-US", "English")],
                     compact: true
                 )
                 .frame(maxWidth: 170, maxHeight: .infinity)
@@ -69,7 +63,11 @@ struct RecorderCard: View {
                         } else {
                             Image(systemName: "mic.fill")
                         }
-                        Text(isStarting ? "准备中…" : (audioFiles.isEmpty ? "开始录音" : "继续录音"))
+                        Text(
+                            isStarting
+                                ? String(localized: "Preparing…")
+                                : (audioFiles.isEmpty
+                                    ? String(localized: "Start recording") : String(localized: "Resume recording")))
                     }
                 }
                 .buttonStyle(.chumi(.primary, fullWidth: true))
@@ -84,13 +82,43 @@ struct RecorderCard: View {
         Menu {
             ForEach(Array(audioFiles.enumerated()), id: \.element) { index, name in
                 ShareLink(item: MeetingRecorder.audioDirectory.appendingPathComponent(name)) {
-                    Label("录音 \(index + 1)", systemImage: "waveform")
+                    Label(String(localized: "Recording \(index + 1)"), systemImage: "waveform")
                 }
             }
         } label: {
-            Label("导出录音（\(audioFiles.count) 段）", systemImage: "square.and.arrow.up")
-                .font(.footnote.weight(.semibold))
+            Label(
+                String(localized: "Export audio (\(audioFiles.count) recordings)"), systemImage: "square.and.arrow.up"
+            )
+            .font(.footnote.weight(.semibold))
         }
         .disabled(!canExport)
+    }
+}
+
+private struct RecordingReadout: View {
+    @ObservedObject var telemetry: RecordingTelemetry
+    let isRecording: Bool
+    let status: String
+    let baseDuration: Int
+    let storedDuration: Int
+    let runActive: Bool
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    if isRecording { LiveDot() }
+                    Text(isRecording ? String(localized: "Recording") : String(localized: "Record audio"))
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(isRecording ? ChumiTheme.rec : ChumiTheme.muted)
+                }
+                Text(durationLabel(runActive ? baseDuration + telemetry.elapsedMs : storedDuration))
+                    .font(.system(size: 44, weight: .light, design: .rounded).monospacedDigit())
+                    .foregroundStyle(ChumiTheme.text)
+                Text(status).font(.footnote).foregroundStyle(ChumiTheme.muted).fixedSize(
+                    horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            WaveBars(active: isRecording, level: CGFloat(telemetry.level), height: 52)
+        }
     }
 }

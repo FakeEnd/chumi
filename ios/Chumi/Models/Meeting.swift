@@ -1,3 +1,4 @@
+import CoreTransferable
 import Foundation
 
 struct TranscriptSegment: Codable, Identifiable, Equatable {
@@ -32,17 +33,20 @@ struct AssistantOutput: Codable, Identifiable, Equatable {
         case content = "text"
     }
 
-    static let scopeLabels = ["2m": "最近 2 分钟", "5m": "最近 5 分钟", "all": "到目前为止"]
+    static let scopeLabels = [
+        "2m": String(localized: "Last 2 minutes"), "5m": String(localized: "Last 5 minutes"),
+        "all": String(localized: "So far"),
+    ]
 
-    var isFinished: Bool { ["done", "error", "cancelled"].contains(status) }
+    var isFinished: Bool { ["done", "error", "cancelled", "suppressed"].contains(status) }
     var isSummary: Bool { kind == "summary" || kind == "final_summary" }
 
     /// The short tag on the card, as on the desktop.
     var label: String {
         switch kind {
-        case "summary", "final_summary": return "总结"
-        case "catchup": return "回顾"
-        default: return "提问"
+        case "summary", "final_summary": return String(localized: "Summary")
+        case "catchup": return String(localized: "Catch-up")
+        default: return String(localized: "Ask")
         }
     }
 
@@ -50,12 +54,13 @@ struct AssistantOutput: Codable, Identifiable, Equatable {
     var title: String {
         switch kind {
         case "summary", "final_summary":
-            return "最终总结"
+            return String(localized: "Final summary")
         case "catchup":
-            return "回顾 · " + (Self.scopeLabels[scope ?? "2m"] ?? "最近 2 分钟")
+            return String(localized: "Catch-up · ")
+                + (Self.scopeLabels[scope ?? "2m"] ?? String(localized: "Last 2 minutes"))
         default:
             if let question, !question.isEmpty { return question }
-            return "问题"
+            return String(localized: "Question")
         }
     }
 
@@ -77,23 +82,29 @@ struct Meeting: Codable, Identifiable, Equatable {
     var remoteId: String?
     var syncedRevision: Int?
     var syncedServer: String?
+    var recognitionLocale: String?
+    var syncClientId: UUID?
 
     /// Meeting types and their labels, matching the desktop's Chinese labels.
     static let types: [(id: String, label: String)] = [
-        ("lab_meeting", "组会"),
-        ("advisor", "导师一对一"),
-        ("lecture", "讲座/课程"),
-        ("wip", "进展报告/研讨会"),
-        ("other", "其他"),
+        ("lab_meeting", String(localized: "Lab meeting")),
+        ("advisor", String(localized: "Advisor meeting")),
+        ("lecture", String(localized: "Lecture / class")),
+        ("wip", String(localized: "Work in progress / seminar")),
+        ("other", String(localized: "Other")),
     ]
+
+    static var defaultRecognitionLocale: String {
+        Locale.preferredLanguages.first?.hasPrefix("zh") == true ? "zh-CN" : "en-US"
+    }
 
     var date: Date { Date(timeIntervalSince1970: startedAt / 1000) }
     var isSynced: Bool { remoteId != nil && syncedRevision == revision }
-    var typeLabel: String { Meeting.types.first { $0.id == type }?.label ?? "其他" }
+    var typeLabel: String { Meeting.types.first { $0.id == type }?.label ?? String(localized: "Other") }
 
     func validate() throws {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            title.utf16.count <= 200,
+            title.utf16.count <= 300,
             revision > 0,
             durationMs >= 0,
             startedAt.isFinite, startedAt > 0, startedAt.rounded(.down) == startedAt,
@@ -109,9 +120,34 @@ struct Meeting: Codable, Identifiable, Equatable {
                 segment.text.utf16.count <= 16_000
             else { throw MeetingError.invalidFile }
         }
-        guard audioFiles.allSatisfy({ !$0.contains("/") && !$0.contains("\\") && $0 != ".." }) else {
+        guard
+            audioFiles.allSatisfy({ !$0.isEmpty && !$0.contains("/") && !$0.contains("\\") && $0 != ".." && $0 != "." })
+        else {
             throw MeetingError.invalidFile
         }
+    }
+}
+
+// Decode evolving fields with defaults; identity and original start time must remain stable.
+extension Meeting {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        title = try values.decode(String.self, forKey: .title)
+        startedAt = try values.decode(Double.self, forKey: .startedAt)
+        revision = try values.decodeIfPresent(Int.self, forKey: .revision) ?? 1
+        durationMs = try values.decodeIfPresent(Int.self, forKey: .durationMs) ?? 0
+        status = try values.decodeIfPresent(String.self, forKey: .status) ?? "ended"
+        type = try values.decodeIfPresent(String.self, forKey: .type) ?? "lab_meeting"
+        projectId = try values.decodeIfPresent(String.self, forKey: .projectId)
+        segments = try values.decodeIfPresent([TranscriptSegment].self, forKey: .segments) ?? []
+        audioFiles = try values.decodeIfPresent([String].self, forKey: .audioFiles) ?? []
+        outputs = try values.decodeIfPresent([AssistantOutput].self, forKey: .outputs) ?? []
+        remoteId = try values.decodeIfPresent(String.self, forKey: .remoteId)
+        syncedRevision = try values.decodeIfPresent(Int.self, forKey: .syncedRevision)
+        syncedServer = try values.decodeIfPresent(String.self, forKey: .syncedServer)
+        recognitionLocale = try values.decodeIfPresent(String.self, forKey: .recognitionLocale)
+        syncClientId = try values.decodeIfPresent(UUID.self, forKey: .syncClientId)
     }
 }
 
@@ -139,7 +175,7 @@ extension Meeting {
             .init(
                 id: "demo-catchup", kind: "catchup", status: "done",
                 content: "大家在讨论手机端的第一版范围：**先记录，再回顾和提问**。录音和转写保存在手机，需要 AI 时再同步到 Mac。",
-                createdAt: now - 300_000, model: "示例", scope: "2m"),
+                createdAt: now - 300_000, model: String(localized: "Example"), scope: "2m"),
             .init(
                 id: "demo-summary", kind: "final_summary", status: "done",
                 content: """
@@ -152,7 +188,7 @@ extension Meeting {
                     1. 用真实组会录音验证中英混合识别效果。
                     2. 在真机上测试配对、断网重试和权限提示。
                     """,
-                createdAt: now - 120_000, model: "示例"),
+                createdAt: now - 120_000, model: String(localized: "Example")),
         ]
         current.remoteId = "demo-session"
         current.syncedRevision = current.revision
@@ -182,12 +218,16 @@ enum MeetingError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidFile: return "会议文件格式无效。原文件已保留，请先导出备份再处理。"
-        case .unavailable: return "无法找到这场会议。"
-        case .missingConnection: return "请先连接你的 Mac。"
-        case .needsSync: return "请先把最新记录同步到 Mac，再使用 AI。"
-        case .emptyTranscript: return "还没有文字记录。先录音转写，或添加一段笔记。"
-        case .pollingTimeout: return "等待超过 3 分钟，Mac 可能仍在处理。稍后点“刷新结果”继续查看。"
+        case .invalidFile:
+            return String(localized: "The meeting file is invalid. Export the original data before making changes.")
+        case .unavailable: return String(localized: "This meeting could not be found.")
+        case .missingConnection: return String(localized: "Connect your Mac first.")
+        case .needsSync: return String(localized: "Sync the latest transcript to your Mac to use AI.")
+        case .emptyTranscript:
+            return String(localized: "There is no transcript yet. Record some speech or add a note first.")
+        case .pollingTimeout:
+            return String(
+                localized: "Your Mac is still processing after 3 minutes. Tap Refresh result later to check again.")
         }
     }
 }
@@ -196,4 +236,13 @@ enum MeetingError: LocalizedError {
 func durationLabel(_ milliseconds: Int) -> String {
     let seconds = max(0, milliseconds) / 1000
     return String(format: "%02d:%02d", seconds / 60, seconds % 60)
+}
+
+struct TranscriptExport: Transferable {
+    let meeting: Meeting
+    static var transferRepresentation: some TransferRepresentation {
+        ProxyRepresentation(exporting: { (value: TranscriptExport) in
+            value.meeting.segments.map { "[\(durationLabel($0.tStart))] \($0.text)" }.joined(separator: "\n\n")
+        })
+    }
 }

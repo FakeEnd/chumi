@@ -33,7 +33,9 @@ final class ConnectionStore: ObservableObject {
         do {
             credentials = try JSONDecoder().decode(PairingCredentials.self, from: data).validated(
                 allowSimulatorHTTP: Self.allowsSimulatorHTTP)
-        } catch { errorMessage = "已保存的连接无法使用：\(error.localizedDescription)" }
+        } catch {
+            errorMessage = String(localized: "The saved connection is unavailable: \(error.localizedDescription)")
+        }
     }
 
     func save(_ value: PairingCredentials) throws {
@@ -60,6 +62,10 @@ final class ConnectionStore: ObservableObject {
         let status = SecItemDelete(keychainQuery as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw ConnectionError.keychain(status) }
         credentials = nil
+    }
+
+    var identity: String? {
+        credentials.map { $0.url + "|" + ($0.certificateSHA256 ?? "system-trust") }
     }
 
     func client() throws -> MobileAPI {

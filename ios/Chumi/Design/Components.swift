@@ -189,55 +189,35 @@ struct HintRow: View {
     }
 }
 
-/// The pulsing red recording dot (desktop `.live-dot`).
+/// A steady recording indicator also respects Reduce Motion and Low Power Mode.
 struct LiveDot: View {
-    @State private var pulsing = false
-
     var body: some View {
-        Circle()
-            .fill(ChumiTheme.rec)
-            .frame(width: 8, height: 8)
-            .overlay(
-                Circle()
-                    .stroke(ChumiTheme.rec, lineWidth: 1.5)
-                    .scaleEffect(pulsing ? 2.4 : 1)
-                    .opacity(pulsing ? 0 : 0.6)
-            )
-            .onAppear {
-                withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) { pulsing = true }
-            }
-            .accessibilityHidden(true)
+        Circle().fill(ChumiTheme.rec).frame(width: 8, height: 8).accessibilityHidden(true)
     }
 }
 
-/// The logo's seven-bar sound wave, filled with one continuous brand gradient. It moves while `active`.
+/// The logo wave follows measured microphone level, without a redraw timer.
 struct WaveBars: View {
     var active: Bool
+    var level: CGFloat = 0
     var height: CGFloat = 44
-
     private static let profile: [CGFloat] = [0.28, 0.56, 0.84, 1, 0.84, 0.56, 0.28]
-
     var body: some View {
         let barWidth = height * 0.16
         let spacing = height * 0.11
         let width = barWidth * 7 + spacing * 6
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !active)) { context in
-            let time = context.date.timeIntervalSinceReferenceDate
-            LinearGradient(colors: [ChumiTheme.indigo, ChumiTheme.cyan], startPoint: .leading, endPoint: .trailing)
-                .frame(width: width, height: height)
-                .mask {
-                    HStack(spacing: spacing) {
-                        ForEach(Self.profile.indices, id: \.self) { index in
-                            let wobble = active ? 0.55 + 0.45 * abs(sin(time * 2.6 + Double(index) * 0.9)) : 1
-                            Capsule().frame(
-                                width: barWidth, height: max(barWidth, height * Self.profile[index] * wobble))
-                        }
+        LinearGradient(colors: [ChumiTheme.indigo, ChumiTheme.cyan], startPoint: .leading, endPoint: .trailing)
+            .frame(width: width, height: height)
+            .mask {
+                HStack(spacing: spacing) {
+                    ForEach(Self.profile.indices, id: \.self) { index in
+                        Capsule().frame(
+                            width: barWidth, height: max(barWidth, height * Self.profile[index] * (active ? level : 1)))
                     }
                 }
-        }
-        .frame(width: width, height: height)
-        .opacity(active ? 1 : 0.4)
-        .accessibilityHidden(true)
+            }
+            .opacity(active ? 1 : 0.4)
+            .accessibilityHidden(true)
     }
 }
 

@@ -15,7 +15,7 @@ struct NoteSheet: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 10) {
-                Text("文字笔记会作为会议记录同步到 Mac。")
+                Text(String(localized: "Notes sync to your Mac as part of the transcript."))
                     .font(.footnote)
                     .foregroundStyle(ChumiTheme.muted)
                 TextEditor(text: $note)
@@ -30,14 +30,14 @@ struct NoteSheet: View {
             }
             .padding(16)
             .background(ChumiBackground())
-            .navigationTitle("添加笔记")
+            .navigationTitle(String(localized: "Add note"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
+                    Button(String(localized: "Cancel")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存", action: onSave)
+                    Button(String(localized: "Save"), action: onSave)
                         .fontWeight(.semibold)
                         .disabled(!isValid || !canSave)
                 }
@@ -59,30 +59,39 @@ struct ProjectPickerSheet: View {
         NavigationStack {
             List {
                 Section {
-                    row(id: nil, name: "不关联项目", systemImage: "minus.circle")
+                    row(id: nil, name: String(localized: "No project"), systemImage: "minus.circle")
                 }
                 Section {
                     ForEach(projects) { project in
                         row(id: project.id, name: project.name, systemImage: "folder")
                     }
                     if projects.isEmpty {
-                        Text("Mac 上还没有项目。可以先不关联，稍后在电脑端创建。")
-                            .font(.footnote)
-                            .foregroundStyle(ChumiTheme.muted)
+                        Text(
+                            String(
+                                localized:
+                                    "There are no projects on your Mac yet. Continue without one and create a project on your computer later."
+                            )
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(ChumiTheme.muted)
                     }
                 } header: {
-                    Text("Mac 上的项目")
+                    Text(String(localized: "Projects on Mac"))
                 } footer: {
-                    Text("关联项目后，提问时可以打开“项目上下文”，参考这个项目以往的 Claude Code 和 Codex 会话。")
+                    Text(
+                        String(
+                            localized:
+                                "Link a project to enable Project context when asking questions, using past Claude Code and Codex conversations from that project."
+                        ))
                 }
             }
             .scrollContentBackground(.hidden)
             .background(ChumiBackground())
-            .navigationTitle("关联项目")
+            .navigationTitle(String(localized: "Link project"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button(String(localized: "Done")) { dismiss() }
                 }
             }
         }

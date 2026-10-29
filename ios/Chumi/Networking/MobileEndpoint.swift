@@ -58,16 +58,95 @@ struct MobileEndpoint {
 }
 
 enum ConnectionError: LocalizedError {
-    case invalidURL, httpsRequired, invalidToken, invalidPin, keychain(Int32), invalidResponse, server(Int, String)
+    case invalidURL, httpsRequired, invalidToken, invalidPin, keychain(Int32), invalidResponse, certificateChanged,
+        transport(URLError.Code), server(Int, String?, revision: Int? = nil)
+    var recovery: String? {
+        switch self {
+        case .certificateChanged: return "pair"
+        case .server(let status, let code, _):
+            if status == 401 || code == "unauthorized" { return "pair" }
+            if code == "invalid_project" { return "project" }
+            if code == "not_found" { return "sync" }
+            if status == 409
+                && ["stale_revision", "revision_conflict", "segment_conflict", "session_conflict"].contains(code ?? "")
+            {
+                return "copy"
+            }
+            return nil
+        default: return nil
+        }
+    }
+
     var errorDescription: String? {
         switch self {
-        case .invalidURL: return "请输入 Mac 的服务地址，例如 https://My-Mac.local:4778。地址不能包含账号、查询参数或其他路径。"
-        case .httpsRequired: return "真机连接需要 HTTPS。请使用 Mac 生成的配对码；HTTP 仅用于模拟器连接本机。"
-        case .invalidToken: return "配对令牌格式无效，请重新复制 Mac 生成的配对码。"
-        case .invalidPin: return "证书指纹应为 64 位 SHA-256 十六进制字符串。"
-        case .keychain: return "无法安全保存连接信息到钥匙串。请解锁设备后重试。"
-        case .invalidResponse: return "Mac 返回了无法识别的响应。请确认电脑端已更新并启用手机连接。"
-        case .server(let status, let detail): return "Mac 返回错误（\(status)）：\(detail)"
+        case .invalidURL:
+            return String(
+                localized:
+                    "Enter your Mac service address, such as https://My-Mac.local:4778, without credentials, query parameters, or other paths."
+            )
+        case .httpsRequired:
+            return String(
+                localized:
+                    "An iPhone requires HTTPS. Use the pairing code from your Mac. HTTP is only available for a simulator connecting to localhost."
+            )
+        case .invalidToken:
+            return String(localized: "The pairing token is invalid. Copy the pairing code from your Mac again.")
+        case .invalidPin:
+            return String(localized: "The certificate fingerprint must contain 64 SHA-256 hexadecimal characters.")
+        case .keychain:
+            return String(localized: "Could not save the connection to Keychain. Unlock your device and try again.")
+        case .invalidResponse:
+            return String(
+                localized:
+                    "Your Mac returned an unreadable response. Update Chumi on your Mac and enable the mobile companion service."
+            )
+        case .certificateChanged:
+            return String(
+                localized:
+                    "Your Mac certificate has changed. Open connection settings and paste a new pairing code from your Mac."
+            )
+        case .transport(let code):
+            switch code {
+            case .cannotFindHost, .cannotConnectToHost, .timedOut, .notConnectedToInternet, .networkConnectionLost,
+                .dataNotAllowed:
+                return String(
+                    localized:
+                        "Cannot reach your Mac. Run npm run start:mobile on the Mac, connect both devices to the same Wi-Fi, and allow Chumi in Settings → Privacy & Security → Local Network. Then try again."
+                )
+            case .cancelled: return String(localized: "The connection was cancelled. Try again.")
+            default:
+                return String(
+                    localized:
+                        "Could not establish a secure connection. Check the Mac service and pairing code, then try again."
+                )
+            }
+        case .server(let status, let code, _):
+            switch code {
+            case "unauthorized":
+                return String(localized: "Pairing has expired. Paste a new pairing code from your Mac.")
+            case "stale_revision", "revision_conflict", "segment_conflict", "session_conflict":
+                return String(
+                    localized:
+                        "This transcript conflicts with the Mac copy. Upload it as a new copy to keep both versions.")
+            case "invalid_request":
+                return String(
+                    localized:
+                        "The Mac rejected this meeting data. Export a backup and update Chumi on both devices before syncing again."
+                )
+            case "invalid_project":
+                return String(
+                    localized:
+                        "This Mac project is no longer available. Choose another project or remove the link, then sync again."
+                )
+            case "not_found": return String(localized: "This record is missing on your Mac. Sync the meeting again.")
+            case "body_too_large", "payload_too_large":
+                return String(localized: "The transcript exceeds 4 MiB. Export it and continue on your computer.")
+            default:
+                if status == 401 {
+                    return String(localized: "Pairing has expired. Paste a new pairing code from your Mac.")
+                }
+                return String(localized: "Your Mac could not complete the request (\(status)). Try again later.")
+            }
         }
     }
 }

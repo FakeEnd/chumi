@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct ChumiApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var meetings = MeetingStore()
     @StateObject private var connection = ConnectionStore()
 
@@ -11,6 +12,10 @@ struct ChumiApp: App {
                 .environmentObject(meetings)
                 .environmentObject(connection)
                 .tint(ChumiTheme.accent)
+                .task(id: connection.credentials) { meetings.resumePendingOutputs(connection: connection) }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { meetings.resumePendingOutputs(connection: connection) }
+                }
         }
     }
 }

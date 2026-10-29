@@ -19,8 +19,8 @@ struct NewMeetingView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     VStack(alignment: .leading, spacing: 8) {
-                        fieldLabel("会议名称")
-                        TextField("例如：本周组会", text: $title)
+                        fieldLabel(String(localized: "Meeting name"))
+                        TextField(String(localized: "For example: Weekly lab meeting"), text: $title)
                             .focused($titleFocused)
                             .submitLabel(.done)
                             .onSubmit(create)
@@ -28,27 +28,31 @@ struct NewMeetingView: View {
                             .accessibilityIdentifier("meetingTitleField")
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        fieldLabel("会议类型")
+                        fieldLabel(String(localized: "Meeting type"))
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
                             ForEach(Meeting.types, id: \.id) { option in
                                 typeChip(id: option.id, label: option.label)
                             }
                         }
                     }
-                    HintRow(systemImage: "iphone", text: "会议先保存在手机上，稍后可以连接 Mac。")
+                    HintRow(
+                        systemImage: "iphone",
+                        text: String(
+                            localized: "Meetings are saved on your phone first. Connect your Mac whenever you need it.")
+                    )
                     if let error { Notice(message: error) }
                 }
                 .padding(16)
             }
             .background(ChumiBackground())
-            .navigationTitle("新会议")
+            .navigationTitle(String(localized: "New meeting"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
+                    Button(String(localized: "Cancel")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("创建", action: create)
+                    Button(String(localized: "Create"), action: create)
                         .fontWeight(.semibold)
                         .disabled(!canCreate)
                         .accessibilityIdentifier("createMeetingButton")

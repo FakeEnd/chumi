@@ -22,6 +22,13 @@ struct HomeView: View {
                     newMeetingCard
                     recentMeetings
                     tips
+                    if !store.isDemo, store.recoveryURL != nil || store.isReadOnly,
+                        FileManager.default.fileExists(atPath: (store.recoveryURL ?? store.fileURL).path)
+                    {
+                        ShareLink(item: store.recoveryURL ?? store.fileURL) {
+                            Label(String(localized: "Export original data"), systemImage: "square.and.arrow.up")
+                        }
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 32)
@@ -59,7 +66,7 @@ struct HomeView: View {
                     }
             }
             .buttonStyle(PressableButtonStyle())
-            .accessibilityLabel(isPaired ? "连接 Mac（已配对）" : "连接 Mac")
+            .accessibilityLabel(isPaired ? String(localized: "Connect Mac (paired)") : String(localized: "Connect Mac"))
             .accessibilityIdentifier("connectionButton")
         }
         .padding(.top, 6)
@@ -74,21 +81,29 @@ struct HomeView: View {
                     .shadow(color: ChumiTheme.indigo.opacity(0.25), radius: 10, y: 6)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(greeting).font(.title2.weight(.bold)).foregroundStyle(ChumiTheme.text)
-                    Text("Chumi 陪你一起听，帮你跟上讨论，在你需要的时候解释你需要的内容。")
-                        .font(.subheadline)
-                        .foregroundStyle(ChumiTheme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        String(
+                            localized:
+                                "Chumi listens with you, helps you follow the discussion, and explains things when you need it."
+                        )
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(ChumiTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
             }
             FlowLayout(spacing: 8) {
-                Pill(text: "录音与转写 · 本机", tone: .ok)
+                Pill(text: String(localized: "Audio & transcription · On device"), tone: .ok)
                 if store.isDemo {
-                    Pill(text: "界面预览 · 示例内容", tone: .accent, systemImage: "eye")
+                    Pill(text: String(localized: "Preview · Sample content"), tone: .accent, systemImage: "eye")
                 } else {
                     Button {
                         showConnection = true
                     } label: {
-                        Pill(text: isPaired ? "Mac 已配对 · 手动同步" : "Mac 未连接", tone: isPaired ? .ok : .warn)
+                        Pill(
+                            text: isPaired
+                                ? String(localized: "Mac paired · Sync on demand")
+                                : String(localized: "Mac not connected"), tone: isPaired ? .ok : .warn)
                     }
                     .buttonStyle(PressableButtonStyle())
                 }
@@ -111,8 +126,8 @@ struct HomeView: View {
             HStack(spacing: 14) {
                 IconTile(systemName: "mic.fill", size: 46, onGradient: true)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("开始一场新会议").font(.headline)
-                    Text("本机录音与转写，无需先连接电脑")
+                    Text(String(localized: "Start a new meeting")).font(.headline)
+                    Text(String(localized: "Record and transcribe on your phone, without connecting a computer"))
                         .font(.footnote)
                         .foregroundStyle(.white.opacity(0.85))
                 }
@@ -131,17 +146,23 @@ struct HomeView: View {
 
     private var recentMeetings: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionTitle(title: "最近的会议", detail: store.meetings.isEmpty ? nil : "\(store.meetings.count) 场")
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-                .padding(.bottom, 6)
+            SectionTitle(
+                title: String(localized: "Recent meetings"),
+                detail: store.meetings.isEmpty ? nil : String(localized: "Meetings: \(store.meetings.count)")
+            )
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 6)
             if store.meetings.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "sparkles").font(.title2).foregroundStyle(ChumiTheme.accent)
-                    Text("还没有会议。你的转写、回顾和总结会显示在这里。")
-                        .font(.subheadline)
-                        .foregroundStyle(ChumiTheme.muted)
-                        .multilineTextAlignment(.center)
+                    Text(
+                        String(
+                            localized: "No meetings yet. Your transcripts, catch-ups, and summaries will appear here.")
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(ChumiTheme.muted)
+                    .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 24)
@@ -163,12 +184,22 @@ struct HomeView: View {
 
     private var tips: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "小提示")
+            SectionTitle(title: String(localized: "Tips"))
             HintRow(
-                systemImage: "sparkles", lead: "跟不上了？",
-                text: "同步到 Mac 后，点“帮我跟上”回顾最近 2 分钟、5 分钟或到目前为止的内容。")
-            HintRow(systemImage: "square.and.pencil", lead: "随手记一笔。", text: "在会议菜单里添加文字笔记，它会和转写一起同步。")
-            HintRow(systemImage: "lock.shield", text: "录音只保存在这台 iPhone 上。文字仅在你点击同步后发送到 Mac。")
+                systemImage: "sparkles", lead: String(localized: "Lost track?"),
+                text: String(
+                    localized:
+                        "Tap Catch me up to sync with your Mac and review the last 2 minutes, 5 minutes, or everything so far."
+                ))
+            HintRow(
+                systemImage: "square.and.pencil", lead: String(localized: "Jot down a note."),
+                text: String(localized: "Add a note from the meeting menu. It syncs alongside the transcript."))
+            HintRow(
+                systemImage: "lock.shield",
+                text: String(
+                    localized:
+                        "Audio stays on this iPhone. Text is sent when you sync or use AI. Previously synced meetings update on your Mac when recording stops."
+                ))
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -179,10 +210,10 @@ struct HomeView: View {
 
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())
-        if hour < 5 { return "夜深了" }
-        if hour < 12 { return "早上好" }
-        if hour < 18 { return "下午好" }
-        return "晚上好"
+        if hour < 5 { return String(localized: "Up late?") }
+        if hour < 12 { return String(localized: "Good morning") }
+        if hour < 18 { return String(localized: "Good afternoon") }
+        return String(localized: "Good evening")
     }
 
     private func openRequestedDemoScreen() {
@@ -212,12 +243,12 @@ private struct MeetingRow: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(ChumiTheme.text)
                         .lineLimit(1)
-                    if meeting.status == "recording" { TagLabel(text: "进行中", tone: .live) }
-                    if meeting.isSynced { TagLabel(text: "已同步", tone: .ok) }
+                    if meeting.status == "recording" { TagLabel(text: String(localized: "In progress"), tone: .live) }
+                    if meeting.isSynced { TagLabel(text: String(localized: "Synced"), tone: .ok) }
                 }
                 Text(
                     "\(meeting.typeLabel) · \(meeting.date.formatted(.dateTime.month().day())) · "
-                        + "\(durationLabel(meeting.durationMs)) · \(meeting.segments.count) 行"
+                        + String(localized: "\(durationLabel(meeting.durationMs)) · Lines: \(meeting.segments.count)")
                 )
                 .font(.footnote)
                 .foregroundStyle(ChumiTheme.muted)
