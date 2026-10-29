@@ -181,7 +181,7 @@ test('DeepSeek Harness: a clipboard failure still opens the app and reports it; 
 test('DeepSeek Harness: without the desktop app nothing is saved, copied or opened', async (t) => {
   const f = fixture(t);
   const steps: string[] = [];
-  await assert.rejects(continueInDeepSeekHarness(f.id, f.workspace, 'Instructions.', { dataDir: f.dataDir, installed: () => false, copy: async () => { steps.push('copy'); }, open: async () => { steps.push('open'); } }),
+  await assert.rejects(continueInDeepSeekHarness(f.id, f.workspace, 'Instructions.', { dataDir: f.dataDir, installed: async () => false, copy: async () => { steps.push('copy'); }, open: async () => { steps.push('open'); } }),
     /desktop app is not installed.*Copy instructions/);
   assert.deepEqual(steps, []);
   assert.equal(existsSync(f.dataDir), false);

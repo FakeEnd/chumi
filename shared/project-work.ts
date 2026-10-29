@@ -40,6 +40,7 @@ export interface ProjectBrief {
   decisions: ProjectBriefItem[];
   questions: ProjectBriefItem[];
   reviewNeededCount: number;
+  reviewNeeded: Array<{ sessionId: string; title: string; reason: 'unconfirmed' | 'changed' | 'moved' | 'failed' }>;
   /** Unfinished work is never truncated. These counts describe omitted older history. */
   omitted: { completedActions: number; decisions: number; questions: number };
 }

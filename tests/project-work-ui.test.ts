@@ -152,3 +152,38 @@ test('handoff destination defaults to Codex app, remembers valid choices, and ha
   assert.equal(unavailable.loadHandoffDestination(), 'codex-app');
   assert.doesNotThrow(() => unavailable.saveHandoffDestination('copy'));
 });
+
+test('review warnings identify the meeting and open its handoff', async () => {
+  const entries = [{ sessionId: 's', title: 'Seminar', reason: 'unconfirmed' }];
+  const warning = await componentHarness('ProjectBrief.tsx', 'ReviewNeeded', { entries }, { plural: () => '1 handoff needs review' });
+  assert.match(warning.text(), /Handoff not confirmed/);
+  const source = warning.elements().find((e) => typeof e.type === 'function')!;
+  assert.equal(source.props.item.sessionTitle, 'Seminar');
+  const opened: string[] = [], states: unknown[] = [];
+  const ui = await componentHarness('ProjectBrief.tsx', 'SourceLinks', source.props, {
+    openSession: async (id: string) => { opened.push(id); }, getState: () => ({ viewId: 's' }), setState: (state: unknown) => states.push(state),
+  });
+  assert.match(ui.text(), /Seminar/);
+  ui.button('Open source handoff').props.onClick(); await tick();
+  assert.deepEqual(opened, ['s']);
+  assert.deepEqual(states, [{ dialog: null }, { dialog: 'handoff' }]);
+});
+
+test('a moved handoff warning describes its arrival in the current project', async () => {
+  const ui = await componentHarness('ProjectBrief.tsx', 'ReviewNeeded', { entries: [{ sessionId: 'moved', title: 'Imported meeting', reason: 'moved' }] }, { plural: () => '1 handoff needs review' });
+  assert.match(ui.text(), /Moved here from another project after review/);
+});
+
+test('agent cards show each reconnect reason together with a disabled notice', async () => {
+  const ui = await componentHarness('Projects.tsx', 'AgentsTab', {}, { api: async () => ({
+    local: { ok: true, detail: 'Local server works' }, commands: {}, exports: {}, agents: [{
+      agent: 'codex', name: 'Codex', cli: '/fixture/codex', registered: true, outdated: true, clientHealth: 'unknown',
+      outdatedReasons: ['connected to another Chumi location', 'Connected to another Chumi data folder. Reconnect to use this folder.'],
+      detail: 'Registered but disabled in Codex.', verifiedAt: null, lastRead: null,
+    }],
+  }), tn: (s: string) => s, AGENT_NAMES });
+  await tick(); ui.render();
+  assert.match(ui.text(), /connected to another Chumi location/);
+  assert.match(ui.text(), /Connected to another Chumi data folder/);
+  assert.match(ui.text(), /Registered but disabled in Codex/);
+});

@@ -110,7 +110,7 @@ export interface Handoff {
   last_agent_read: { at: number; client: string | null; revision: number | null } | null;
 }
 export interface AgentStatus {
-  agent: AgentId; name: string; billing: 'plan' | 'unknown'; cli: string | null; registered: boolean | null; outdated: boolean;
+  agent: AgentId; name: string; billing: 'plan' | 'unknown'; cli: string | null; registered: boolean | null; outdated: boolean; outdatedReasons: string[];
   clientHealth: 'connected' | 'failed' | 'unknown'; lastRead: { at: number; tool: string } | null; verifiedAt: number | null; detail: string | null;
 }
 export interface Notice { id: number; level: 'info' | 'warning' | 'error'; code: string; message: string; at: number }

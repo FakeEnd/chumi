@@ -113,11 +113,12 @@ export function AgentsTab() {
               <div key={a.agent} className="agent-card">
                 <div className="agent-head"><b>{name}</b>
                   <span className={`pill ${a.cli ? 'ok' : 'muted'}`}><span className="dot" />{a.cli ? t('installed') : t('not installed')}</span>
-                  {a.cli && <span className={`pill ${a.registered ? (a.outdated ? 'warn' : 'ok') : 'muted'}`}><span className="dot" />{a.registered ? (a.outdated ? t('connected to another Chumi location') : t('connected')) : t('not connected')}</span>}
+                  {a.cli && <span className={`pill ${a.registered ? (a.outdated ? 'warn' : 'ok') : 'muted'}`}><span className="dot" />{a.registered ? (a.outdated ? t('needs reconnecting') : t('connected')) : t('not connected')}</span>}
                   {a.registered && a.clientHealth !== 'unknown' && <span className={`pill ${a.clientHealth === 'connected' ? 'ok' : 'warn'}`}><span className="dot" />{a.clientHealth === 'connected' ? t('{name} reports the server is running', { name }) : t('{name} could not start the server', { name })}</span>}
                 </div>
                 <div className="small">
                   <div>{t('Agent read check:')} <b className={a.verifiedAt ? 'ok-text' : ''}>{verified}</b>{a.lastRead ? ` · ${t('last read {time} ({tool})', { time: fmtClock(a.lastRead.at), tool: a.lastRead.tool })}` : ''}</div>
+                  {a.outdatedReasons?.map((reason) => <div key={reason} className="warn-text">{t(reason)}</div>)}
                   {a.detail && <div className="muted">{t(a.detail)}</div>}
                   {result[a.agent] && <div className={result[a.agent].ok ? 'ok-text' : 'warn-text'}>{t(result[a.agent].detail)}</div>}
                 </div>

@@ -3,8 +3,8 @@
  * Every item names its project, meeting, source kind and source id; transcript text is the original ASR
  * output; AI-generated content is labelled as generated. Reads need an explicit project or meeting.
  */
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { searchTerms, speakerFields, type ProjectRow, type SessionRow, type Store } from '../db.ts';
 import { DATA_DIR, FRAMES_DIR } from '../paths.ts';
 import { fmtT, parseT } from '../util.ts';
@@ -43,6 +43,20 @@ export function toMs(v: unknown): number | null {
   return parseT(s);
 }
 
+/** Resolve existing ancestors too, so a new subfolder still matches a symlinked workspace. */
+function workspacePath(input: string): string {
+  let path = resolve(input);
+  const tail: string[] = [];
+  for (;;) {
+    try { path = join(realpathSync.native(path), ...tail); break; } catch { /* try the parent */ }
+    const parent = dirname(path);
+    if (parent === path) { path = resolve(input); break; }
+    tail.unshift(basename(path)); path = parent;
+  }
+  // realpath recovers on-disk case without conflating distinct folders on case-sensitive volumes.
+  return process.platform === 'win32' ? path.replace(/^[A-Z]:/, (drive) => drive.toLowerCase()) : path;
+}
+
 export function workspaceExists(p: ProjectRow): boolean {
   try { return statSync(p.workspace).isDirectory(); } catch { return false; }
 }
@@ -78,11 +92,11 @@ export class Evidence {
 
   /** The project whose workspace contains `path` (longest match). */
   projectForPath(path: string): ProjectRow | null {
-    const target = resolve(path);
-    let best: ProjectRow | null = null;
+    const target = workspacePath(path);
+    let best: ProjectRow | null = null, bestLength = -1;
     for (const p of this.store.listProjects()) {
-      const w = resolve(p.workspace);
-      if ((target === w || target.startsWith(w.endsWith(sep) ? w : w + sep)) && (!best || w.length > resolve(best.workspace).length)) best = p;
+      const w = workspacePath(p.workspace);
+      if ((target === w || target.startsWith(w.endsWith(sep) ? w : w + sep)) && w.length > bestLength) { best = p; bestLength = w.length; }
     }
     return best;
   }
@@ -133,10 +147,13 @@ export class Evidence {
   passages(o: { meeting_id: string; project_id?: string | null; from?: unknown; to?: unknown; segment_ids?: number[]; limit?: number; cursor?: string | number }) {
     const s = this.meeting(o.meeting_id, o.project_id);
     const limit = lim(o.limit, 40), offset = cursorOf(o.cursor);
-    let rows;
+    let rows: ReturnType<Store['segments']>;
     if (o.segment_ids?.length) {
-      const ids = o.segment_ids.slice(0, 200).map(Number).filter(Number.isFinite);
-      rows = this.store.segmentsByIds(s.id, ids);
+      const ids = [...new Set(o.segment_ids.map(Number).filter(Number.isFinite))];
+      rows = [];
+      // Batch SQL parameters, not the evidence: every requested id remains pageable.
+      for (let i = 0; i < ids.length; i += 500) rows.push(...this.store.segmentsByIds(s.id, ids.slice(i, i + 500)));
+      rows.sort((a, b) => a.t_start - b.t_start || a.id - b.id);
     } else {
       const from = toMs(o.from), to = toMs(o.to);
       if (o.from != null && from == null) throw new EvidenceError('bad_request', `Could not read the time "${o.from}". Use m:ss or milliseconds.`);

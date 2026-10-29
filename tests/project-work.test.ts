@@ -295,3 +295,22 @@ test('brief retains old unfinished work, sorts status and recency, and reports b
   assert.equal(brief.reviewNeededCount, 1);
   assert.ok(!JSON.stringify(brief).includes('other_project'));
 });
+
+test('brief links reviewable handoffs and clears warnings for rejected work or empty failed drafts', (t) => {
+  const f = setup(t);
+  const rejected = f.meeting('rejected'), failed = f.meeting('failed'), draft = f.meeting('draft'), changed = f.meeting('changed'), moved = f.meeting('moved');
+  f.handoffs.updateItem(rejected.items[0], { review: 'rejected' });
+  f.store.deleteHandoffItems(failed.items);
+  f.store.updateHandoff(failed.handoffId, { status: 'error' });
+  f.handoffs.reopen(draft.handoffId);
+  f.store.addSegment({ session_id: changed.id, t_start: 2000, t_end: 3000, text: 'New evidence', lang: 'en', source: 'mic', run: 1 });
+  f.store.updateHandoff(moved.handoffId, { project_id: 'q' });
+  const brief = f.work.brief('p');
+  assert.equal(brief.reviewNeededCount, 3);
+  assert.deepEqual(new Map(brief.reviewNeeded.map((r) => [r.sessionId, r.reason])), new Map([['draft', 'unconfirmed'], ['changed', 'changed'], ['moved', 'moved']]));
+  assert.ok(brief.reviewNeeded.every((r) => r.title === `Meeting ${r.sessionId}`));
+  f.handoffs.updateItem(rejected.items[0], { review: 'pending' });
+  assert.ok(f.work.brief('p').reviewNeeded.some((r) => r.sessionId === rejected.id), 'restoring an item restores review');
+  f.store.updateHandoff(draft.handoffId, { status: 'error' });
+  assert.equal(f.work.brief('p').reviewNeeded.find((r) => r.sessionId === draft.id)!.reason, 'failed');
+});

@@ -5,7 +5,7 @@
  * dsh composes its configuration from YAML patch layers. $DSH_HOME/cordis.patch.yml applies to every profile, the desktop
  * app's included, so Chumi's server goes there, as a block between two marker comments that Chumi alone writes and removes.
  */
-import { execFile, execSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -132,53 +132,55 @@ export function dshCheckPatches(): string[] {
   return [...(existsSync(desktop) ? ['--patch', desktop] : []), '--patch', file];
 }
 
-let windowsInstall: { dir: string | null; at: number } | undefined;
-/**
- * Where the Windows desktop app is installed, from its uninstall entry (any folder the user picked), or null.
- * A folder is remembered; "not found" only for a minute, so installing the app later (or a slow first query) is noticed.
- */
-function windowsInstallDir(): string | null {
-  if (windowsInstall && (windowsInstall.dir || Date.now() - windowsInstall.at < 60_000)) return windowsInstall.dir;
-  let dir: string | null = null;
-  for (const hive of ['HKCU', 'HKLM']) {
-    let entries: string;
-    try {
-      // reg.exe otherwise pipes text in the Windows legacy code page, corrupting non-ASCII install folders.
-      const query = `chcp 65001 >nul & reg.exe query "${hive}\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall" /s`;
-      entries = execSync(query, { encoding: 'utf8', timeout: 10_000, windowsHide: true });
-    } catch { continue; }
-    for (const entry of entries.split(/\r?\n(?=HKEY_)/)) {
-      if (!/^\s*DisplayName\s+REG_SZ\s+DeepSeek Harness/im.test(entry)) continue;
-      dir = entry.match(/^\s*InstallLocation\s+REG_SZ\s+(.+)$/m)?.[1].trim() || null;
-      if (dir) break;
-    }
-    if (dir) break;
-  }
-  if (!dir) {
-    const usual = join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'Programs', 'DeepSeek Harness');
-    dir = existsSync(usual) ? usual : null;
-  }
-  windowsInstall = { dir, at: Date.now() };
-  return dir;
+/** Keep UTF-8 output for non-ASCII install folders without blocking recording or HTTP. */
+function queryUninstall(hive: string): Promise<string> {
+  const query = `chcp 65001 >nul & reg.exe query "${hive}\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall" /s`;
+  return new Promise((resolve, reject) => execFile('cmd.exe', ['/d', '/s', '/c', `"${query}"`], { encoding: 'utf8', timeout: 10_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true, windowsVerbatimArguments: true }, (error, out) => error ? reject(error) : resolve(out)));
 }
+
+/** Cache misses too; only an explicit Settings refresh should scan again. Concurrent callers share a scan. */
+export function createWindowsDshLocator(dependencies: { query?: (hive: string) => Promise<string>; exists?: (path: string) => boolean; usual?: () => string } = {}) {
+  const query = dependencies.query ?? queryUninstall, exists = dependencies.exists ?? existsSync;
+  const usual = dependencies.usual ?? (() => join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'Programs', 'DeepSeek Harness'));
+  let cached: Promise<string | null> | undefined, pending = false;
+  return (refresh = false): Promise<string | null> => {
+    if (cached && (!refresh || pending)) return cached;
+    pending = true;
+    cached = (async () => {
+      const standard = usual();
+      if (exists(standard)) return standard;
+      const hives = await Promise.all(['HKCU', 'HKLM'].map((hive) => query(hive).catch(() => '')));
+      for (const entries of hives) {
+        for (const entry of entries.split(/\r?\n(?=HKEY_)/)) {
+          if (!/^\s*DisplayName\s+REG_SZ\s+DeepSeek Harness(?:\s|$)/im.test(entry)) continue;
+          const dir = entry.match(/^\s*InstallLocation\s+REG_SZ\s+(.+)$/m)?.[1].trim();
+          if (dir && exists(dir)) return dir;
+        }
+      }
+      return null;
+    })().finally(() => { pending = false; });
+    return cached;
+  };
+}
+const windowsInstallDir = createWindowsDshLocator();
 
 const macApps = () => ['/Applications', join(homedir(), 'Applications')].map((d) => join(d, 'DeepSeek Harness.app'));
 
 const isFile = (p: string) => { try { return statSync(p).isFile(); } catch { return false; } };
 
 /** The dsh command: on PATH (the app's "Manage dsh Command…" puts it there), else the copy inside the desktop app. */
-export function findDsh(): string | null {
+export async function findDsh(refresh = false): Promise<string | null> {
   const onPath = which('dsh');
   if (onPath) return onPath;
   const inApp = IS_WIN
-    ? [windowsInstallDir()].filter((d): d is string => !!d).map((d) => join(d, 'resources', 'runtime', 'cli', 'bin', 'dsh.cmd'))
+    ? [await windowsInstallDir(refresh)].filter((d): d is string => !!d).map((d) => join(d, 'resources', 'runtime', 'cli', 'bin', 'dsh.cmd'))
     : macApps().map((app) => join(app, 'Contents', 'Resources', 'runtime', 'cli', 'bin', 'dsh'));
   return inApp.find(isFile) ?? null;
 }
 
 /** The desktop app is installed (the dsh command alone can come from npm, without it). */
-export function dshAppInstalled(): boolean {
-  return IS_WIN ? windowsInstallDir() !== null : macApps().some((app) => existsSync(app));
+export async function dshAppInstalled(refresh = false): Promise<boolean> {
+  return IS_WIN ? (await windowsInstallDir(refresh)) !== null : macApps().some((app) => existsSync(app));
 }
 
 /**

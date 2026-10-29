@@ -98,7 +98,7 @@ export class HandoffService {
         if (near && Math.abs(near.t_start - from) <= 15_000) hit = [near];
       }
       if (!hit.length) continue;
-      out.push({ kind: 'transcript', segment_ids: hit.slice(0, 20).map((s) => s.id), from_ms: Math.min(...hit.map((s) => s.t_start)), to_ms: Math.max(...hit.map((s) => s.t_end)) });
+      out.push({ kind: 'transcript', segment_ids: hit.map((s) => s.id), from_ms: Math.min(...hit.map((s) => s.t_start)), to_ms: Math.max(...hit.map((s) => s.t_end)) });
     }
     // Merge passages that overlap or touch, so one stretch of discussion is one reference.
     const spans = (out as Array<Extract<EvidenceRef, { kind: 'transcript' }>>).sort((a, b) => a.from_ms - b.from_ms);
@@ -107,7 +107,7 @@ export class HandoffService {
       const last = merged.at(-1) as Extract<EvidenceRef, { kind: 'transcript' }> | undefined;
       if (last && e.from_ms <= last.to_ms + 2000) {
         last.to_ms = Math.max(last.to_ms, e.to_ms);
-        last.segment_ids = [...new Set([...last.segment_ids, ...e.segment_ids])].slice(0, 40);
+        last.segment_ids = [...new Set([...last.segment_ids, ...e.segment_ids])];
       } else merged.push({ ...e });
     }
     out.length = 0;

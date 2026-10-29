@@ -559,6 +559,9 @@ route('PATCH', '/api/projects/:id', async (req, _res, p) => {
   if (b.workspace !== undefined) { patch.workspace = checkWorkspace(b.workspace); const repo = await gitInfo(patch.workspace); patch.repo_json = repo ? JSON.stringify(repo) : null; }
   if (typeof b.archived === 'boolean') patch.archived_at = b.archived ? Date.now() : null;
   store.updateProject(p.id, patch);
+  if ((patch.name !== undefined && patch.name !== cur.name) || (patch.workspace !== undefined && patch.workspace !== cur.workspace)) {
+    for (const session of store.listSessions(undefined, p.id).reverse()) syncMybot(session.id);
+  }
   broadcast('projects', {});
   return { project: projectPublic({ ...store.getProject(p.id)!, meeting_count: 0 }) };
 });
@@ -622,8 +625,8 @@ route('POST', '/api/handoffs/:id/continue', async (req, _res, p) => {
         // For recordings the dialog says what a real Continue says, so a skipped copy reports as copied.
         const r = await continueInDeepSeekHarness(h.id, project.workspace, prompt, NO_LAUNCH ? { installed: () => true, copy: async (text) => skipped(`clipboard: ${text}`), open: async () => skipped('dsh://open') } : {});
         paste = { text: r.instruction, copied: r.copied };
-      } else if (NO_LAUNCH) skipped(agents.launchScript(via as AgentId, h.id, project.workspace, prompt));
-      else agents.launch(via as AgentId, h.id, project.workspace, prompt);
+      } else if (NO_LAUNCH) skipped(await agents.launchScript(via as AgentId, h.id, project.workspace, prompt));
+      else await agents.launch(via as AgentId, h.id, project.workspace, prompt);
       launched = true;
     } catch (e) { throw new HttpError(400, (e as Error).message); }
   }
@@ -634,12 +637,12 @@ route('POST', '/api/handoffs/:id/continue', async (req, _res, p) => {
 // ---------------------------------------------------------------- coding agent connection (Claude Code, Codex, opencode, Qwen Code, Antigravity, DeepSeek Harness)
 const isAgent = (a: string): a is AgentId => AGENTS.includes(a as AgentId);
 route('GET', '/api/agents', async () => {
-  const [local, ...statuses] = await Promise.all([agents.localCheck(), ...AGENTS.map((a) => agents.status(a))]);
+  const [local, ...statuses] = await Promise.all([agents.localCheck(), ...AGENTS.map((a) => agents.status(a, true))]);
   return { local, agents: statuses, commands: agents.setupCommands(), exports: { mybot: store.getSettings().integrations.mybot.enabled ? mybot.status() : null } };
 });
 route('POST', '/api/agents/:agent/connect', async (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); try { await agents.connect(p.agent); } catch (e) { throw new HttpError(400, (e as Error).message); } return { status: await agents.status(p.agent) }; });
 route('POST', '/api/agents/:agent/disconnect', async (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); await agents.disconnect(p.agent); return { status: await agents.status(p.agent) }; });
-route('GET', '/api/agents/available', () => ({ agents: AGENTS.map((a) => ({ agent: a, name: AGENT_NAMES[a], installed: !!agents.cli(a) })) }));
+route('GET', '/api/agents/available', async () => ({ agents: await Promise.all(AGENTS.map(async (a) => ({ agent: a, name: AGENT_NAMES[a], installed: !!await agents.cli(a) }))) }));
 route('POST', '/api/agents/:agent/verify', async (req, _res, p) => {
   if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent');
   if (AGENT_BILLING[p.agent] === 'plan') {

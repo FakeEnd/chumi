@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { speakerFields, type Store } from '../db.ts';
 import { log } from '../util.ts';
-import { handoffFreshness, itemPublic } from '../projects/handoff-model.ts';
+import { handoffFreshness, handoffProjectMismatch, itemPublic } from '../projects/handoff-model.ts';
 import { sessionTypeName } from '../../shared/session-types.ts';
 
 /*
@@ -63,11 +63,12 @@ export function sessionToJsonl(store: Store, id: string, shareWithTeam: boolean)
   for (const f of store.frames(id)) lines.push({ type: 'frame', id: f.id, t_ms: f.t, timestamp: iso(started + f.t), window_title: f.window_title });
   // Only a handoff the user confirmed is exported, with its reviewed items.
   const h = store.handoffForSession(id);
-  if (h?.status === 'confirmed') {
+  const items = h ? store.handoffItems(h.id) : [];
+  if (h?.status === 'confirmed' && !handoffProjectMismatch(h, s.project_id, items)) {
     lines.push({
       type: 'handoff', id: h.id, project_id: h.project_id, confirmed_at: h.confirmed_at ? iso(h.confirmed_at) : null, confirmed_revision: h.confirmed_revision,
       freshness: handoffFreshness(store, h),
-      items: store.handoffItems(h.id).filter((i) => i.review === 'confirmed' || (i.kind === 'question' && i.review !== 'rejected'))
+      items: items.filter((i) => i.project_id === s.project_id && (i.review === 'confirmed' || (i.kind === 'question' && i.review !== 'rejected')))
         .map((i) => { const p = itemPublic(i); return { id: p.id, kind: p.kind, text: p.text, origin: p.origin, rationale: p.rationale, conditions: p.conditions, owner: p.owner, due: p.due, evidence: p.evidence }; }),
     });
   }
@@ -98,7 +99,8 @@ export class MybotExporter {
 
   exportAll(): { exported: number; dir: string } {
     let exported = 0;
-    for (const s of this.store.listSessions()) if (this.sync(s.id, true)) exported++;
+    // Keep recent meetings newest for consumers that still select files by mtime.
+    for (const s of this.store.listSessions().reverse()) if (this.sync(s.id, true)) exported++;
     log('mybot', `exported ${exported} sessions to ${this.dir}`);
     return { exported, dir: this.dir };
   }

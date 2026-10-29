@@ -44,6 +44,8 @@ async function run<T>(fn: () => T) {
   }
 }
 const RO = { readOnlyHint: true, openWorldHint: false } as const;
+// Keep a plain string schema for strict clients while accepting numeric handoff timestamps.
+const time = z.preprocess((v) => typeof v === 'number' ? String(v) : v, z.string());
 
 server.registerTool('chumi_list_projects', {
   title: 'List Chumi projects',
@@ -58,7 +60,7 @@ server.registerTool('chumi_search_meetings', {
   inputSchema: {
     project_id: z.string().describe('Project id from chumi_list_projects (required: meetings are only read within a project)'),
     query: z.string().optional().describe('Words to find in transcripts, summaries or titles (English or Chinese)'),
-    limit: z.number().int().min(1).max(50).optional(),
+    limit: z.number().int().min(1).optional().describe('Page size, capped at 50'),
     cursor: z.string().optional().describe('next_cursor from a previous call'),
   },
   annotations: RO,
@@ -85,11 +87,11 @@ server.registerTool('chumi_get_handoff', {
 
 server.registerTool('chumi_get_passages', {
   title: 'Read original transcript passages',
-  description: 'Original speech-recognition lines of a meeting, by time range (m:ss or milliseconds) or by segment ids from a handoff\'s evidence. Paginated.',
+  description: 'Original speech-recognition lines of a meeting, by time range (minutes:seconds or milliseconds) or by segment ids. For a handoff, use from_ms/to_ms as from/to to read the full range; numeric values are accepted directly. Paginated.',
   inputSchema: {
     meeting_id: z.string(), project_id: z.string().optional(),
-    from: z.string().optional().describe('Start time, e.g. "12:30" or milliseconds'), to: z.string().optional().describe('End time'),
-    segment_ids: z.array(z.number().int()).optional(), limit: z.number().int().min(1).max(50).optional(), cursor: z.string().optional(),
+    from: time.optional().describe('Start time, e.g. "12:30" (minutes:seconds) or "750000" (milliseconds)'), to: time.optional().describe('End time, in the same format as from'),
+    segment_ids: z.array(z.number().int()).optional(), limit: z.number().int().min(1).optional().describe('Page size, capped at 50'), cursor: z.string().optional(),
   },
   annotations: RO,
 }, async (a) => run(() => { const r = evidence.passages(a); record('get_passages', { project_id: r.meeting.project?.id, session_id: a.meeting_id, revision: r.meeting.revision }); return r; }));

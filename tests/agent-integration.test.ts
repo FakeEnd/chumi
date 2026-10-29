@@ -1,11 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const DATA = mkdtempSync(join(tmpdir(), 'chumi-agent-check-'));
 process.env.CHUMI_DATA_DIR = DATA;
+process.env.HOME = DATA;
+if (process.platform === 'win32') process.env.USERPROFILE = DATA;
 process.env.XDG_CONFIG_HOME = join(DATA, 'config');
 process.env.DSH_HOME = join(DATA, 'dsh-home');
 const { Store } = await import('../server/db.ts');
@@ -67,7 +69,7 @@ test('agent read checks close stdin, keep plan agents away from API keys, and ma
   process.env.OPENAI_API_KEY = 'sk-test-only';
   try {
     const integration = new AgentIntegration(store);
-    integration.cli = () => fixtureCli('reads-after-eof', true);
+    integration.cli = async () => fixtureCli('reads-after-eof', true);
     for (const agent of ['codex', 'claude-code', 'opencode', 'qwen-code', 'antigravity', 'deepseek-harness'] as const) {
       const result = await integration.verify(agent);
       assert.equal(result.ok, true, `${agent}: ${result.detail}`);
@@ -84,7 +86,7 @@ test('a successful CLI reply without a matching read does not verify the connect
   const store = new Store();
   try {
     const integration = new AgentIntegration(store);
-    integration.cli = () => fixtureCli('replies-without-reading', false);
+    integration.cli = async () => fixtureCli('replies-without-reading', false);
     const result = await integration.verify('codex');
     assert.equal(result.ok, false);
     assert.equal(result.detail, 'No read was recorded. The agent said: OK');
@@ -139,7 +141,7 @@ test('Claude Code: Connect puts the name before greedy env flags and Reconnect r
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     const integration = new AgentIntegration(store);
-    integration.cli = () => claudeCli();
+    integration.cli = async () => claudeCli();
     const setup = integration.setupCommands()['claude-code'];
     assert.match(setup, /^claude mcp add --scope user chumi -e CHUMI_DATA_DIR=/);
     await integration.connect('claude-code');
@@ -157,7 +159,7 @@ test('Claude Code: Connect puts the name before greedy env flags and Reconnect r
     assert.deepEqual(cfg.mcpServers.other, { command: 'other' });
     assert.equal(cfg.theme, 'dark');
     writeFileSync(file, JSON.stringify({ mcpServers: { chumi: old, other: { command: 'other' } }, theme: 'dark' }));
-    integration.cli = () => claudeCli(true);
+    integration.cli = async () => claudeCli(true);
     await assert.rejects(integration.connect('claude-code'), /add failed/);
     const restored = JSON.parse(readFileSync(file, 'utf8'));
     assert.deepEqual(restored.mcpServers.chumi, old, 'the old entry is restored after add fails');
@@ -185,7 +187,7 @@ if (args[1] === 'add') fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify(a
 `);
   try {
     const integration = new AgentIntegration(store);
-    integration.cli = () => qwen;
+    integration.cli = async () => qwen;
     const m = integration.mcpServer();
     await integration.connect('qwen-code');
     assert.deepEqual(JSON.parse(readFileSync(log, 'utf8')), ['mcp', 'add', '--scope', 'user', 'chumi', m.command, ...m.args, '-e', `CHUMI_DATA_DIR=${DATA}`]);
@@ -204,7 +206,7 @@ test('opencode: connecting edits opencode.json only, keeps other settings, and l
   writeFileSync(join(dir, 'opencode.json'), JSON.stringify({ theme: 'dark', mcp: { other: { type: 'remote', url: 'https://example.com' } } }));
   try {
     const integration = new AgentIntegration(store);
-    integration.cli = () => fixtureCli('opencode-list', false);
+    integration.cli = async () => fixtureCli('opencode-list', false);
     assert.equal((await integration.status('opencode')).registered, false);
     await integration.connect('opencode');
     const cfg = JSON.parse(readFileSync(join(dir, 'opencode.json'), 'utf8'));
@@ -256,7 +258,7 @@ fs.writeFileSync(file, JSON.stringify(cfg));
 `);
   try {
     const integration = new AgentIntegration(store);
-    integration.cli = () => agy;
+    integration.cli = async () => agy;
     assert.equal((await integration.status('antigravity')).registered, false);
     await integration.connect('antigravity');
     await integration.connect('antigravity');
@@ -300,7 +302,7 @@ test('DeepSeek Harness: Connect adds one block to the home patch layer, keeps ev
   writeFileSync(file, mine, { mode: 0o600 });
   try {
     const integration = new AgentIntegration(store);
-    integration.cli = () => dshCli();
+    integration.cli = async () => dshCli();
     assert.equal((await integration.status('deepseek-harness')).registered, false);
     await integration.connect('deepseek-harness');
     await integration.connect('deepseek-harness');
@@ -334,7 +336,7 @@ test('DeepSeek Harness: YAML Chumi cannot safely extend, a chumi server added by
   mkdirSync(join(DATA, 'dsh-home'), { recursive: true });
   try {
     const integration = new AgentIntegration(store);
-    integration.cli = () => dshCli();
+    integration.cli = async () => dshCli();
     for (const text of ['[{ id: x, disabled: true }]\n', 'key: value\n']) {
       writeFileSync(file, text);
       await assert.rejects(integration.connect('deepseek-harness'), /did not change/);
@@ -350,7 +352,7 @@ test('DeepSeek Harness: YAML Chumi cannot safely extend, a chumi server added by
     assert.equal(readFileSync(file, 'utf8'), byHand, 'Disconnect leaves an entry Chumi did not write');
 
     writeFileSync(file, '- id: x\n  disabled: true\n');
-    integration.cli = () => dshCli(true);
+    integration.cli = async () => dshCli(true);
     await assert.rejects(integration.connect('deepseek-harness'), /did not accept the new entry, so .* was restored\. Error: dsh: failed to parse patches: invalid entry$/);
     assert.equal(readFileSync(file, 'utf8'), '- id: x\n  disabled: true\n', 'restored after dsh failed to compose it');
     assert.equal(readFileSync(`${file}.bak`, 'utf8'), '- id: x\n  disabled: true\n', 'and the backup is still the user\'s version');
@@ -360,7 +362,7 @@ test('DeepSeek Harness: YAML Chumi cannot safely extend, a chumi server added by
 
     const flow = '- insert: [{ id: mine, name: "@deepseek-ai/dsh-mcp-client", config: {serverName: chumi, command: node} }]\n';
     writeFileSync(file, flow);
-    integration.cli = () => dshCli();
+    integration.cli = async () => dshCli();
     await assert.rejects(integration.connect('deepseek-harness'), /already has a server named chumi/, 'also in {…} form');
     assert.equal(readFileSync(file, 'utf8'), flow);
     rmSync(file);
@@ -415,7 +417,7 @@ test('opencode.json is only rewritten when it is plain JSON; the rewrite keeps i
   rmSync(join(dir, 'opencode.jsonc'), { force: true });
   try {
     const integration = new AgentIntegration(store);
-    integration.cli = () => fixtureCli('opencode-strict', false);
+    integration.cli = async () => fixtureCli('opencode-strict', false);
     for (const text of ['{\n  // my provider\n  "model": "x/y",\n}\n', '[]\n']) {
       writeFileSync(file, text);
       await assert.rejects(integration.connect('opencode'), /did not change/);
@@ -445,16 +447,16 @@ test('continuing starts each agent in the project folder with the whole handoff 
   const prompt = 'Continue work from a meeting.\n\n1. Rerun with the "held-out" split; don\'t touch $HOME or `backticks`.';
   try {
     const integration = new AgentIntegration(store);
-    integration.cli = () => recorder;
+    integration.cli = async () => recorder;
     // cmd.exe cannot pass a multi-line argument: on Windows the agent is pointed at the handoff file instead.
     const message = (agent: string) => (WIN ? `Read the file ${join(DATA, 'handoffs', `hnd_test-${agent}.md`)} and follow the instructions in it.` : prompt);
     const expected: Record<string, (ws: string, m: string) => string[]> = {
       'claude-code': (_ws, m) => [m], codex: (ws, m) => ['-C', ws, m], opencode: (ws, m) => [ws, '--prompt', m], 'qwen-code': (_ws, m) => ['-i', m],
       antigravity: (_ws, m) => ['-i', m],
     };
-    assert.throws(() => integration.launchScript('deepseek-harness', 'hnd_test', workspace, prompt), /no terminal session/);
+    await assert.rejects(() => integration.launchScript('deepseek-harness', 'hnd_test', workspace, prompt), /no terminal session/);
     for (const [agent, args] of Object.entries(expected)) {
-      const script = integration.launchScript(agent as 'codex', 'hnd_test', workspace, prompt);
+      const script = await integration.launchScript(agent as 'codex', 'hnd_test', workspace, prompt);
       if (WIN) execFileSync('cmd.exe', ['/d', '/c', script]); else execFileSync('/bin/zsh', [script]);
       assert.equal(readFileSync(join(DATA, 'handoffs', `hnd_test-${agent}.md`), 'utf8'), prompt);
       const got = JSON.parse(readFileSync(log, 'utf8')) as { cwd: string; args: string[] };
@@ -464,4 +466,124 @@ test('continuing starts each agent in the project folder with the whole handoff 
   } finally {
     store.close();
   }
+});
+
+test('agent registrations flag a removed or changed Node command and accept the current command', async () => {
+  const store = new Store(':memory:');
+  const integration = new AgentIntegration(store);
+  const m = integration.mcpServer();
+  const { dshBlock } = await import('../server/projects/dsh.ts');
+  const otherNode = join(DATA, 'other-node');
+  writeFileSync(otherNode, 'different existing runtime');
+  try {
+    for (const command of [join(DATA, 'removed-node'), otherNode, m.command]) {
+      const entry = { ...m, command };
+      const jsonCli = cliFile('registration-json', `console.log(${JSON.stringify(JSON.stringify({ transport: entry }))});`);
+      const textCli = cliFile('registration-text', `console.log(${JSON.stringify(`Command: ${command}\nArgs: ${MCP_SCRIPT}\nEnvironment:\n  CHUMI_DATA_DIR=${DATA}\nStatus: ✔ connected`)});`);
+      for (const [file, content] of [
+        [join(DATA, '.qwen', 'settings.json'), JSON.stringify({ mcpServers: { chumi: entry } })],
+        [join(DATA, '.gemini', 'config', 'mcp_config.json'), JSON.stringify({ mcpServers: { chumi: entry } })],
+        [join(process.env.XDG_CONFIG_HOME!, 'opencode', 'opencode.json'), JSON.stringify({ mcp: { chumi: { command: [command, ...m.args], environment: m.env } } })],
+        [join(process.env.DSH_HOME!, 'cordis.patch.yml'), dshBlock(entry)],
+      ]) { mkdirSync(join(file, '..'), { recursive: true }); writeFileSync(file, content); }
+      for (const agent of ['codex', 'claude-code', 'opencode', 'qwen-code', 'antigravity', 'deepseek-harness'] as const) {
+        integration.cli = async () => agent === 'codex' ? jsonCli : textCli;
+        const status = await integration.status(agent);
+        assert.equal(status.registered, true, agent);
+        assert.equal(status.outdated, command !== m.command, agent);
+        if (!existsSync(command)) assert.ok(status.outdatedReasons.some((reason) => reason.includes('Node.js command is missing')), agent);
+      }
+    }
+  } finally { store.close(); }
+});
+
+test('verification survives ordinary reads, log pruning and restart without counting Claude Desktop reads', async () => {
+  const file = join(DATA, 'persistent-verification.db');
+  let store = new Store(file);
+  const read = (client: string, tool = 'get_passages', token: string | null = null) => store.recordAgentRead({ client, tool, token, project_id: null, session_id: null, handoff_id: null, revision: null });
+  try {
+    read('claude-code', 'connection_check', 'verified-token');
+    const verified = store.agentReads({ client: 'claude-code', verifiedOnly: true })[0];
+    store.db.exec('BEGIN');
+    for (let i = 0; i < 2100; i++) read('claude-code');
+    store.db.exec('COMMIT');
+    read('claude-ai', 'get_meeting');
+    read('other-claude-code', 'connection_check', 'unrelated-token');
+    read('claude-code', 'connection_check');
+    store.close();
+    store = new Store(file);
+    const integration = new AgentIntegration(store);
+    integration.cli = async () => null;
+    const status = await integration.status('claude-code');
+    assert.equal(status.verifiedAt, verified.at);
+    assert.equal(status.lastRead!.tool, 'connection_check');
+    assert.equal(store.agentReads({ client: 'claude-code', verifiedOnly: true })[0].token, 'verified-token');
+    read('claude-code', 'get_passages');
+    read('claude-ai', 'get_handoff');
+    assert.equal((await integration.status('claude-code')).lastRead!.tool, 'get_passages');
+    assert.ok((store.db.prepare('SELECT COUNT(*) AS n FROM agent_reads').get() as { n: number }).n <= 2002, 'ordinary reads are still pruned');
+  } finally { store.close(); }
+});
+
+test('registration prefers an nvm current link that resolves to the running Node', { skip: WIN }, () => {
+  const store = new Store(':memory:');
+  const saved = process.env.NVM_DIR;
+  const nvm = join(DATA, 'nvm');
+  mkdirSync(join(nvm, 'current', 'bin'), { recursive: true });
+  const stable = join(nvm, 'current', 'bin', 'node');
+  symlinkSync(process.execPath, stable);
+  process.env.NVM_DIR = nvm;
+  try { assert.equal(new AgentIntegration(store).mcpServer().command, stable); }
+  finally { if (saved === undefined) delete process.env.NVM_DIR; else process.env.NVM_DIR = saved; store.close(); }
+});
+
+test('fnm shell links resolve to one durable registration across restarts', { skip: WIN }, async () => {
+  const store = new Store(':memory:');
+  const savedPath = process.env.PATH;
+  const first = join(DATA, 'fnm_multishells', 'first', 'bin'), second = join(DATA, 'fnm_multishells', 'second', 'bin');
+  for (const bin of [first, second]) { mkdirSync(bin, { recursive: true }); symlinkSync(process.execPath, join(bin, 'node')); }
+  const integration = new AgentIntegration(store);
+  try {
+    process.env.PATH = first;
+    const original = integration.mcpServer();
+    assert.equal(original.command, realpathSync(process.execPath));
+    process.env.PATH = second;
+    assert.equal(integration.mcpServer().command, original.command);
+    for (const command of [join(first, 'node'), join(second, 'node'), original.command]) {
+      integration.cli = async () => cliFile('fnm-registration', `console.log(${JSON.stringify(JSON.stringify({ transport: { ...original, command } }))});`);
+      assert.equal((await integration.status('codex')).outdated, false, 'aliases of the same binary do not require reconnecting');
+    }
+    rmSync(join(first, 'node'));
+    integration.cli = async () => cliFile('fnm-removed', `console.log(${JSON.stringify(JSON.stringify({ transport: { ...original, command: join(first, 'node') } }))});`);
+    assert.equal((await integration.status('codex')).outdated, true, 'a removed legacy shell link still needs repair');
+  } finally { if (savedPath === undefined) delete process.env.PATH; else process.env.PATH = savedPath; store.close(); }
+});
+
+test('registration reasons distinguish locations and Node while keeping disabled notices', async () => {
+  const store = new Store(':memory:');
+  const integration = new AgentIntegration(store), m = integration.mcpServer();
+  try {
+    const entry = { ...m, command: join(DATA, 'missing-node'), args: ['/another/chumi/main.ts'], env: { CHUMI_DATA_DIR: '/another/data' } };
+    integration.cli = async () => cliFile('outdated-disabled', `console.log(${JSON.stringify(JSON.stringify({ transport: entry, enabled: false }))});`);
+    const status = await integration.status('codex');
+    assert.equal(status.outdated, true);
+    assert.equal(status.detail, 'Registered but disabled in Codex.');
+    assert.deepEqual(status.outdatedReasons, [
+      'The registered Node.js command is missing. Reconnect to use the current Node.js.',
+      'connected to another Chumi location',
+      'Connected to another Chumi data folder. Reconnect to use this folder.',
+    ]);
+    integration.cli = async () => cliFile('claude-outdated-location', `console.log(${JSON.stringify(`Command: ${m.command}\nArgs: /another/chumi/main.ts\nCHUMI_DATA_DIR=/another/data\nStatus: ✔ connected`)});`);
+    const claude = await integration.status('claude-code');
+    assert.deepEqual(claude.outdatedReasons, status.outdatedReasons.slice(1));
+  } finally { store.close(); }
+});
+
+test('the agent trial waits for CLI discovery and rejects a missing CLI', async () => {
+  const source = readFileSync(new URL('../scripts/agent-trial.ts', import.meta.url), 'utf8');
+  const start = source.indexOf('  const cli =', source.indexOf('// ---------------------------------------------------------------- trial'));
+  const guard = source.slice(start, source.indexOf('  let extra:', start));
+  const check = new Function('integration', 'agent', `return (async () => { ${guard} return cli; })();`);
+  await assert.rejects(check({ cli: async () => null }, 'deepseek-harness'), /deepseek-harness is not installed/);
+  assert.equal(await check({ cli: async () => '/fixture/dsh' }, 'deepseek-harness'), '/fixture/dsh');
 });

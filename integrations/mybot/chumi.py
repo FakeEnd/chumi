@@ -71,7 +71,8 @@ def iter_chumi_events(path: str) -> Iterator[tuple[str, str, str, dict]]:
                 labels = {"decision": "Decision", "action": "Action", "question": "Open question"}
                 rows = [f"- {labels.get(i.get('kind'), 'Item')}: {i.get('text', '')}" + (f" (owner: {i['owner']})" if i.get("owner") else "") for i in entry.get("items") or []]
                 if rows:
-                    yield "assistant", "Confirmed meeting handoff (reviewed by the user):\n" + "\n".join(rows), str(entry.get("confirmed_at") or ""), entry
+                    label = "Meeting handoff (meeting changed since review; check the source before relying on it)" if (entry.get("freshness") or {}).get("stale") else "Confirmed meeting handoff (reviewed by the user)"
+                    yield "assistant", label + ":\n" + "\n".join(rows), str(entry.get("confirmed_at") or ""), entry
 
 
 def read_header(path: str) -> dict | None:
@@ -97,7 +98,8 @@ class ChumiSourceAdapter(TrajectorySourceAdapter):
 
     def discover_sessions(self, max_files: int = 200) -> list[NormalizedTrajectory]:
         sessions: list[NormalizedTrajectory] = []
-        for path in recent_files([os.path.join(self.base_dir, "*.jsonl")], max_files):
+        candidates = []
+        for path in recent_files([os.path.join(self.base_dir, "*.jsonl")], 0):
             header = read_header(path)
             if not header:
                 continue
@@ -105,6 +107,12 @@ class ChumiSourceAdapter(TrajectorySourceAdapter):
             session_id = self.account.scoped_session_id(raw_session_id)
             if not self.account.include_session(session_id, raw_session_id):
                 continue
+            candidates.append((path, header, raw_session_id, session_id))
+        # Re-exporting old meetings must not push recent meetings out of the index.
+        candidates.sort(key=lambda row: str(row[1].get("ended_at") or row[1].get("started_at") or ""), reverse=True)
+        if max_files > 0:
+            candidates = candidates[:max_files]
+        for path, header, raw_session_id, session_id in candidates:
             turns: list[NormalizedTurn] = []
             summary = ""
             last_ts = ""

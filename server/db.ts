@@ -842,11 +842,13 @@ export class Store {
   recordAgentRead(r: Omit<AgentReadRow, 'id' | 'at'>): void {
     this.db.prepare('INSERT INTO agent_reads(at, client, tool, project_id, session_id, handoff_id, revision, token) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(now(), r.client, r.tool, r.project_id, r.session_id, r.handoff_id, r.revision, r.token);
-    this.db.prepare('DELETE FROM agent_reads WHERE id <= (SELECT MAX(id) - 2000 FROM agent_reads)').run();
+    // Connection verification must survive ordinary read-log rotation.
+    this.db.prepare("DELETE FROM agent_reads WHERE id <= (SELECT MAX(id) - 2000 FROM agent_reads) AND NOT (tool = 'connection_check' AND token IS NOT NULL AND token != '')").run();
   }
-  agentReads(opts: { client?: string; handoffId?: string; token?: string; limit?: number } = {}): AgentReadRow[] {
+  agentReads(opts: { client?: string; handoffId?: string; token?: string; verifiedOnly?: boolean; limit?: number } = {}): AgentReadRow[] {
     const where: string[] = []; const args: Array<string | number> = [];
-    if (opts.client) { where.push('client LIKE ?'); args.push(`%${opts.client}%`); }
+    if (opts.client) { where.push('client = ?'); args.push(opts.client); }
+    if (opts.verifiedOnly) where.push("tool = 'connection_check' AND token IS NOT NULL AND token != ''");
     if (opts.handoffId) { where.push('handoff_id = ?'); args.push(opts.handoffId); }
     if (opts.token) { where.push('token = ?'); args.push(opts.token); }
     return this.db.prepare(`SELECT * FROM agent_reads ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`).all(...args, opts.limit ?? 20) as unknown as AgentReadRow[];
