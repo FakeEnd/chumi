@@ -19,7 +19,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="$REPO_ROOT/build"
 OBJ_DIR="$BUILD_DIR/.intermediates"
 APP="$BUILD_DIR/Chumi.app"
-TARGET="${CHUMI_TARGET:-$(uname -m)-apple-macos14.4}"
+TARGET_ARCH=$(uname -m)
+if [[ "$(sysctl -in hw.optional.arm64 2>/dev/null || true)" == 1 ]]; then TARGET_ARCH=arm64; fi
+TARGET="${CHUMI_TARGET:-$TARGET_ARCH-apple-macos14.4}"
 SIGN_IDENTITY="${CHUMI_SIGN_IDENTITY:--}"
 ENTITLEMENTS="$SCRIPT_DIR/entitlements.plist"
 

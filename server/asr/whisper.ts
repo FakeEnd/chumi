@@ -88,7 +88,7 @@ export class WhisperServer extends EventEmitter<{ state: [AsrState, string | nul
   private async start(): Promise<void> {
     const bin = which('whisper-server');
     if (!bin) { this.setState('missing_binary', process.platform === 'win32' ? 'The speech engine is missing. Reinstall Chumi to restore it.' : 'whisper.cpp is not installed. Run: brew install whisper-cpp'); throw new Error(this.message!); }
-    if (!existsSync(this.modelPath)) { this.setState('missing_model', process.platform === 'win32' ? 'Download the speech model from Home or Transcription settings.' : `Speech model not found at ${this.modelPath}. Run: npm run setup`); throw new Error(this.message!); }
+    if (!existsSync(this.modelPath)) { this.setState('missing_model', 'Download the speech model from Home or Transcription settings.'); throw new Error(this.message!); }
     this.setState('starting', 'Loading speech model…');
     killStale();
     this.port = await freePort(8178);

@@ -27,7 +27,7 @@ export interface Settings {
   audio: { source: 'mic' | 'system' | 'both'; micDeviceUid: string | null; aec: boolean; saveRawAudio: boolean };
   asr: {
     engine: SpeechEngineId; qwenCloud: { baseUrl: string; model: string }; qwenLocal: { baseUrl: string; model: string };
-    model: string; language: 'auto' | 'en' | 'zh'; threads: number; glossary: string[]; chineseScript: 'simplified' | 'original'; diarization: boolean;
+    model: string; modelBaseUrl: string; language: 'auto' | 'en' | 'zh'; threads: number; glossary: string[]; chineseScript: 'simplified' | 'original'; diarization: boolean;
   };
   ai: {
     provider: 'codex' | 'claude-cli' | 'anthropic-api' | 'compatible' | 'mock';

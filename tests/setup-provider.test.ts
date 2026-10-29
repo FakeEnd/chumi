@@ -80,13 +80,13 @@ test('setup does not write settings while a server owns the data directory', () 
   } finally { store.close(); lock.release(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-function runAiStep(dir: string, choice: string) {
+function runAiStep(dir: string, choice: string, failInstall = false) {
   const bin = join(dir, 'bin');
   mkdirSync(bin);
-  for (const name of ['codex', 'claude', 'ollama', 'brew']) {
+  for (const name of ['codex', 'claude', 'ollama', 'brew', 'npm']) {
     const body = name === 'codex' ? 'if [[ $1 == login && ${2:-} == status ]]; then [[ -f "$CHUMI_DATA_DIR/codex-ready" ]] && echo ChatGPT; elif [[ $1 == login ]]; then touch "$CHUMI_DATA_DIR/codex-ready"; fi'
       : name === 'claude' ? 'if [[ $1 == auth && ${2:-} == status ]]; then [[ -f "$CHUMI_DATA_DIR/claude-ready" ]] && echo "{\\"loggedIn\\": true}"; elif [[ $1 == auth && ${2:-} == login ]]; then touch "$CHUMI_DATA_DIR/claude-ready"; fi'
-        : 'exit 0';
+        : failInstall ? 'echo EACCES >&2; exit 1' : 'exit 0';
     writeFileSync(join(bin, name), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
   }
   const setup = readFileSync(join(repo, 'scripts/setup.sh'), 'utf8');
@@ -94,7 +94,8 @@ function runAiStep(dir: string, choice: string) {
   const end = setup.indexOf('step "Final check"', start);
   assert.ok(start >= 0 && end > start);
   const snippet = setup.slice(start, end);
-  return execFileSync('bash', ['-c', `set -euo pipefail\nAI=1 INTERACTIVE=1\nstep() { :; }\nok() { echo "$1"; }\nwarn() { echo "$1"; }\n${snippet}`], {
+  const missing = failInstall ? 'command() { if [[ $1 == -v && ( $2 == codex || $2 == claude || $2 == ollama ) ]]; then return 1; fi; builtin command "$@"; }' : '';
+  return execFileSync('bash', ['-c', `set -euo pipefail\nAI=1 INTERACTIVE=1\nstep() { :; }\nok() { echo "$1"; }\nwarn() { echo "$1"; }\n${missing}\n${snippet}\necho FINAL_CHECK_REACHED`], {
     cwd: repo, env: { ...process.env, CHUMI_DATA_DIR: dir, HOME: dir, PATH: `${bin}:${process.env.PATH}` }, input: `${choice}\n`, encoding: 'utf8',
   });
 }
@@ -158,3 +159,17 @@ test('selecting local enables Ollama when an old profile was disabled', () => {
     assert.equal(saved.profiles.ollama.model, 'my-local-model');
   } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
 });
+
+
+for (const [choice, name] of [['1', 'Codex'], ['2', 'Claude Code'], ['3', 'Ollama']]) {
+  test(`setup continues to the final check when installing ${name} fails`, () => {
+    const dir = folder();
+    try {
+      const output = runAiStep(dir, choice, true);
+      assert.ok(output.includes(`Could not install ${name}`), output);
+      assert.match(output, /FINAL_CHECK_REACHED/);
+      if (choice === '2') assert.match(output, /EACCES.*npm config set prefix/);
+      assert.equal(helper(dir, 'current'), '', 'a failed optional install must not select a provider');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+}

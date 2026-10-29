@@ -6,12 +6,13 @@ import { execFile } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { Store, speakerFields } from './db.ts';
-import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, MODELS_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool, which } from './paths.ts';
+import { AUDIO_DIR, DATA_DIR, FRAMES_DIR, REPO_ROOT, WEB_DIST, ensureDirs, findAudioHelper, findScreenTool, which } from './paths.ts';
 import { crossSiteSource, deepMerge, log, uid } from './util.ts';
 import { WhisperServer } from './asr/whisper.ts';
 import { SpeechService } from './asr/speech.ts';
 import { defaultLocalEngine, ENGINE_NAMES, isSherpaEngine, isKeyedEngine, isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId } from './asr/engines.ts';
-import { MODEL_CATALOG, ModelDownloader, benchmark, hardware, isInstalled, sherpaModelId } from './asr/models.ts';
+import { normalizeModelBaseUrl } from '../shared/model-source.ts';
+import { MODEL_CATALOG, ModelDownloader, benchmark, hardware, hasPartialModel, isInstalled, sherpaModelId } from './asr/models.ts';
 import { ProviderRegistry } from './ai/registry.ts';
 import { Assistant, publicOutput, type CatchupScope, type Selection } from './ai/assistant.ts';
 import { SessionManager, publicFrame } from './session/manager.ts';
@@ -85,7 +86,7 @@ const whisper = new WhisperServer({ model: settings0.asr.model, threads: setting
 const whisperUsable = () => !!which('whisper-server') && isInstalled(store.getSettings().asr.model);
 const speech = new SpeechService(whisper, () => store.getSettings().asr, whisperUsable);
 const registry = new ProviderRegistry(store);
-const downloader = new ModelDownloader();
+const downloader = new ModelDownloader(() => store.getSettings().asr.modelBaseUrl);
 const localModelDownloader = new LocalModelDownloader({
   hardware: () => localHardware(store.getSettings().asr.model), stateFile: join(DATA_DIR, 'local-model-download.json'),
 });
@@ -272,6 +273,9 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   const before = store.getSettings();
   const next = deepMerge(before, patch) as Settings;
   if (patch.asr?.threads !== undefined && (!Number.isInteger(next.asr.threads) || next.asr.threads < 2 || next.asr.threads > ASR_THREAD_LIMIT)) throw new HttpError(400, 'CPU threads must be a whole number between 2 and the smaller of 16 or the number of CPU cores.');
+  if (patch.asr?.modelBaseUrl !== undefined) {
+    try { next.asr.modelBaseUrl = normalizeModelBaseUrl(patch.asr.modelBaseUrl); } catch (error) { throw new HttpError(400, (error as Error).message); }
+  }
   if (patch.asr?.engine !== undefined) next.asr.engineSelected = true;
   if (!isProviderId(next.ai.provider)) throw new HttpError(400, 'Unknown provider');
   // Only a patch that edits the profiles can be rejected for them; a stale saved profile must not block other settings.
@@ -317,6 +321,7 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   }
   try { Object.assign(next, store.saveSettings(next)); }
   catch (error) { throw new HttpError(400, (error as Error).message); }
+  if (before.asr.model !== next.asr.model || before.asr.engine !== next.asr.engine) downloader.discardPartials();
   if (before.assist.autoExplain !== next.assist.autoExplain) assistant.setAutoExplain(next.assist.autoExplain);
   if (before.asr.model !== next.asr.model || before.asr.threads !== next.asr.threads) whisper.configure({ model: next.asr.model, threads: next.asr.threads });
   if (speechChanged || before.asr.threads !== next.asr.threads) speech.configure();
@@ -726,8 +731,8 @@ route('GET', '/api/asr/models', () => {
   const active = store.getSettings().asr.model;
   return {
     hardware: hardware(), recommended: sherpaModelId(defaultLocalEngine()), active,
-    models: MODEL_CATALOG.map((m) => ({ ...m, installed: isInstalled(m.id), active: m.engine ? speech.engine === m.engine : m.id === active })),
-    download: downloader.current,
+    models: MODEL_CATALOG.map((m) => ({ ...m, installed: isInstalled(m.id), partial: hasPartialModel(m.id), active: m.engine ? speech.engine === m.engine : m.id === active })),
+    download: downloader.current, source: downloader.source(),
   };
 });
 route('POST', '/api/asr/setup', () => {
@@ -744,8 +749,8 @@ route('POST', '/api/asr/models/:id/download', (_req, _res, p) => {
 route('POST', '/api/asr/models/:id/cancel', () => { downloader.cancel(); return { ok: true }; });
 route('DELETE', '/api/asr/models/:id', (_req, _res, p) => {
   if (!MODEL_CATALOG.some((m) => m.id === p.id)) throw new HttpError(404, 'Unknown model');
-  if (store.getSettings().asr.model === p.id || MODEL_CATALOG.some((m) => m.id === p.id && m.engine && (speech.engine === m.engine || manager.status !== 'idle'))) throw new HttpError(409, 'This model is in use. Switch to another model first.');
-  rmSync(join(MODELS_DIR, p.id), { recursive: true, force: true });
+  if (isInstalled(p.id) && (store.getSettings().asr.model === p.id || MODEL_CATALOG.some((m) => m.id === p.id && m.engine && (speech.engine === m.engine || manager.status !== 'idle')))) throw new HttpError(409, 'This model is in use. Switch to another model first.');
+  try { downloader.remove(p.id); } catch (error) { throw new HttpError(409, (error as Error).message); }
   return { ok: true };
 });
 route('POST', '/api/asr/benchmark', async () => {

@@ -4,7 +4,7 @@ Speaker analysis runs after capture in a separate local Python process. It group
 
 ## Setup
 
-Run `npm run setup:speakers` (or `bash scripts/setup-speakers.sh`). Python 3.9–3.12 is required; `CHUMI_SPEAKER_SETUP_PYTHON=/absolute/python3` can select it. The script creates `build/speakers/venv`, installs the pinned requirements, downloads and checks the models, then loads both models on CPU to verify installation. It does not modify system Python.
+Run `npm run setup:speakers` (or `bash scripts/setup-speakers.sh`). Python 3.9–3.12 is required. Setup tries versioned Python commands and the macOS Command Line Tools Python before `python3`; if none works, install `python@3.12` with Homebrew. `CHUMI_SPEAKER_SETUP_PYTHON=/absolute/python3` can select it. The script creates `build/speakers/venv`, installs the pinned requirements, downloads and checks the models, then loads both models on CPU to verify installation. It does not modify system Python.
 
 Runtime defaults:
 

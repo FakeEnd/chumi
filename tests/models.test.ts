@@ -2,14 +2,32 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { stripTypeScriptTypes } from 'node:module';
 import type { AddressInfo } from 'node:net';
 
 // A local server stands in for Hugging Face, so tests never download real models.
 const payload = Buffer.alloc(300_000, 7);
+let responseMode = 'normal';
+const ranges: Array<string | undefined> = [];
+const requests: string[] = [];
 const server = createServer((req, res) => {
+  requests.push(req.url ?? '');
+  if (req.url?.endsWith('/ggml-tiny-q5_1.bin')) {
+    ranges.push(req.headers.range);
+    if (responseMode === 'disconnect') {
+      res.writeHead(200, { 'content-length': payload.length }); res.write(payload.subarray(0, 150_000));
+      setTimeout(() => res.destroy(), 30); return;
+    }
+    const offset = Number(req.headers.range?.match(/bytes=(\d+)-/)?.[1] ?? 0);
+    if (offset && responseMode === 'range-not-satisfiable') { res.writeHead(416); res.end(); return; }
+    if ((offset && responseMode !== 'ignore-range') || responseMode === 'always-bad-range') {
+      res.writeHead(206, { 'content-length': payload.length - offset, 'content-range': responseMode === 'malformed-range' ? 'invalid' : `bytes ${responseMode.includes('bad-range') ? offset + 1 : offset}-${payload.length - 1}/${payload.length}` });
+      res.end(payload.subarray(offset)); return;
+    }
+  }
   if ((req.url?.includes('/csukuangfj2/') || req.url?.includes('/csukuangfj/'))) { res.writeHead(200, { 'content-length': payload.length }); res.end(payload); return; }
   if (req.url?.endsWith('/ggml-tiny-q5_1.bin') || req.url?.endsWith('/ggml-medium-q5_0.bin')) { res.writeHead(200, { 'content-length': payload.length }); res.end(payload); return; }
   if (req.url?.endsWith('/ggml-base-q5_1.bin')) { // stalls after half, so it can be cancelled
@@ -25,7 +43,7 @@ const { MODEL_CATALOG, ModelDownloader, recommendModel, textAccuracy, QWEN_MODEL
 // The stand-in tiny model is the payload; every other model keeps its real checksum, which the payload fails.
 MODEL_CATALOG.find((m) => m.id === 'ggml-tiny-q5_1.bin')!.sha256 = createHash('sha256').update(payload).digest('hex');
 
-test.after(() => server.close());
+test.after(() => { server.closeAllConnections(); server.close(); rmSync(modelsDir, { recursive: true, force: true }); });
 
 test('recommends a model that fits the hardware', () => {
   assert.equal(recommendModel({ chip: 'Apple M5 Max', appleSilicon: true, memoryGB: 64, cores: 18 }), 'ggml-large-v3-turbo-q8_0.bin');
@@ -44,6 +62,16 @@ test('text accuracy ignores case, spacing and punctuation', () => {
   assert.equal(textAccuracy('Hello, World!', 'hello world'), 1);
   assert.equal(textAccuracy('我们用三个重复', '我们用三个生物学重复'), 0.7);
   assert.equal(textAccuracy('', 'abc'), 0);
+});
+
+test('Apple Silicon recommendations follow the hardware even under x64 Node', async () => {
+  const { appleSiliconHardware } = await import('../server/asr/models.ts');
+  assert.equal(appleSiliconHardware('darwin', 'x64', () => '1\n'), true);
+  assert.equal(appleSiliconHardware('darwin', 'x64', () => '0\n'), false);
+  assert.equal(appleSiliconHardware('darwin', 'x64', () => { throw new Error('missing'); }), false);
+  assert.equal(appleSiliconHardware('win32', 'arm64', () => '1'), false);
+  assert.equal(appleSiliconHardware('darwin', 'arm64', () => { throw new Error('unused'); }), true);
+  assert.equal(recommendModel({ chip: 'Apple M2', appleSilicon: appleSiliconHardware('darwin', 'x64', () => '1'), memoryGB: 16, cores: 8 }), 'ggml-large-v3-turbo-q8_0.bin');
 });
 
 test('downloads a model to a .part file, then renames it', async () => {
@@ -119,7 +147,13 @@ test('Qwen3 downloads and verifies every file before installing the directory', 
     assert.equal(d.current?.status, 'error');
     assert.match(d.current?.error ?? '', /tokenizer_config.json.*SHA-256/);
     assert.equal(existsSync(dir), false);
-    assert.equal(existsSync(`${dir}.part`), false);
+    assert.equal(existsSync(join(`${dir}.part`, 'tokenizer/tokenizer_config.json')), false);
+    QWEN_FILES[4].sha256 = createHash('sha256').update(payload).digest('hex');
+    const previousRequests = requests.length;
+    await d.start(QWEN_MODEL_ID);
+    assert.equal(d.current?.status, 'done');
+    assert.equal(d.current?.received, payload.length * QWEN_FILES.length);
+    assert.deepEqual(requests.slice(previousRequests).map((url) => url.split('/').at(-1)), ['tokenizer_config.json', 'vocab.json']);
   } finally { QWEN_FILES.forEach((f, i) => Object.assign(f, original[i])); }
 });
 
@@ -157,9 +191,112 @@ test('SenseVoice pins only int8 weights and tokens in its own complete model dir
     assert.equal(d.current?.status, 'error');
     assert.match(d.current?.error ?? '', /tokens.txt.*SHA-256/);
     assert.equal(isInstalled(SENSEVOICE_MODEL_ID), false);
-    assert.equal(existsSync(`${dir}.part`), false);
+    assert.equal(existsSync(join(`${dir}.part`, 'tokens.txt')), false);
   } finally {
     SENSEVOICE_FILES.forEach((f, i) => Object.assign(f, original[i]));
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+
+test('a dropped connection resumes from disk and verifies the complete file', async () => {
+  const part = join(modelsDir, 'ggml-tiny-q5_1.bin.part');
+  responseMode = 'disconnect';
+  const d = new ModelDownloader();
+  try {
+    await d.start('ggml-tiny-q5_1.bin');
+    assert.equal(d.current?.status, 'error');
+    assert.equal(readFileSync(part).length, 150_000);
+    responseMode = 'normal';
+    await new ModelDownloader().start('ggml-tiny-q5_1.bin');
+    assert.equal(ranges.at(-1), 'bytes=150000-');
+    assert.deepEqual(readFileSync(join(modelsDir, 'ggml-tiny-q5_1.bin')), payload);
+    assert.equal(existsSync(part), false);
+  } finally { responseMode = 'normal'; }
+});
+
+for (const mode of ['ignore-range', 'bad-range', 'malformed-range', 'range-not-satisfiable']) {
+  test(`resume handles a mirror that returns ${mode}`, async () => {
+    const part = join(modelsDir, 'ggml-tiny-q5_1.bin.part');
+    writeFileSync(part, payload.subarray(0, 1000));
+    responseMode = mode;
+    try {
+      const d = new ModelDownloader(), before = ranges.length;
+      await d.start('ggml-tiny-q5_1.bin');
+      assert.equal(d.current?.status, 'done');
+      assert.deepEqual(readFileSync(join(modelsDir, 'ggml-tiny-q5_1.bin')), payload);
+      assert.deepEqual(ranges.slice(before), mode === 'ignore-range' ? ['bytes=1000-'] : ['bytes=1000-', undefined]);
+      assert.equal(existsSync(part), false);
+    } finally { responseMode = 'normal'; rmSync(part, { force: true }); }
+  });
+}
+
+test('the downloader uses a saved source without a launch environment variable', async () => {
+  const base = process.env.CHUMI_MODEL_BASE_URL!;
+  delete process.env.CHUMI_MODEL_BASE_URL;
+  try {
+    const d = new ModelDownloader(() => base);
+    await d.start('ggml-tiny-q5_1.bin');
+    assert.equal(d.current?.status, 'done');
+  } finally { process.env.CHUMI_MODEL_BASE_URL = base; }
+});
+
+
+test('an invalid range on the fresh retry stops after one retry and leaves no poisoned partial', async () => {
+  const part = join(modelsDir, 'ggml-tiny-q5_1.bin.part');
+  writeFileSync(part, payload.subarray(0, 1000));
+  responseMode = 'always-bad-range';
+  try {
+    const d = new ModelDownloader(), before = ranges.length;
+    await d.start('ggml-tiny-q5_1.bin');
+    assert.equal(d.current?.status, 'error');
+    assert.deepEqual(ranges.slice(before), ['bytes=1000-', undefined]);
+    assert.equal(existsSync(part), false);
+  } finally { responseMode = 'normal'; }
+});
+
+
+test('deleting a model through the API removes its failed partial, including the selected missing model', () => {
+  const source = readFileSync(new URL('../server/main.ts', import.meta.url), 'utf8');
+  const start = source.indexOf("route('DELETE', '/api/asr/models/:id'");
+  const snippet = source.slice(start, source.indexOf("route('POST'", start));
+  const d = new ModelDownloader(), id = 'ggml-medium-q5_0.bin';
+  let handler!: (...args: any[]) => unknown;
+  new Function('route', 'store', 'MODEL_CATALOG', 'isInstalled', 'downloader', 'HttpError', 'speech', 'manager', stripTypeScriptTypes(snippet))(
+    (_method: string, _path: string, callback: typeof handler) => { handler = callback; }, { getSettings: () => ({ asr: { model: id } }) }, MODEL_CATALOG, isInstalled, d,
+    class extends Error { constructor(_status: number, message: string) { super(message); } }, { engine: 'whisper' }, { status: 'idle' },
+  );
+  writeFileSync(join(modelsDir, `${id}.part`), 'incomplete');
+  assert.deepEqual(handler(null, null, { id }), { ok: true });
+  assert.equal(existsSync(join(modelsDir, `${id}.part`)), false);
+  const info = MODEL_CATALOG.find((m) => m.id === id)!, originalSize = info.sizeMB;
+  try {
+    info.sizeMB = 0;
+    writeFileSync(join(modelsDir, id), 'installed');
+    assert.throws(() => handler(null, null, { id }), /model is in use/);
+  } finally { info.sizeMB = originalSize; d.remove(id); }
+  for (const name of [QWEN_MODEL_ID, `${QWEN_MODEL_ID}.part`]) { mkdirSync(join(modelsDir, name), { recursive: true }); writeFileSync(join(modelsDir, name, 'model'), 'data'); }
+  d.remove(QWEN_MODEL_ID);
+  assert.equal(existsSync(join(modelsDir, QWEN_MODEL_ID)), false);
+  assert.equal(existsSync(join(modelsDir, `${QWEN_MODEL_ID}.part`)), false);
+  assert.throws(() => d.remove('../../elsewhere'), /Unknown model/);
+});
+
+test('switching downloads or models clears old partials while preserving an active download', async () => {
+  const d = new ModelDownloader(), id = 'ggml-base-q5_1.bin';
+  const work = d.start(id);
+  await new Promise<void>((resolve) => { const poll = () => d.current?.received ? resolve() : setTimeout(poll, 10); poll(); });
+  try {
+    writeFileSync(join(modelsDir, 'ggml-tiny-q5_1.bin.part'), 'old');
+    mkdirSync(join(modelsDir, `${SENSEVOICE_MODEL_ID}.part`), { recursive: true });
+    writeFileSync(join(modelsDir, `${SENSEVOICE_MODEL_ID}.part`, 'tokens.txt'), 'old');
+    d.discardPartials();
+    assert.equal(existsSync(join(modelsDir, 'ggml-tiny-q5_1.bin.part')), false);
+    assert.equal(existsSync(join(modelsDir, `${SENSEVOICE_MODEL_ID}.part`)), false);
+    assert.equal(existsSync(join(modelsDir, `${id}.part`)), true);
+    assert.throws(() => d.remove(id), /Cancel this model download/);
+  } finally { d.cancel(); await work; }
+  writeFileSync(join(modelsDir, 'ggml-tiny-q5_1.bin.part'), 'old');
+  await new ModelDownloader().start('ggml-small-q5_1.bin');
+  assert.equal(existsSync(join(modelsDir, 'ggml-tiny-q5_1.bin.part')), false);
 });

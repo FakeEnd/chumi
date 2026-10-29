@@ -16,6 +16,8 @@ The installer is built locally from this branch under `dist/`; it has not been p
 
 ## Audio
 
+Speaker labels are not available in the installed Windows app yet. The optional Python runtime and models are not bundled; the developer `npm run setup:speakers` command does not apply to an installed app.
+
 - **Microphone:** the Windows default input, or a microphone selected in Audio settings. Windows controls access through **Settings → Privacy & security → Microphone → Let desktop apps access your microphone**.
 - **Computer audio:** WASAPI loopback of the current default multimedia output device. It works with speakers or headphones and needs no additional recording permission. It captures all sound routed to that output, including notification sounds.
 - **Both:** separate microphone and computer-audio streams, with the existing transcript duplicate filtering. Use headphones to reduce acoustic echo. This version does not claim software echo cancellation on Windows.

@@ -11,13 +11,40 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
-MODELS="$HOME/Library/Application Support/Chumi/models"
+# Do not replace files while the app or a source server is using them.
+check_chumi_stopped() {
+  local root processes pid command cwd found=0
+  root=$(cd "$1" && pwd -P) || return 1
+  processes=$(ps -ww -axo pid=,command=) || { echo "Could not check whether Chumi is running. Quit Chumi and try again." >&2; return 1; }
+  while read -r pid command; do
+    [[ -n $pid ]] || continue
+    case "$command " in
+      *"$root/server/main.ts "*|*"$root/build/Chumi.app/Contents/MacOS/Chumi "*) ;;
+      *)
+        # Relative commands need their working directory to distinguish another checkout.
+        if [[ ! $command =~ (^|[[:space:]])(\./)?server/main\.ts([[:space:]]|$) && ! $command =~ ^(\./)?build/Chumi\.app/Contents/MacOS/Chumi([[:space:]]|$) ]]; then continue; fi
+        cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p') || cwd=''
+        if [[ -n $cwd ]]; then
+          cwd=$(cd "$cwd" 2>/dev/null && pwd -P) || cwd=''
+          if [[ -n $cwd && $cwd != "$root" ]]; then continue; fi
+        fi
+        if [[ -z $cwd ]]; then echo "Could not determine the working directory of PID $pid; check this process before updating." >&2; fi ;;
+    esac
+    printf 'Chumi update blocked by PID %s: %s\n' "$pid" "$command" >&2
+    found=1
+  done < <(printf '%s\n' "$processes" | awk '/Chumi[.]app\/Contents\/MacOS\/Chumi([[:space:]]|$)/ || (/(^|[[:space:]\/])node([[:space:]]|$)/ && /server\/main[.]ts([[:space:]]|$)/)')
+  if [[ $found == 1 ]]; then
+    echo "Finish any active meeting, quit Chumi (or stop npm start), then run this command again." >&2
+    return 1
+  fi
+}
+MODELS="${CHUMI_MODELS_DIR:-$HOME/Library/Application Support/Chumi/models}"
 
-YES=0 SAMPLE=0 AI=1
+YES=0 SAMPLE=0 AI=1 MIRROR=0
 for arg in "$@"; do
   case $arg in
     -y|--yes) YES=1 ;;
-    --mirror) export CHUMI_MODEL_BASE_URL="${CHUMI_MODEL_BASE_URL:-https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main}" ;;
+    --mirror) MIRROR=1; export CHUMI_MODEL_BASE_URL="${CHUMI_MODEL_BASE_URL:-https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main}" ;;
     --sample) SAMPLE=1 ;;
     --no-ai) AI=0 ;;
     -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -50,19 +77,25 @@ echo "It takes about 5–15 minutes, mostly downloads. Nothing is sent anywhere 
 # ----------------------------------------------------------------------------------------------------------------
 step "Checking this Mac"
 [[ "$(uname -s)" == "Darwin" ]] || fail "This setup is for macOS." "On Windows, use the desktop app or scripts/setup.ps1 (see docs/windows.md). Linux is not supported yet."
+check_chumi_stopped "$ROOT"
 OS=$(sw_vers -productVersion)
 version_ge "$OS" "14.4" || fail "Chumi needs macOS 14.4 or later (this Mac has $OS)." "Update in System Settings → General → Software Update, then run this again."
 ok "macOS $OS"
-if [[ "$(uname -m)" == "arm64" ]]; then ok "Apple Silicon"; else warn "This is an Intel Mac: Chumi works, but speech recognition is slower. Settings → Transcription can pick a smaller model."; fi
+APPLE_SILICON=$(sysctl -in hw.optional.arm64 2>/dev/null || true)
+if [[ $APPLE_SILICON == 1 ]]; then ok "Apple Silicon"; else warn "This is an Intel Mac: Chumi works, but speech recognition is slower. Settings → Transcription can pick a smaller model."; fi
 
-if xcode-select -p >/dev/null 2>&1 && command -v swiftc >/dev/null; then
+tools_ready() { CLT_OUTPUT=$(xcrun --find swiftc 2>&1 && xcrun swiftc -version 2>&1); }
+tools_license() { [[ $CLT_OUTPUT == *license* || $CLT_OUTPUT == *License* ]]; }
+if tools_ready; then
   ok "Xcode Command Line Tools"
 else
-  warn "The Xcode Command Line Tools are missing (needed to build Chumi's audio helper)."
+  if tools_license; then fail "The Xcode license needs to be accepted." "Run: sudo xcodebuild -license accept, then run setup again."; fi
+  warn "The Xcode Command Line Tools are missing or cannot run (needed to build Chumi's audio helper)."
   if [[ $INTERACTIVE == 1 ]] && ask "Open Apple's installer for them now?"; then
     xcode-select --install >/dev/null 2>&1 || true
     echo "  A macOS window opened. Click Install and wait until it finishes (a few minutes)."
-    until xcode-select -p >/dev/null 2>&1 && command -v swiftc >/dev/null; do
+    until tools_ready; do
+      if tools_license; then fail "The Xcode license needs to be accepted." "Run: sudo xcodebuild -license accept, then run setup again."; fi
       read -r -p "  Press Return when the installer has finished (or Ctrl-C to stop) " _ || exit 1
     done
     ok "Xcode Command Line Tools"
@@ -103,21 +136,34 @@ else
   fi
 fi
 
+if [[ $APPLE_SILICON == 1 && "$(node -p 'process.arch')" != arm64 ]]; then
+  warn "Node.js is running under Rosetta on Apple Silicon. Use arm64 Homebrew: /opt/homebrew/bin/brew install node; put /opt/homebrew/bin first on PATH, then rerun setup."
+fi
+
 # ----------------------------------------------------------------------------------------------------------------
 step "Local speech recognition"
 if command -v whisper-server >/dev/null; then ok "whisper.cpp"; else echo "  Installing whisper.cpp with Homebrew…"; brew install whisper-cpp; ok "whisper.cpp"; fi
 
-MODEL=$(node --input-type=module -e "import('./server/asr/models.ts').then((m) => console.log(m.recommendModel()))")
+if [[ $APPLE_SILICON == 1 ]] && ! file -b "$(command -v whisper-server)" | grep -q arm64; then
+  warn "whisper.cpp may be running under Rosetta. Install its Apple Silicon build with /opt/homebrew/bin/brew install whisper-cpp, and put /opt/homebrew/bin first on PATH."
+fi
+
+BASE=$(node scripts/setup-model.ts base "${CHUMI_MODEL_BASE_URL:-}")
+ok "Speech model download source: $BASE"
+MODEL=$(node scripts/setup-model.ts model)
 installed() { node --input-type=module -e "import('./server/asr/models.ts').then((m) => process.exit(m.isInstalled('$MODEL') ? 0 : 1))"; }
 if installed; then
   ok "Speech model $MODEL"
 else
-  BASE="${CHUMI_MODEL_BASE_URL:-https://huggingface.co/ggerganov/whisper.cpp/resolve/main}"
-  if [[ -z ${CHUMI_MODEL_BASE_URL:-} ]] && ! curl -sfI --max-time 8 -o /dev/null "$BASE/$MODEL"; then
+  if [[ $BASE == https://huggingface.co/ggerganov/whisper.cpp/resolve/main ]] && ! curl -sfI --max-time 8 -o /dev/null "$BASE/$MODEL"; then
     warn "huggingface.co did not answer."
-    if ask "Download from the hf-mirror.com copy instead?"; then BASE="https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main"; fi
+    if [[ $INTERACTIVE == 1 ]] && ask "Download from the hf-mirror.com copy instead?"; then
+      BASE=$(node scripts/setup-model.ts base "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main")
+    else
+      warn "To use the hf-mirror.com copy, rerun setup with --mirror, or choose it in Settings → Transcription → Download source."
+    fi
   fi
-  echo "  Downloading $MODEL (the one that suits this Mac; other sizes are in Settings → Transcription)."
+  echo "  Downloading $MODEL (your configured Whisper model; other sizes are in Settings → Transcription)."
   echo "  ${D}If it stops, run setup again: the download resumes.${N}"
   mkdir -p "$MODELS"
   curl -L --fail --retry 3 -C - --progress-bar -o "$MODELS/$MODEL.part" "$BASE/$MODEL" \
@@ -134,16 +180,19 @@ else
 fi
 
 # ----------------------------------------------------------------------------------------------------------------
+check_chumi_stopped "$ROOT"
 step "Building Chumi"
 # Build output goes to a log; it is shown only if a step fails.
 mkdir -p "$ROOT/build"; LOG="$ROOT/build/setup.log"; : > "$LOG"
 quietly() {
   local label=$1; shift
-  echo "  $label…"
+  echo "  ${label}…"
   if ! "$@" >>"$LOG" 2>&1; then tail -25 "$LOG" | sed 's/^/    /'; fail "$label failed." "The full output is in $LOG"; fi
 }
 # npm ci installs exactly package-lock.json and never rewrites it, so a later `git pull --ff-only` still works.
-quietly "Installing JavaScript packages" npm ci --no-audit --no-fund
+NPM_ARGS=(ci --no-audit --no-fund)
+if [[ $MIRROR == 1 ]]; then NPM_ARGS+=(--registry=https://registry.npmmirror.com); fi
+quietly "Installing JavaScript packages" npm "${NPM_ARGS[@]}"
 quietly "Building the interface" npm run build:web
 quietly "Building the audio helper and Chumi.app" bash native/build.sh
 ok "Chumi.app is in $ROOT/build"
@@ -188,19 +237,39 @@ else
   if [[ $INTERACTIVE == 1 ]]; then read -r -p "  Choose 1–4 [4]: " choice || choice=4; choice=${choice:-4}; fi
   case $choice in
     1)
-      command -v codex >/dev/null || { echo "  Installing Codex with Homebrew…"; brew install codex; }
-      echo "  Signing in: choose \"Sign in with ChatGPT\" in the browser window."
-      codex login || warn "Not signed in yet. Run: codex login"
-      if codex_ready; then ok "ChatGPT plan connected"; use_provider codex; fi ;;
+      if ! command -v codex >/dev/null; then
+        echo "  Installing Codex with Homebrew…"
+        if ! brew install codex; then warn "Could not install Codex. Chumi is built; retry later with: brew install codex, then codex login."; fi
+      fi
+      if command -v codex >/dev/null; then
+        echo "  Signing in: choose \"Sign in with ChatGPT\" in the browser window."
+        codex login || warn "Not signed in yet. Run: codex login"
+        if codex_ready; then ok "ChatGPT plan connected"; use_provider codex; fi
+      fi ;;
     2)
-      command -v claude >/dev/null || { echo "  Installing Claude Code…"; npm install -g @anthropic-ai/claude-code --loglevel=error; hash -r; }
-      echo "  Signing in with your Claude Pro or Max account in the browser window."
-      claude auth login || warn "Not signed in yet. Run: claude auth login"
-      if claude_ready; then ok "Claude plan connected"; use_provider claude-cli; fi ;;
+      if ! command -v claude >/dev/null; then
+        echo "  Installing Claude Code…"
+        if ! npm install -g @anthropic-ai/claude-code --loglevel=error; then
+          warn "Could not install Claude Code. Chumi is built; you can connect an AI later in Settings."
+          warn "For EACCES, use a writable npm prefix: npm config set prefix ~/.npm-global; add ~/.npm-global/bin to PATH, then retry the install."
+        fi
+        hash -r
+      fi
+      if command -v claude >/dev/null; then
+        echo "  Signing in with your Claude Pro or Max account in the browser window."
+        claude auth login || warn "Not signed in yet. Run: claude auth login"
+        if claude_ready; then ok "Claude plan connected"; use_provider claude-cli; fi
+      fi ;;
     3)
-      command -v ollama >/dev/null || { echo "  Installing Ollama with Homebrew…"; brew install ollama; }
-      brew services start ollama >/dev/null 2>&1 || true
-      use_provider compatible
+      ollama_installed=1
+      if ! command -v ollama >/dev/null; then
+        echo "  Installing Ollama with Homebrew…"
+        if ! brew install ollama; then ollama_installed=0; warn "Could not install Ollama. Chumi is built; retry later with: brew install ollama."; fi
+      fi
+      if [[ $ollama_installed == 1 ]] && command -v ollama >/dev/null; then
+        brew services start ollama >/dev/null 2>&1 || true
+        use_provider compatible
+      fi
       echo "  In Chumi, open Settings → AI provider → Other models: local or API → Ollama,"
       echo "    and click Download recommended model: it picks one that fits this Mac." ;;
     *) echo "  Later: open Chumi, and the Get Chumi ready checklist on Home shows what to do." ;;

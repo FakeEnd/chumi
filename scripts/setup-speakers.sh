@@ -3,16 +3,34 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 SPEAKER_ROOT="$PWD/build/speakers"
-SPEAKER_PYTHON="${CHUMI_SPEAKER_SETUP_PYTHON:-python3}"
+supported_python() { "$1" -c 'import sys; sys.exit(0 if (3, 9) <= sys.version_info < (3, 13) else 1)' >/dev/null 2>&1; }
+choose_speaker_python() {
+  local candidate
+  if [[ -n ${CHUMI_SPEAKER_SETUP_PYTHON:-} ]]; then
+    if supported_python "$CHUMI_SPEAKER_SETUP_PYTHON"; then echo "$CHUMI_SPEAKER_SETUP_PYTHON"; return; fi
+    echo "CHUMI_SPEAKER_SETUP_PYTHON needs Python 3.9–3.12 (found: $("$CHUMI_SPEAKER_SETUP_PYTHON" --version 2>&1 || true))." >&2
+  else
+    for candidate in python3.12 python3.11 python3.10 /usr/bin/python3 python3.9 python3; do
+      if supported_python "$candidate"; then command -v "$candidate"; return; fi
+    done
+    echo "Speaker labels need Python 3.9–3.12 (python3 reports: $(python3 --version 2>&1 || true))." >&2
+  fi
+  echo "Install it with: brew install python@3.12, then rerun setup. To choose it explicitly, set CHUMI_SPEAKER_SETUP_PYTHON to its executable path." >&2
+  return 1
+}
+SPEAKER_PYTHON=$(choose_speaker_python)
 SPEAKER_MODELS="${CHUMI_SPEAKER_MODELS:-$SPEAKER_ROOT/models}"
 SPEAKER_ARCHIVE="sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"
 SPEAKER_EMBEDDING="3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
 SPEAKER_RELEASE="https://github.com/k2-fsa/sherpa-onnx/releases/download"
 mkdir -p "$SPEAKER_ROOT/downloads" "$SPEAKER_MODELS"
 
-"$SPEAKER_PYTHON" -c 'import sys; assert (3, 9) <= sys.version_info < (3, 13), "Use Python 3.9–3.12 (CHUMI_SPEAKER_SETUP_PYTHON can select it)."'
 if [[ ! -x "$SPEAKER_ROOT/venv/bin/python3" ]]; then
   "$SPEAKER_PYTHON" -m venv "$SPEAKER_ROOT/venv"
+fi
+if ! supported_python "$SPEAKER_ROOT/venv/bin/python3"; then
+  echo "The existing build/speakers/venv needs Python 3.9–3.12. Remove that virtual environment and rerun setup." >&2
+  exit 1
 fi
 "$SPEAKER_ROOT/venv/bin/python3" -m pip install --disable-pip-version-check --cache-dir "$SPEAKER_ROOT/pip-cache" --only-binary=:all: -r scripts/requirements-speakers.txt
 

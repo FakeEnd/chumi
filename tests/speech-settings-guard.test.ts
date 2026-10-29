@@ -7,6 +7,7 @@ import { Store } from '../server/db.ts';
 import { deepMerge } from '../server/util.ts';
 import { ASR_THREAD_LIMIT, EFFORTS, PET_TAGS, isProviderId, type Settings } from '../server/settings.ts';
 import { validateCompatibleSettings } from '../shared/compatible-provider.ts';
+import { MODEL_MIRROR_URL, normalizeModelBaseUrl } from '../shared/model-source.ts';
 import { isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId } from '../server/asr/engines.ts';
 import { speechEngineChanged, speechRestartRequired } from '../server/asr/settings-guard.ts';
 import { validateMybotDirectory } from '../server/mybot-export.ts';
@@ -26,7 +27,8 @@ function fixture(status: LiveStatus, initial: Record<string, unknown> = {}, over
   const calls: string[] = [];
   const deps = {
     ASR_THREAD_LIMIT, MODEL_CATALOG, store, manager: { status }, deepMerge, isProviderId, validateCompatibleSettings, EFFORTS, PET_TAGS, isInstalled: () => true,
-    HttpError, isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId,
+    HttpError, isSpeechEngine, normalizeLocalAsrUrl, normalizeQwenCloudUrl, speechModelId, normalizeModelBaseUrl,
+    downloader: { discardPartials: () => calls.push('discardPartials') },
     speechEngineChanged, speechRestartRequired, speakerRuntime: () => ({ ready: true }), DEV: true,
     assistant: { setAutoExplain: () => {} }, whisper: { configure: () => calls.push('whisper') },
     speech: { configure: () => calls.push('speech') }, hotkey: { configure: () => {} }, mybot: { exportAll: () => {} },
@@ -80,7 +82,23 @@ test('idle changes save and reconfigure exactly the relevant speech service', ()
     assert.deepEqual(f.calls, ['whisper', 'speech', 'settings']);
     f.calls.length = 0;
     assert.equal(f.apply({ asr: { engine: 'qwen-local' } }).asr.engine, 'qwen-local');
-    assert.deepEqual(f.calls, ['speech', 'settings']);
+    assert.deepEqual(f.calls, ['discardPartials', 'speech', 'settings']);
+    f.calls.length = 0;
+    const model = f.store.getSettings().asr.model === 'ggml-small-q5_1.bin' ? 'ggml-base-q5_1.bin' : 'ggml-small-q5_1.bin';
+    assert.equal(f.apply({ asr: { model } }).asr.model, model);
+    assert.deepEqual(f.calls, ['discardPartials', 'whisper', 'settings']);
+  } finally { f.store.close(); }
+});
+
+test('changing the download source validates it without restarting speech or discarding resumable bytes', () => {
+  const f = fixture('recording');
+  try {
+    const before = f.store.getSettings();
+    assert.throws(() => f.apply({ asr: { modelBaseUrl: 'file:///tmp/models' } }), (e: unknown) => e instanceof HttpError && e.status === 400);
+    assert.deepEqual(f.store.getSettings(), before);
+    assert.deepEqual(f.calls, []);
+    assert.equal(f.apply({ asr: { modelBaseUrl: `${MODEL_MIRROR_URL}/` } }).asr.modelBaseUrl, MODEL_MIRROR_URL);
+    assert.deepEqual(f.calls, ['settings']);
   } finally { f.store.close(); }
 });
 

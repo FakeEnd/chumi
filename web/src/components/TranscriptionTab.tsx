@@ -6,14 +6,16 @@ import { getLang, t, tn } from '../i18n.ts';
 import { SpeakerSettings } from './Speakers.tsx';
 import { SpeechEngineSettings } from './SpeechEngineSettings.tsx';
 import { maxAsrThreads, threadDraftValue } from '../../../shared/asr-threads.ts';
+import { MODEL_BASE_URL, MODEL_MIRROR_URL, modelSourceName, type ModelDownloadSource } from '../../../shared/model-source.ts';
 import { speechSettingsBusy } from '../speechSettings.ts';
 
 interface ModelRow {
   engine?: 'qwen3' | 'sensevoice';
   id: string; name: string; sizeMB: number; speed: number; accuracy: number; minRamGB: number;
-  note: { en: string; zh: string }; installed: boolean; active: boolean;
+  note: { en: string; zh: string }; installed: boolean; active: boolean; partial: boolean;
 }
 interface ModelList {
+  source: ModelDownloadSource;
   hardware: { chip: string; appleSilicon: boolean; memoryGB: number; cores: number; gpu?: { name: string; memoryGB: number } | null };
   recommended: string; active: string; models: ModelRow[];
   download: { id: string; received: number; total: number; status: string; error?: string } | null;
@@ -57,9 +59,12 @@ export function TranscriptionTab() {
   const [bench, setBench] = useState<{ running: boolean; model?: string; results?: BenchResult[]; error?: string }>({ running: false });
   const busySession = speechSettingsBusy(live);
   const load = () => void api<ModelList>('/api/asr/models').then(setList).catch(() => {});
-  useEffect(load, [settings.asr.model, settings.asr.engine, download?.status]);
+  // Reload when the source changes and whenever a download stops (or disappears after a server restart), so a stale 'downloading' entry can't linger.
+  useEffect(load, [settings.asr.model, settings.asr.engine, settings.asr.modelBaseUrl, download?.status]);
   const dl = download?.status === 'downloading' ? download : null;
   const S = saveSettings;
+  const source = list?.source.fromEnvironment ? list.source : list ? { baseUrl: settings.asr.modelBaseUrl || MODEL_BASE_URL, fromEnvironment: false } : null;
+  const sourceName = source ? modelSourceName(source.baseUrl) : '';
 
   const runBench = () => {
     setBench({ running: true });
@@ -78,6 +83,14 @@ export function TranscriptionTab() {
       <SpeakerSettings />
 
       <h3>{t('Local speech models')}</h3>
+      {source && <label className="field"><span>{t('Download source')}</span>
+        <select value={source.baseUrl} disabled={!!dl || source.fromEnvironment} onChange={(e) => void S({ asr: { modelBaseUrl: e.target.value } })}>
+          <option value={MODEL_BASE_URL}>{t('Hugging Face')}</option>
+          <option value={MODEL_MIRROR_URL}>{t('hf-mirror.com')}</option>
+          {![MODEL_BASE_URL, MODEL_MIRROR_URL].includes(source.baseUrl) && <option value={source.baseUrl}>{sourceName}</option>}
+        </select>
+        {source.fromEnvironment && <span className="muted small">{t('Set by CHUMI_MODEL_BASE_URL. Change that variable and restart Chumi to use another source.')}</span>}
+      </label>}
       {hw && (
         <p className="small">
           {hw.appleSilicon ? t('This Mac: {chip} · {mem} GB memory.', { chip: hw.chip, mem: hw.memoryGB }) : t('This computer: {chip} · {mem} GB memory.', { chip: hw.gpu ? `${hw.chip} · ${hw.gpu.name}` : hw.chip, mem: hw.memoryGB })}{' '}
@@ -109,13 +122,14 @@ export function TranscriptionTab() {
                 {downloading && (
                   <div className="model-progress"><span className="quota-bar"><span style={{ width: `${pct}%` }} /></span><span className="small muted">{dl!.total ? `${pct}% · ${fmtSize(dl!.received / 1048576)} / ${fmtSize(dl!.total / 1048576)}` : t('Starting download…')}</span></div>
                 )}
-                {download?.id === m.id && download.status === 'error' && <div className="error-text small">{t('Download failed: {error}', { error: download.error ?? '' })}</div>}
+                {download?.id === m.id && download.status === 'error' && <div className="error-text small">{t('Download failed: {error}', { error: t(download.error ?? '') })}</div>}
               </div>
               <div className="model-actions">
                 {m.installed && !m.active && <button className="btn small primary" disabled={busySession} title={busySession ? t('End the current session before switching the speech model.') : ''} onClick={() => void S({ asr: m.engine ? { engine: m.engine } : { model: m.id } })}>{t('Use')}</button>}
                 {!m.installed && !downloading && (
-                  <button className="btn small" disabled={!!dl} onClick={() => { if (confirm(t('Download {name} ({size}) from Hugging Face? It is saved on this computer.', { name: m.name, size: fmtSize(m.sizeMB) }))) void api(`/api/asr/models/${m.id}/download`, { body: {} }); }}>{t('Download')} · {fmtSize(m.sizeMB)}</button>
+                  <button className="btn small" disabled={!!dl || !source} onClick={() => { if (confirm(t('Download {name} ({size}) from {source}? It is saved on this computer.', { name: m.name, size: fmtSize(m.sizeMB), source: sourceName }))) void api(`/api/asr/models/${m.id}/download`, { body: {} }); }}>{t('Download')} · {fmtSize(m.sizeMB)}</button>
                 )}
+                {!m.installed && m.partial && !downloading && <button className="btn small ghost" onClick={() => { if (confirm(t('Discard the partial download of {name}? A retry will start from the beginning.', { name: m.name }))) void api(`/api/asr/models/${m.id}`, { method: 'DELETE' }).then(load); }}>{t('Discard partial download')}</button>}
                 {downloading && <button className="btn small" onClick={() => void api(`/api/asr/models/${m.id}/cancel`, { body: {} })}>{t('Cancel')}</button>}
                 {m.installed && !m.active && <button className="btn small ghost" onClick={() => { if (confirm(t('Delete {name} from this computer? You can download it again later.', { name: m.name }))) void api(`/api/asr/models/${m.id}`, { method: 'DELETE' }).then(load); }}>{t('Delete')}</button>}
               </div>

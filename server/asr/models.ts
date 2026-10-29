@@ -1,7 +1,7 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -11,12 +11,14 @@ import { toSimplified } from './clean.ts';
 import { readWav } from '../audio/wav.ts';
 import { type SherpaEngineId } from './engines.ts';
 import type { SpeechService } from './speech.ts';
+import { MODEL_BASE_URL, type ModelDownloadSource } from '../../shared/model-source.ts';
+export { MODEL_BASE_URL } from '../../shared/model-source.ts';
 
 /**
  * Local sherpa-onnx and whisper.cpp models from Hugging Face. A mirror must serve the same files:
  * every download is checked against the SHA-256 in MODEL_CATALOG.
  */
-const BASE_URL = process.env.CHUMI_MODEL_BASE_URL || 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
+export const modelBaseUrl = (saved = '') => (process.env.CHUMI_MODEL_BASE_URL || saved || MODEL_BASE_URL).replace(/\/+$/, '');
 
 export interface ModelInfo {
   id: string;            // file or directory name
@@ -56,7 +58,7 @@ export const SENSEVOICE_FILES = [
 
 export const sherpaModelId = (engine: SherpaEngineId): string => engine === 'qwen3' ? QWEN_MODEL_ID : SENSEVOICE_MODEL_ID;
 
-export function modelDownloadBase(info: ModelInfo, base = BASE_URL): string {
+export function modelDownloadBase(info: ModelInfo, base = modelBaseUrl()): string {
   if (!info.repo) return base;
   const mirror = base.replace(/\/ggerganov\/whisper\.cpp\/resolve\/[^/]+\/?$/, '');
   return `${mirror}/${info.repo}/resolve/${info.revision}`;
@@ -106,8 +108,15 @@ function nvidiaGpu(): Hardware['gpu'] {
   return gpuCache;
 }
 
+export function appleSiliconHardware(platform = process.platform, arch: string = process.arch, probe = () => execFileSync('/usr/sbin/sysctl', ['-in', 'hw.optional.arm64'], { encoding: 'utf8', timeout: 5000 })): boolean {
+  if (platform !== 'darwin') return false;
+  if (arch === 'arm64') return true;
+  try { return probe().trim() === '1'; } catch { return false; }
+}
+
+let siliconCache: boolean | undefined;
 export function hardware(): Hardware {
-  return { chip: os.cpus()[0]?.model ?? 'unknown', appleSilicon: process.platform === 'darwin' && os.arch() === 'arm64', memoryGB: Math.round(os.totalmem() / 2 ** 30), cores: os.cpus().length, gpu: nvidiaGpu() };
+  return { chip: os.cpus()[0]?.model ?? 'unknown', appleSilicon: siliconCache ??= appleSiliconHardware(), memoryGB: Math.round(os.totalmem() / 2 ** 30), cores: os.cpus().length, gpu: nvidiaGpu() };
 }
 
 /** Pick a Whisper backup model that this computer runs comfortably in real time. */
@@ -130,17 +139,38 @@ export function isInstalled(id: string): boolean {
   return !info || statSync(file).size > info.sizeMB * 1048576 * 0.97;
 }
 
+export function hasPartialModel(id: string): boolean { return MODEL_CATALOG.some((m) => m.id === id) && existsSync(join(MODELS_DIR, `${id}.part`)); }
+
 export interface DownloadState { id: string; received: number; total: number; status: 'downloading' | 'done' | 'error' | 'cancelled'; error?: string }
 
 /** One model download at a time, streamed to <file>.part and renamed only when complete and its SHA-256 matches. */
 export class ModelDownloader extends EventEmitter<{ progress: [DownloadState] }> {
   current: DownloadState | null = null;
   private controller: AbortController | null = null;
+  private savedBase: () => string;
+
+  constructor(savedBase: () => string = () => '') { super(); this.savedBase = savedBase; }
+
+  source(): ModelDownloadSource { return { baseUrl: modelBaseUrl(this.savedBase()), fromEnvironment: !!process.env.CHUMI_MODEL_BASE_URL }; }
+
+  discardPartials(keepId?: string): void {
+    for (const { id } of MODEL_CATALOG) {
+      if (id === keepId || (this.current?.status === 'downloading' && this.current.id === id)) continue;
+      rmSync(join(MODELS_DIR, `${id}.part`), { recursive: true, force: true });
+    }
+  }
+
+  remove(id: string): void {
+    if (!MODEL_CATALOG.some((m) => m.id === id)) throw new Error('Unknown model');
+    if (this.current?.id === id && this.current.status === 'downloading') throw new Error('Cancel this model download before deleting it.');
+    for (const name of [id, `${id}.part`]) rmSync(join(MODELS_DIR, name), { recursive: true, force: true });
+  }
 
   async start(id: string): Promise<void> {
     const info = MODEL_CATALOG.find((m) => m.id === id);
     if (!info) throw new Error('Unknown model');
     if (this.current?.status === 'downloading') throw new Error('Another model is already downloading.');
+    this.discardPartials(id);
     if (isInstalled(id)) return;
     mkdirSync(MODELS_DIR, { recursive: true });
     const part = join(MODELS_DIR, `${id}.part`);
@@ -155,23 +185,51 @@ export class ModelDownloader extends EventEmitter<{ progress: [DownloadState] }>
       for (const file of files) {
         const target = info.files ? join(part, file.path) : part;
         mkdirSync(dirname(target), { recursive: true });
-        const base = modelDownloadBase(info);
-        const res = await fetch(`${base}/${file.path}`, { signal: this.controller.signal, redirect: 'follow' });
-        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-        const total = file.bytes || Number(res.headers.get('content-length') ?? 0);
+        let offset = existsSync(target) ? statSync(target).size : 0;
+        let hash = createHash('sha256');
+        if (offset) {
+          for await (const chunk of createReadStream(target)) { this.controller.signal.throwIfAborted(); hash.update(chunk); }
+          // Completed files in a multi-file download need no second network request.
+          if (hash.copy().digest('hex') === file.sha256) { state.received += offset; if (!info.files) state.total = offset; emit(true); continue; }
+          if (file.bytes && offset >= file.bytes) { rmSync(target); offset = 0; hash = createHash('sha256'); }
+        }
+        const base = modelDownloadBase(info, modelBaseUrl(this.savedBase()));
+        const request = () => fetch(`${base}/${file.path}`, { signal: this.controller!.signal, redirect: 'follow', headers: offset ? { Range: `bytes=${offset}-` } : {} });
+        let res = await request();
+        const contentRange = () => {
+          const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(res.headers.get('content-range') ?? '');
+          return range && Number(range[1]) === offset && Number(range[2]) >= offset && Number(range[2]) < Number(range[3]) && (!file.bytes || Number(range[3]) === file.bytes) ? range : null;
+        };
+        if (res.status === 416 || (res.status === 206 && !contentRange())) {
+          // A stale partial or a broken Range response must not trap every retry at the same offset.
+          await res.body?.cancel();
+          rmSync(target, { force: true }); offset = 0; hash = createHash('sha256');
+          res = await request();
+        }
+        if (!res.ok || !res.body) { await res.body?.cancel(); throw new Error(`HTTP ${res.status}`); }
+        let total = file.bytes || Number(res.headers.get('content-length') ?? 0);
+        if (res.status === 206) {
+          const range = contentRange();
+          if (!range) { await res.body.cancel(); throw new Error('Invalid download range. Retry to continue downloading.'); }
+          total = Number(range[3]);
+        } else if (res.status === 200) {
+          // Some mirrors ignore Range. Start afresh rather than appending a second full file.
+          offset = 0; hash = createHash('sha256');
+        } else { await res.body.cancel(); throw new Error(`HTTP ${res.status}`); }
         if (!info.files) state.total = total;
+        state.received += offset;
         emit(true);
-        const hash = createHash('sha256');
         const counter = new TransformStream<Uint8Array, Uint8Array>({ transform: (chunk, ctl) => { state.received += chunk.byteLength; hash.update(chunk); emit(); ctl.enqueue(chunk); } });
-        await pipeline(Readable.fromWeb(res.body.pipeThrough(counter) as never), createWriteStream(target), { signal: this.controller.signal });
+        await pipeline(Readable.fromWeb(res.body.pipeThrough(counter) as never), createWriteStream(target, { flags: offset ? 'a' : 'w' }), { signal: this.controller.signal });
         if (total && statSync(target).size !== total) throw new Error('Download incomplete');
-        if (hash.digest('hex') !== file.sha256) throw new Error(`${file.path} does not match its published SHA-256 checksum`);
+        if (hash.digest('hex') !== file.sha256) { rmSync(target); throw new Error(`${file.path} does not match its published SHA-256 checksum`); }
       }
       rmSync(join(MODELS_DIR, id), { recursive: true, force: true });
       renameSync(part, join(MODELS_DIR, id));
       state.status = 'done';
     } catch (e) {
-      rmSync(part, { recursive: true, force: true });
+      // Network failures retain verified files and partial bytes for the next attempt.
+      if (this.controller.signal.aborted) rmSync(part, { recursive: true, force: true });
       state.status = this.controller.signal.aborted ? 'cancelled' : 'error';
       state.error = (e as Error).message;
     } finally {

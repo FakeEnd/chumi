@@ -16,6 +16,8 @@ const displaySpeaker = (speaker: Speaker) => speaker.name ? `${speaker.name} · 
 const errorText = (error: unknown) => error instanceof Error ? error.message : t('Could not update speaker labels.');
 
 function RuntimeSetup({ runtime }: { runtime: SpeakerRuntime }) {
+  const windowsApp = useStore((s) => s.appMode && s.platform === 'win32');
+  if (windowsApp && !runtime.ready) return <p className="small warn-text">{t('Speaker labels are not available in the Windows app yet.')}</p>;
   return <>
     <p className={runtime.ready ? 'small ok-text' : 'small warn-text'}>{runtime.ready ? t('Local speaker model is ready.') : t('Local speaker labeling is not ready.')}</p>
     {!runtime.ready && <>
