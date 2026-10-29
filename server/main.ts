@@ -60,9 +60,8 @@ const DEV = !!process.env.CHUMI_DEV;
 /** Dev only, for recordings and trials: Continue does everything except the OS open (Terminal, Codex app) and logs it. */
 const NO_LAUNCH = DEV && process.env.CHUMI_NO_LAUNCH === '1';
 // The existing desktop listener stays loopback-only. Mobile access is a separate opt-in TLS gateway.
-const mobileConfig = process.env.CHUMI_MOBILE === '1'
-  ? loadMobileConfiguration(join(DATA_DIR, 'mobile', 'companion.json')) : null;
 let mobileServer: Awaited<ReturnType<typeof startMobileServer>> | null = null;
+let mobileStartNotice: { level: 'error'; code: 'mobile_start_failed'; message: string } | null = null;
 
 // Reserve both the data folder and the port before any crash recovery can change stored meetings.
 const dataLock = acquireDataDirectoryLock(DATA_DIR);
@@ -365,6 +364,7 @@ route('GET', '/api/state', async () => {
 route('GET', '/api/events', (req, res) => {
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
   res.write(`event: hello\ndata: ${JSON.stringify({ live: manager.state() })}\n\n`);
+  if (mobileStartNotice) res.write(`event: notice\ndata: ${JSON.stringify(mobileStartNotice)}\n\n`);
   clients.add(res);
   const ka = setInterval(() => res.write(': keep-alive\n\n'), 20000);
   req.on('close', () => { clearInterval(ka); clients.delete(res); });
@@ -934,22 +934,28 @@ try { writeFileSync(SERVER_INFO, JSON.stringify({ url: `http://${HOST}:${PORT}`,
 void speech.ensure().catch((e) => log('asr', `not ready: ${(e as Error).message}`));
 void registry.status(true).catch(() => {});
 
-if (mobileConfig) {
-  void startMobileServer({
-    store, assistant, host: mobileConfig.host, port: mobileConfig.port, token: mobileConfig.token, tls: mobileConfig.tls,
-    onSessionChanged: (id) => { syncMybot(id); broadcast('mobile-sync', { sessionId: id }); },
-  }).then((started) => {
+let shuttingDown = false;
+if (process.env.CHUMI_MOBILE === '1') {
+  void (async () => {
+    // Pairing errors disable only the companion; the desktop must still start.
+    const mobileConfig = loadMobileConfiguration(join(DATA_DIR, 'mobile', 'companion.json'));
+    const started = await startMobileServer({
+      store, assistant, host: mobileConfig.host, port: mobileConfig.port, token: mobileConfig.token, tls: mobileConfig.tls,
+      onSessionChanged: (id) => { syncMybot(id); broadcast('mobile-sync', { sessionId: id }); },
+    });
     mobileServer = started;
+    mobileStartNotice = null;
     if (shuttingDown) { void started.close(); return; }
     log('mobile', `iPhone companion enabled at ${mobileConfig.url} (pairing required)`);
-  }).catch((error) => {
+  })().catch((error) => {
     log('mobile', `Could not enable iPhone companion: ${(error as Error).message}`);
-    broadcast('notice', { level: 'error', code: 'mobile_start_failed', message: 'The iPhone companion could not start. See the server log.' });
+    // Startup usually finishes before the web UI connects. Replay the failure to later clients.
+    mobileStartNotice = { level: 'error', code: 'mobile_start_failed', message: 'The iPhone companion could not start. See the server log.' };
+    broadcast('notice', mobileStartNotice);
   });
 }
 setInterval(() => { void registry.status(true).catch(() => {}); }, 90_000).unref();
 
-let shuttingDown = false;
 async function shutdown(sig: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;

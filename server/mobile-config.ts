@@ -49,13 +49,20 @@ export function loadMobileConfiguration(path: string): MobileConfiguration & { t
   return { ...value, tls: { key, cert } };
 }
 
-export function setupMobileConfiguration(options: { directory: string; address: string; port?: number; rotate?: boolean }): MobileConfiguration {
+export function setupMobileConfiguration(options: { directory: string; address?: string; port?: number; rotate?: boolean }): MobileConfiguration {
   const dir = resolve(options.directory);
   const path = join(dir, 'companion.json');
   if (existsSync(path) && !options.rotate) {
     const { tls: _tls, ...existing } = loadMobileConfiguration(path);
+    const current = new URL(existing.url);
+    const requestedHost = options.address === undefined ? current.hostname
+      : new URL(`https://${isIP(options.address) === 6 ? `[${validateMobileAddress(options.address)}]` : validateMobileAddress(options.address)}`).hostname;
+    if (requestedHost !== current.hostname || (options.port !== undefined && options.port !== existing.port)) {
+      throw new Error(`Mobile pairing already uses ${existing.url}. To change its address or port, rerun with --rotate and pair again.`);
+    }
     return existing;
   }
+  if (!options.address) throw new Error('Choose a Mac hostname or IP address with --address.');
   const address = validateMobileAddress(options.address);
   const port = options.port ?? 4778;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Port must be an integer between 1 and 65535.');

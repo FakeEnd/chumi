@@ -668,6 +668,7 @@ export const ZH: Record<string, string> = {
   "Reconnecting to Chumi… Recording status is unknown.": "正在重新连接 Chumi…暂时无法确认录音状态。",
   "Chumi's server isn't responding. Recording may have stopped.": "Chumi 服务器暂无响应，录音可能已停止。",
   "Chumi's server isn't reachable. Check the current state before trying again.": "无法连接 Chumi 服务器。请确认当前状态后再试。",
+  "The iPhone companion could not start. See the server log.": "iPhone 连接服务未能启动，请查看服务器日志。",
   "Open System Settings": "打开系统设置",
   "Dismiss": "关闭",
   "Current topic and overview": "当前话题与概览",

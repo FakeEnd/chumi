@@ -17,7 +17,8 @@ export interface MobileSnapshot {
   status: 'recording' | 'paused' | 'ended'; type: SessionStyle; projectId: string | null;
   segments: MobileSegment[];
 }
-interface Mapping { client_id: string; session_id: string; revision: number; digest: string }
+interface Metadata { title: string; type: string; projectId: string | null }
+interface Mapping { client_id: string; session_id: string; revision: number; digest: string; phone_metadata: string | null }
 
 const invalid = (message: string): never => { throw new MobileError(400, 'invalid_request', message); };
 const object = (v: unknown): Record<string, unknown> => {
@@ -76,7 +77,7 @@ export class MobileSessions {
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS mobile_sessions (
         client_id TEXT PRIMARY KEY, session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
-        revision INTEGER NOT NULL, digest TEXT NOT NULL
+        revision INTEGER NOT NULL, digest TEXT NOT NULL, phone_metadata TEXT
       );
       CREATE TABLE IF NOT EXISTS mobile_segments (
         session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -84,6 +85,8 @@ export class MobileSessions {
         position INTEGER NOT NULL, PRIMARY KEY(session_id, client_segment_id), UNIQUE(session_id, position)
       );
     `);
+    const columns = store.db.prepare('PRAGMA table_info(mobile_sessions)').all() as Array<{ name: string }>;
+    if (!columns.some((c) => c.name === 'phone_metadata')) store.db.exec('ALTER TABLE mobile_sessions ADD COLUMN phone_metadata TEXT');
   }
 
   private mapping(sessionId: string): Mapping | undefined {
@@ -117,7 +120,7 @@ export class MobileSessions {
     return { output: mobileOutput(o) };
   }
 
-  ingest(value: unknown): { sessionId: string; clientId: string; revision: number; status: 'accepted' | 'unchanged' } {
+  ingest(value: unknown): { sessionId: string; clientId: string; revision: number; status: 'accepted' | 'unchanged'; metadata: Metadata } {
     const v = mobileSnapshot(value);
     const digest = createHash('sha256').update(JSON.stringify(v)).digest('hex');
     this.store.db.exec('BEGIN IMMEDIATE');
@@ -128,12 +131,23 @@ export class MobileSessions {
       if (known && v.revision < known.revision) throw new MobileError(409, 'stale_revision', 'A newer snapshot is already stored.', { revision: known.revision });
       if (known && v.revision === known.revision) {
         if (digest !== known.digest) throw new MobileError(409, 'revision_conflict', 'This revision was already used for different content.', { revision: known.revision });
+        if (!known.phone_metadata) this.store.db.prepare('UPDATE mobile_sessions SET phone_metadata = ? WHERE session_id = ?')
+          .run(JSON.stringify({ title: v.title, type: v.type, projectId: v.projectId }), id);
         this.store.db.exec('COMMIT');
-        return { sessionId: id, clientId: v.clientId, revision: known.revision, status: 'unchanged' };
+        return { sessionId: id, clientId: v.clientId, revision: known.revision, status: 'unchanged',
+          metadata: { title: before!.title, type: before!.type, projectId: before!.project_id } };
       }
-      if (v.projectId) {
-        const p = this.store.getProject(v.projectId);
-        if (!p || (p.archived_at != null && before?.project_id !== v.projectId)) throw new MobileError(400, 'invalid_project', 'Choose an available project.');
+      const phone: Metadata = { title: v.title, type: v.type, projectId: v.projectId };
+      // Old pairings have no baseline. Preserve Mac edits on their first sync after upgrading.
+      const previousPhone: Metadata = known?.phone_metadata ? JSON.parse(known.phone_metadata) : phone;
+      const metadata: Metadata = {
+        title: before && phone.title === previousPhone.title ? before.title : phone.title,
+        type: before && phone.type === previousPhone.type ? before.type : phone.type,
+        projectId: before && phone.projectId === previousPhone.projectId ? before.project_id : phone.projectId,
+      };
+      if (metadata.projectId) {
+        const p = this.store.getProject(metadata.projectId);
+        if (!p || (p.archived_at != null && before?.project_id !== metadata.projectId)) throw new MobileError(400, 'invalid_project', 'Choose an available project.');
       }
       const previous = known ? this.segments(id) : [];
       if (before && (v.startedAt !== before.started_at || v.durationMs < before.duration_ms)) throw new MobileError(409, 'session_conflict', 'Session start cannot change and duration cannot decrease.');
@@ -145,7 +159,7 @@ export class MobileSessions {
         this.store.db.prepare('INSERT INTO mobile_sessions(client_id, session_id, revision, digest) VALUES (?, ?, ?, ?)').run(v.clientId, id, v.revision, digest);
         this.store.addTimeline(id, 0, 'start', 'Recorded and transcribed on the paired phone.');
       }
-      if ((before?.project_id ?? null) !== v.projectId) this.store.assignSession(id, v.projectId);
+      if ((before?.project_id ?? null) !== metadata.projectId) this.store.assignSession(id, metadata.projectId);
       for (let i = previous.length; i < v.segments.length; i++) {
         const s = v.segments[i];
         const row = this.store.addSegment({ session_id: id, t_start: s.tStart, t_end: s.tEnd, text: s.text, lang: s.lang, source: 'mobile', run: 0 });
@@ -157,12 +171,12 @@ export class MobileSessions {
       } else if (!before && v.status !== 'recording') {
         this.store.addTimeline(id, v.durationMs, v.status === 'ended' ? 'stop' : 'pause', 'Phone recording status synced.');
       }
-      if (before && (before.title !== v.title || before.type !== v.type)) this.store.db.prepare('UPDATE sessions SET revision = revision + 1 WHERE id = ?').run(id);
-      this.store.updateSession(id, { title: v.title, type: v.type, started_at: v.startedAt, status: v.status,
+      if (before && (before.title !== metadata.title || before.type !== metadata.type)) this.store.db.prepare('UPDATE sessions SET revision = revision + 1 WHERE id = ?').run(id);
+      this.store.updateSession(id, { title: metadata.title, type: metadata.type, started_at: v.startedAt, status: v.status,
         duration_ms: v.durationMs, ended_at: v.status === 'ended' ? v.startedAt + v.durationMs : null, last_activity_at: Date.now() });
-      this.store.db.prepare('UPDATE mobile_sessions SET revision = ?, digest = ? WHERE session_id = ?').run(v.revision, digest, id);
+      this.store.db.prepare('UPDATE mobile_sessions SET revision = ?, digest = ?, phone_metadata = ? WHERE session_id = ?').run(v.revision, digest, JSON.stringify(phone), id);
       this.store.db.exec('COMMIT');
-      return { sessionId: id, clientId: v.clientId, revision: v.revision, status: 'accepted' };
+      return { sessionId: id, clientId: v.clientId, revision: v.revision, status: 'accepted', metadata };
     } catch (e) { this.store.db.exec('ROLLBACK'); throw e; }
   }
 }
