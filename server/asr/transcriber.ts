@@ -15,7 +15,8 @@ export interface TranscriberConfig { language: string; glossary: string[]; chine
 
 export interface FinalPiece { session: string | null; source: SourceName; uttId: number; startSec: number; endSec: number; text: string; lang: string | null }
 
-interface Job { kind: 'final' | 'partial'; session: string | null; source: SourceName; utt: Utterance; enqueued: number; depth?: number; retried?: boolean }
+interface Context { lastText: Map<SourceName, string>; recentLang: Map<SourceName, Spoken> }
+interface Job { kind: 'final' | 'partial'; session: string | null; context: Context; source: SourceName; utt: Utterance; enqueued: number; depth?: number; retried?: boolean }
 
 /**
  * Schedules speech requests: finals in order (never dropped), partials only when idle and only the newest per source,
@@ -38,9 +39,7 @@ export class Transcriber extends EventEmitter<{
   private generation = 0;
   private lastPartialAt = new Map<SourceName, number>();
   private finalizedUtts = new Map<SourceName, number>(); // highest utterance id already finalized per source
-  private lastText = new Map<SourceName, string>();
-  /** The language each source last spoke, for choosing between Mandarin and English when detection names neither. */
-  private recentLang = new Map<SourceName, Spoken>();
+  private context: Context = { lastText: new Map(), recentLang: new Map() };
   private session: string | null = null;
   stopped = false;
   backlogSec = 0;
@@ -51,7 +50,7 @@ export class Transcriber extends EventEmitter<{
 
   pushProgress(source: SourceName, utt: Utterance): void {
     if (this.stopped || !this.speech.partials) return;
-    this.partials.set(source, { kind: 'partial', session: this.session, source, utt, enqueued: Date.now() });
+    this.partials.set(source, { kind: 'partial', session: this.session, context: this.context, source, utt, enqueued: Date.now() });
     this.pump();
   }
 
@@ -59,17 +58,17 @@ export class Transcriber extends EventEmitter<{
     if (this.stopped) return;
     const p = this.partials.get(source);
     if (p && p.utt.id <= utt.id) this.partials.delete(source);
-    this.finals.push({ kind: 'final', session: this.session, source, utt, enqueued: Date.now() });
+    this.finals.push({ kind: 'final', session: this.session, context: this.context, source, utt, enqueued: Date.now() });
     this.backlogSec = this.finals.reduce((s, j) => s + (j.utt.endSec - j.utt.startSec), 0);
     this.pump();
   }
 
   /**
-   * New session: forget per-source context so nothing leaks between sessions. A request still in flight
-   * finishes for the session it was captured in: its text is tagged with that session and changes nothing here.
+   * New session: forget per-source context so nothing leaks between sessions. Queued and in-flight finals
+   * keep their own context and finish for the session they were captured in.
    */
   reset(session: string | null = null): void {
-    this.finals = []; this.partials.clear(); this.lastPartialAt.clear(); this.finalizedUtts.clear(); this.lastText.clear(); this.recentLang.clear(); this.backlogSec = 0; this.stopped = false;
+    this.partials.clear(); this.lastPartialAt.clear(); this.finalizedUtts.clear(); this.context = { lastText: new Map(), recentLang: new Map() }; this.backlogSec = this.finals.reduce((s, j) => s + (j.utt.endSec - j.utt.startSec), 0); this.stopped = false;
     this.session = session;
   }
 
@@ -102,10 +101,10 @@ export class Transcriber extends EventEmitter<{
    * Whisper reads the prompt as the transcript just before this audio: the glossary as a sentence in the language being spoken,
    * then the latest text. Qwen3-ASR gets the same text as context; ElevenLabs ignores it and takes the glossary as keyterms.
    */
-  private prompt(source: SourceName): { text: string; terms: string[]; chinese: boolean; prev: string } {
+  private prompt(source: SourceName, context: Context): { text: string; terms: string[]; chinese: boolean; prev: string } {
     const { glossary, language, prior } = this.cfg();
     const terms = glossary.slice(0, 40);
-    const prev = this.lastText.get(source)?.slice(-160) ?? '';
+    const prev = context.lastText.get(source)?.slice(-160) ?? '';
     // Before anything was said, the glossary sentence is written in the language the meeting most likely opens in.
     const chinese = prev ? mostlyHan(prev) : language === 'zh' || (language === 'auto' && prior === 'zh');
     return { text: [termSentence(terms, chinese), prev].filter(Boolean).join(' ').slice(-600), terms, chinese, prev };
@@ -161,16 +160,16 @@ export class Transcriber extends EventEmitter<{
   private async run(job: Job, generation: number): Promise<void> {
     const { language, glossary, prior, guard } = this.cfg();
     const durSec = job.utt.samples.length / 16000;
-    const current = () => job.session === this.session;
+    const current = () => job.context === this.context;
     try {
-      const prompt = this.prompt(job.source);
+      const prompt = this.prompt(job.source, job.context);
       let res = await this.speech.transcribe(job.utt.samples, { language, prompt: prompt.text, glossary, timeoutMs: job.kind === 'final' ? 90000 : 20000 });
       if (generation !== this.generation) return;
       // A chosen language is the label: whisper-server reports what it detected even when told which language to use.
       let lang = language === 'zh' || language === 'en' ? language : langCode(res.language);
       if (language === 'auto' && guard !== false) {
         // Mandarin and English only (language.ts): relabel Chinese text detected as another language, or transcribe it again.
-        const decision = decideLanguage({ lang, probs: res.langProbs, text: res.text }, this.recentLang.get(job.source) ?? null, prior ?? 'en');
+        const decision = decideLanguage({ lang, probs: res.langProbs, text: res.text }, job.context.recentLang.get(job.source) ?? null, prior ?? 'en');
         if (decision.action === 'relabel') lang = decision.lang;
         else if (decision.action === 'retry') {
           if (job.kind === 'partial') return; // the final will be transcribed again; a preview in the wrong language would only flash
@@ -212,11 +211,10 @@ export class Transcriber extends EventEmitter<{
           last.endSec = endSec;
         } else pieces.push({ session: job.session, source: job.source, uttId: job.utt.id, startSec, endSec, text, lang });
       }
-      if (!current()) { if (pieces.length) this.emit('final', pieces); return; }
-      this.emit('partialClear', job.source, job.utt.id);
+      if (current()) this.emit('partialClear', job.source, job.utt.id);
       if (pieces.length) {
-        this.lastText.set(job.source, pieces.map((p) => p.text).join(' '));
-        if (isSpoken(lang)) this.recentLang.set(job.source, lang);
+        job.context.lastText.set(job.source, pieces.map((p) => p.text).join(' '));
+        if (isSpoken(lang)) job.context.recentLang.set(job.source, lang);
         this.emit('final', pieces);
       }
     } catch (e) {

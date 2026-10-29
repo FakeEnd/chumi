@@ -7,7 +7,7 @@ import { setImmediate } from 'node:timers/promises';
 import type { Assistant } from '../server/ai/assistant.ts';
 import type { SpeechService } from '../server/asr/speech.ts';
 import type { WhisperResult } from '../server/asr/whisper.ts';
-import type { Transcriber } from '../server/asr/transcriber.ts';
+import { Transcriber } from '../server/asr/transcriber.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'chumi-late-transcript-'));
 process.env.CHUMI_DATA_DIR = root;
@@ -35,12 +35,13 @@ function setup(t: TestContext) {
   const notices: string[] = [];
   const manager = new SessionManager(store, speech, assistant, (event, data) => { if (event === 'notice') notices.push((data as { code: string }).code); });
   const transcriber = (manager as unknown as { transcriber: Transcriber }).transcriber;
-  t.mock.method(transcriber, 'drain', async () => {});
+  const drain = Transcriber.prototype.drain.bind(transcriber);
+  t.mock.method(transcriber, 'drain', (timeout = 60_000) => drain(timeout === 90_000 ? 0 : timeout));
   t.after(async () => { if (manager.status !== 'idle') await manager.end(); store.close(); });
   let id = 0;
   const speak = (startSec: number) => transcriber.pushFinal('mic', { id: ++id, startSec, endSec: startSec + 1, samples: new Int16Array(16_000), final: true });
   const texts = (sessionId: string) => store.segments(sessionId).map((s) => s.text);
-  return { store, manager, requests, notices, speak, texts };
+  return { store, manager, transcriber, requests, notices, speak, texts };
 }
 
 test('transcription that finishes after its session ended goes into that session, not the next one', { timeout: 5000 }, async (t) => {
@@ -62,6 +63,35 @@ test('transcription that finishes after its session ended goes into that session
   await setImmediate();
   assert.deepEqual(texts(b.id), ['Hello from the one-on-one.']);
   assert.deepEqual(texts(a.id), ['Last words of the lab meeting.']);
+});
+
+test('queued finals survive the end timeout and reach their own meeting after another starts', { timeout: 5000 }, async (t) => {
+  const { manager, transcriber, requests, speak, texts } = setup(t);
+  const a = await manager.start({ title: 'Lab meeting', type: 'other', source: 'mic' });
+  for (let i = 0; i < 5; i++) speak(30 + i);
+  assert.equal(transcriber.pendingFinals, 5);
+  await manager.end(); // The drain times out with one request running and four queued.
+  const b = await manager.start({ title: 'Advisor 1:1', type: 'other', source: 'mic' });
+  assert.equal(transcriber.pendingFinals, 5);
+  assert.equal(transcriber.backlogSec, 4);
+  speak(2);
+  assert.equal(transcriber.pendingFinals, 6);
+  assert.equal(transcriber.backlogSec, 5);
+
+  const expectedA: string[] = [];
+  for (let i = 0; i < 5; i++) {
+    const text = `Final utterance number ${i + 1} from the lab meeting.`;
+    expectedA.push(text);
+    requests[i].resolve(text);
+    await setImmediate();
+    assert.deepEqual(texts(a.id), expectedA);
+    assert.deepEqual(texts(b.id), []);
+  }
+  requests[5].resolve('Hello from the one-on-one.');
+  assert.equal(await transcriber.drain(), true);
+  assert.deepEqual(texts(a.id), expectedA);
+  assert.deepEqual(texts(b.id), ['Hello from the one-on-one.']);
+  assert.equal(transcriber.backlogSec, 0);
 });
 
 test('a late request that fails is not retried or reported inside the next session', { timeout: 5000 }, async (t) => {
