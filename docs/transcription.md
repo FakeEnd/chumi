@@ -4,7 +4,7 @@ Chumi turns meeting audio into text with one of six engines, chosen in **Setting
 
 | Engine | Where audio goes | Cost | Live grey text |
 |---|---|---|---|
-| **Qwen3-ASR 0.6B int8** (default on macOS) | Nowhere: sherpa-onnx on this computer (CPU) | Free | Yes |
+| **Qwen3-ASR 0.6B int8** (default) | Nowhere: sherpa-onnx on this computer (CPU) | Free | Yes |
 | **SenseVoice-Small int8** | Nowhere: sherpa-onnx on this computer (CPU) | Free | Yes, without preview throttling |
 | **Whisper** | Nowhere: whisper.cpp on this computer | Free | Yes |
 | **ElevenLabs Scribe** (`scribe_v2`) | ElevenLabs | Per hour of audio; vocabulary hints add 20% | No |
@@ -15,7 +15,7 @@ The paid services get finished utterances only. Live grey text re-sends a growin
 
 ## Choosing a service is opt-in
 
-Local Qwen3-ASR is the default on macOS, and local SenseVoice-Small on Windows: on a Windows laptop CPU (i9-12900H) Qwen3-ASR ran at a real-time factor of 0.6 (0.35 on performance cores only, and no faster with its int8 model on CUDA), too slow for live meetings, while SenseVoice ran at 0.09 with the same Mandarin accuracy. Download the model from Home’s **Get Chumi ready** checklist or **Settings → Transcription** (about 941 MB). SenseVoice-Small int8 (about 228 MB) is a faster CPU option; it supports inverse text normalization but no vocabulary hints. Whisper remains selectable. When the selected sherpa model is unavailable, Chumi tries the other installed sherpa model, then Whisper, and prompts you to download the selected model. Until someone picks an engine, the local one follows the platform default; existing service choices and new explicit engine selections are retained. Older saved Whisper settings have no record of whether Whisper was explicitly reselected, so unmarked Whisper settings follow the new default. Switching to ElevenLabs or Alibaba Cloud asks for confirmation, because meeting audio then leaves the computer while you record. The engine can only change between sessions.
+Local Qwen3-ASR is the default on every platform. Download the model from Home’s **Get Chumi ready** checklist or **Settings → Transcription** (about 941 MB). SenseVoice-Small int8 (about 228 MB) is a faster CPU option; it supports inverse text normalization but no vocabulary hints. Whisper remains selectable. When the selected sherpa model is unavailable, Chumi tries the other installed sherpa model, then Whisper, and prompts you to download the selected model. Until someone picks an engine, the local one follows the default; existing service choices and new explicit engine selections are retained. Older saved Whisper settings have no record of whether Whisper was explicitly reselected, so unmarked Whisper settings follow the new default. Switching to ElevenLabs or Alibaba Cloud asks for confirmation, because meeting audio then leaves the computer while you record. The engine can only change between sessions.
 
 API keys are stored like Chumi's other keys: in the macOS Keychain, or encrypted for your Windows account by the desktop app. They are never written to settings. The Alibaba Cloud key is only ever sent to an `*.aliyuncs.com` address.
 
@@ -53,7 +53,7 @@ SenseVoice shares the persistent worker and engine implementation with Qwen3, us
 
 Only `model.int8.onnx` and `tokens.txt` are downloaded into `models/sensevoice-small-int8/`, pinned to commit `2365baeacb507f821a0c8120fcee3d484dba7a07` of [csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17](https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tree/2365baeacb507f821a0c8120fcee3d484dba7a07). Both files must pass SHA-256 verification before installation. The model directory override and mirror setting work as for Qwen3.
 
-SenseVoice grey previews have no cooldown, as with Whisper; Qwen3 keeps its 5-second interval. Selected SenseVoice falls back to installed Qwen3, then Whisper; selected Qwen3 falls back to installed SenseVoice, then Whisper. Explicit Whisper selection stays on Whisper. The local default (Qwen3 on macOS, SenseVoice on Windows) is centralized in `defaultLocalEngine()` in `server/asr/engines.ts`, including the initial selection, recommended download and service fallback order.
+SenseVoice grey previews have no cooldown, as with Whisper; Qwen3 keeps its 5-second interval. Selected SenseVoice falls back to installed Qwen3, then Whisper; selected Qwen3 falls back to installed SenseVoice, then Whisper. Explicit Whisper selection stays on Whisper. The local default (Qwen3) is centralized in `defaultLocalEngine()` in `server/asr/engines.ts`, including the initial selection, recommended download and service fallback order.
 
 ## ElevenLabs
 

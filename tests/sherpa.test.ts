@@ -91,8 +91,7 @@ test('shared sherpa configuration enables SenseVoice ITN with the requested lang
 });
 
 test('the local default and fallback order stay centralized', () => {
-  assert.equal(defaultLocalEngine('darwin'), 'qwen3');
-  assert.equal(defaultLocalEngine('win32'), 'sensevoice', 'Qwen3-ASR is too slow on a Windows laptop CPU');
+  assert.equal(defaultLocalEngine(), 'qwen3');
   assert.equal(DEFAULT_SETTINGS.asr.engine, defaultLocalEngine());
   assert.deepEqual(localEngineOrder('qwen3'), ['qwen3', 'sensevoice', 'whisper']);
   assert.deepEqual(localEngineOrder('sensevoice'), ['sensevoice', 'qwen3', 'whisper']);

@@ -93,7 +93,7 @@ Real screens from a synthetic NLP lab meeting: Maya presents a 7B model trained 
     <td width="520" valign="top">
       <a href="docs/assets/screens/models.png"><img src="docs/assets/screens/models.png" width="520" alt="Settings, Transcription tab: local Whisper in use and marked private, with ElevenLabs Scribe and Qwen3-ASR as opt-in services that send audio off the Mac"></a><br>
       <b>Speech stays on your Mac</b><br>
-      <sub>Local Qwen3-ASR by default (SenseVoice on Windows), with Whisper available as a backup. Cloud speech recognition only if you choose it.</sub><br><sub>&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;</sub>
+      <sub>Local Qwen3-ASR by default, with Whisper available as a backup. Cloud speech recognition only if you choose it.</sub><br><sub>&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;</sub>
     </td>
   </tr>
 </table>
@@ -134,7 +134,7 @@ Pick one in **Settings → AI provider**. Chumi uses exactly one at a time and n
 
 Local models and compatible APIs are set up in [docs/other-models.md](docs/other-models.md). The reasoning behind these choices, with links to the official terms, is in [docs/provider-research.md](docs/provider-research.md).
 
-**Speech recognition** is separate from the AI. It runs locally with Qwen3-ASR 0.6B int8 by default (SenseVoice-Small on Windows, where Qwen3-ASR is too slow on a laptop CPU); Home’s setup checklist and Settings → Transcription recommend its model. Whisper stays available as an option and backup, and keeps captions running until Qwen3 is downloaded. ElevenLabs Scribe and Qwen3-ASR (Alibaba Cloud or self-hosted) are opt-in alternatives that send meeting audio off the Mac; if one fails, local Qwen3 takes over, with Whisper next if the Qwen3 model is missing. See [docs/transcription.md](docs/transcription.md).
+**Speech recognition** is separate from the AI. It runs locally with Qwen3-ASR 0.6B int8 by default; Home’s setup checklist and Settings → Transcription recommend its model. Whisper stays available as an option and backup, and keeps captions running until Qwen3 is downloaded. ElevenLabs Scribe and Qwen3-ASR (Alibaba Cloud or self-hosted) are opt-in alternatives that send meeting audio off the Mac; if one fails, local Qwen3 takes over, with Whisper next if the Qwen3 model is missing. See [docs/transcription.md](docs/transcription.md).
 
 ## Privacy
 
