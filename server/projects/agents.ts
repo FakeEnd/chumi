@@ -150,6 +150,13 @@ interface Adapter {
 
 /** Stands for the first message in Adapter.start. */
 const MESSAGE = Symbol('first message');
+const claudeConfig = () => join(process.env.CLAUDE_CONFIG_DIR || homedir(), '.claude.json');
+function claudeServers(cfg: unknown): Record<string, unknown> {
+  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) throw new Error('Claude Code user config is not a JSON object.');
+  const servers: unknown = (cfg as Record<string, unknown>).mcpServers;
+  if (servers !== undefined && (!servers || typeof servers !== 'object' || Array.isArray(servers))) throw new Error('Claude Code MCP servers config is not a JSON object.');
+  return (servers ?? {}) as Record<string, unknown>;
+}
 const opencodeFile = (ext: 'json' | 'jsonc') => join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'opencode', `opencode.${ext}`);
 const qwenSettings = () => join(homedir(), '.qwen', 'settings.json');
 /** Written by `agy mcp add`; the Antigravity app reads the same file. */
@@ -161,7 +168,7 @@ const AGY_CHECK_GRANT = `mcp(${NAME}/chumi_connection_check)`;
 const ADAPTERS: Record<AgentId, Adapter> = {
   'claude-code': {
     bin: 'claude', client: 'claude', strip: PLAN_STRIP_ENV,
-    setup: (m) => `claude mcp add --scope user ${Object.entries(m.env).map(([k, v]) => `-e ${k}=${q(v)} `).join('')}${NAME} -- ${q(m.command)} ${q(m.args[0])}`,
+    setup: (m) => `claude mcp add --scope user ${NAME} ${Object.entries(m.env).map(([k, v]) => `-e ${k}=${q(v)} `).join('')}-- ${q(m.command)} ${q(m.args[0])}`,
     async registration(cli) {
       const r = await run(cli, ['mcp', 'get', NAME], { timeoutMs: 45_000, env: childEnv(PLAN_STRIP_ENV) });
       if (r.code !== 0) return { registered: false };
@@ -170,9 +177,30 @@ const ADAPTERS: Record<AgentId, Adapter> = {
       return { registered: true, clientHealth: health, outdated: old };
     },
     async connect(cli, m) {
-      await run(cli, ['mcp', 'remove', NAME, '-s', 'user'], { env: childEnv(PLAN_STRIP_ENV) });
-      const r = await run(cli, ['mcp', 'add', '--scope', 'user', ...Object.entries(m.env).flatMap(([k, v]) => ['-e', `${k}=${v}`]), NAME, '--', m.command, ...m.args], { env: childEnv(PLAN_STRIP_ENV) });
-      if (r.code !== 0) throw new Error((r.err || r.out).trim() || 'claude mcp add failed');
+      const file = claudeConfig();
+      const text = readText(file);
+      const cfg: unknown = text === null ? {} : JSON.parse(text);
+      const previous = claudeServers(cfg)[NAME];
+      const env = childEnv(PLAN_STRIP_ENV);
+      // Claude cannot replace an entry, so save it before removing it and restore it if add fails.
+      if (previous !== undefined) {
+        const removed = await run(cli, ['mcp', 'remove', NAME, '-s', 'user'], { env });
+        if (removed.code !== 0) throw new Error((removed.err || removed.out).trim() || 'claude mcp remove failed');
+      }
+      const r = await run(cli, ['mcp', 'add', '--scope', 'user', NAME, ...Object.entries(m.env).flatMap(([k, v]) => ['-e', `${k}=${v}`]), '--', m.command, ...m.args], { env });
+      if (r.code !== 0) {
+        const why = (r.err || r.out).trim() || 'claude mcp add failed';
+        if (previous !== undefined) {
+          try {
+            const current = readText(file);
+            const config: unknown = current === null ? cfg : JSON.parse(current);
+            const servers = claudeServers(config);
+            (config as Record<string, unknown>).mcpServers = { ...servers, [NAME]: previous };
+            replaceFile(file, `${JSON.stringify(config, null, 2)}\n`, 0o600, false);
+          } catch { throw new Error(`${why} Could not restore Claude Code's previous registration.`); }
+        }
+        throw new Error(why);
+      }
     },
     async disconnect(cli) { await run(cli, ['mcp', 'remove', NAME, '-s', 'user'], { env: childEnv(PLAN_STRIP_ENV) }); },
     check: (prompt, extra) => ({ args: ['-p', prompt, '--model', 'haiku', '--allowedTools', `mcp__${NAME}__chumi_connection_check`, '--output-format', 'text', ...extra] }),
@@ -235,7 +263,7 @@ const ADAPTERS: Record<AgentId, Adapter> = {
   },
   'qwen-code': {
     bin: 'qwen', client: 'qwen', strip: [],
-    setup: (m) => `qwen mcp add --scope user ${Object.entries(m.env).map(([k, v]) => `-e ${k}=${q(v)} `).join('')}${NAME} ${q(m.command)} ${q(m.args[0])}`,
+    setup: (m) => `qwen mcp add --scope user ${NAME} ${q(m.command)} ${q(m.args[0])}${Object.entries(m.env).map(([k, v]) => ` -e ${k}=${q(v)}`).join('')}`,
     async registration(cli) {
       const entry = readJsonc(qwenSettings())?.mcpServers?.[NAME] as { args?: string[]; env?: Record<string, string> } | undefined;
       if (!entry) return { registered: false };
@@ -246,7 +274,7 @@ const ADAPTERS: Record<AgentId, Adapter> = {
     },
     async connect(cli, m) {
       await run(cli, ['mcp', 'remove', '--scope', 'user', NAME]);
-      const r = await run(cli, ['mcp', 'add', '--scope', 'user', ...Object.entries(m.env).flatMap(([k, v]) => ['-e', `${k}=${v}`]), NAME, m.command, ...m.args]);
+      const r = await run(cli, ['mcp', 'add', '--scope', 'user', NAME, m.command, ...m.args, ...Object.entries(m.env).flatMap(([k, v]) => ['-e', `${k}=${v}`])]);
       if (r.code !== 0) throw new Error((r.err || r.out).trim() || 'qwen mcp add failed');
     },
     async disconnect(cli) { await run(cli, ['mcp', 'remove', '--scope', 'user', NAME]); },

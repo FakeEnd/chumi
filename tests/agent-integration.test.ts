@@ -93,6 +93,108 @@ test('a successful CLI reply without a matching read does not verify the connect
   }
 });
 
+// Like Claude's commander parser, -e consumes all following values up to the next option or --.
+function claudeCli(fail = false): string {
+  return cliFile(fail ? 'claude-fail' : 'claude', `const fs = require('node:fs'), path = require('node:path');
+const file = path.join(process.env.CLAUDE_CONFIG_DIR || require('node:os').homedir(), '.claude.json');
+const cfg = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+cfg.mcpServers ||= {};
+const [, sub, ...args] = process.argv.slice(2);
+fs.appendFileSync(path.join(path.dirname(file), 'calls.log'), sub + '\\n');
+if (sub === 'remove') {
+  if (!cfg.mcpServers[args[0]]) { console.error('not found'); process.exit(1); }
+  delete cfg.mcpServers[args[0]];
+  fs.writeFileSync(file, JSON.stringify(cfg)); process.exit(0);
+}
+if (sub !== 'add') { console.error('unexpected command'); process.exit(1); }
+const positional = [], env = {};
+let command = [];
+while (args.length) {
+  const arg = args.shift();
+  if (arg === '--') { command = args; break; }
+  if (arg === '--scope' || arg === '-s') { args.shift(); continue; }
+  if (arg === '-e' || arg === '--env') {
+    while (args.length && !args[0].startsWith('-')) {
+      const kv = args.shift(), i = kv.indexOf('=');
+      if (i < 1) { console.error('Invalid environment variable format: ' + kv); process.exit(1); }
+      env[kv.slice(0, i)] = kv.slice(i + 1);
+    }
+  } else positional.push(arg);
+}
+const name = positional[0];
+if (${fail}) { console.error('add failed'); process.exit(1); }
+if (!name || !command.length) { console.error('missing name or command'); process.exit(1); }
+if (cfg.mcpServers[name]) { console.error('already exists'); process.exit(1); }
+cfg.mcpServers[name] = { command: command[0], args: command.slice(1), env };
+fs.writeFileSync(file, JSON.stringify(cfg));
+`);
+}
+
+test('Claude Code: Connect puts the name before greedy env flags and Reconnect replaces an existing registration', async () => {
+  const store = new Store();
+  const dir = join(DATA, 'claude-config');
+  const file = join(dir, '.claude.json');
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  mkdirSync(dir, { recursive: true });
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    const integration = new AgentIntegration(store);
+    integration.cli = () => claudeCli();
+    const setup = integration.setupCommands()['claude-code'];
+    assert.match(setup, /^claude mcp add --scope user chumi -e CHUMI_DATA_DIR=/);
+    await integration.connect('claude-code');
+    let entry = JSON.parse(readFileSync(file, 'utf8')).mcpServers.chumi;
+    assert.deepEqual(entry.args, [MCP_SCRIPT]);
+    assert.equal(entry.env.CHUMI_DATA_DIR, DATA);
+    const old = { type: 'http', url: 'https://example.test/mcp', headers: { Authorization: 'old token' }, custom: { keep: true } };
+    writeFileSync(file, JSON.stringify({ mcpServers: { chumi: old, other: { command: 'other' } }, theme: 'dark' }));
+    await integration.connect('claude-code');
+    const cfg = JSON.parse(readFileSync(file, 'utf8'));
+    entry = cfg.mcpServers.chumi;
+    assert.equal(entry.command, integration.mcpServer().command);
+    assert.deepEqual(entry.args, [MCP_SCRIPT]);
+    assert.equal(entry.env.CHUMI_DATA_DIR, DATA);
+    assert.deepEqual(cfg.mcpServers.other, { command: 'other' });
+    assert.equal(cfg.theme, 'dark');
+    writeFileSync(file, JSON.stringify({ mcpServers: { chumi: old, other: { command: 'other' } }, theme: 'dark' }));
+    integration.cli = () => claudeCli(true);
+    await assert.rejects(integration.connect('claude-code'), /add failed/);
+    const restored = JSON.parse(readFileSync(file, 'utf8'));
+    assert.deepEqual(restored.mcpServers.chumi, old, 'the old entry is restored after add fails');
+    assert.deepEqual(restored.mcpServers.other, { command: 'other' });
+    assert.equal(restored.theme, 'dark');
+    const calls = readFileSync(join(dir, 'calls.log'), 'utf8');
+    assert.deepEqual(calls.trim().split('\n').slice(-2), ['remove', 'add']);
+    const invalid = '{ invalid JSON';
+    writeFileSync(file, invalid);
+    await assert.rejects(integration.connect('claude-code'));
+    assert.equal(readFileSync(file, 'utf8'), invalid, 'an unreadable config is left untouched');
+    assert.equal(readFileSync(join(dir, 'calls.log'), 'utf8'), calls, 'no CLI command ran without a safe snapshot');
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = saved;
+    store.close();
+  }
+});
+
+test('Qwen Code: Connect and the manual command put the server and command before env flags', async () => {
+  const store = new Store();
+  const log = join(DATA, 'qwen-add.json');
+  const qwen = cliFile('qwen', `const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args[1] === 'add') fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify(args));
+`);
+  try {
+    const integration = new AgentIntegration(store);
+    integration.cli = () => qwen;
+    const m = integration.mcpServer();
+    await integration.connect('qwen-code');
+    assert.deepEqual(JSON.parse(readFileSync(log, 'utf8')), ['mcp', 'add', '--scope', 'user', 'chumi', m.command, ...m.args, '-e', `CHUMI_DATA_DIR=${DATA}`]);
+    assert.match(integration.setupCommands()['qwen-code'], /^qwen mcp add --scope user chumi .* -e CHUMI_DATA_DIR=/);
+  } finally {
+    store.close();
+  }
+});
+
 test('opencode: connecting edits opencode.json only, keeps other settings, and leaves a commented opencode.jsonc alone', async () => {
   const store = new Store();
   const dir = join(DATA, 'config', 'opencode');
