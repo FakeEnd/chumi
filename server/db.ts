@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS segments (
   lang TEXT, source TEXT, run INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS seg_session_t ON segments(session_id, t_start);
+CREATE INDEX IF NOT EXISTS seg_session_id ON segments(session_id, id);
 CREATE VIRTUAL TABLE IF NOT EXISTS segments_fts USING fts5(text, content='segments', content_rowid='id', tokenize='trigram');
 CREATE TRIGGER IF NOT EXISTS seg_ai AFTER INSERT ON segments BEGIN
   INSERT INTO segments_fts(rowid, text) VALUES (new.id, new.text);
@@ -449,6 +450,11 @@ export class Store {
   /** Segments that start after time t (used by the assistant's triggers instead of re-reading the whole session). */
   segmentsAfter(sessionId: string, t: number): SegmentRow[] {
     return this.db.prepare(`${SEGMENT_SELECT} WHERE s.session_id = ? AND s.t_start > ? ORDER BY s.t_start, s.id`).all(sessionId, t) as unknown as SegmentRow[];
+  }
+  segmentsAfterId(sessionId: string, id: number): SegmentRow[] {
+    // Sorting by time in SQL can choose a full session scan instead of the ID range.
+    const rows = this.db.prepare(`${SEGMENT_SELECT} WHERE s.session_id = ? AND s.id > ? ORDER BY s.id`).all(sessionId, id) as unknown as SegmentRow[];
+    return rows.sort((a, b) => a.t_start - b.t_start || a.id - b.id);
   }
   firstSegment(sessionId: string): SegmentRow | undefined {
     return this.db.prepare(`${SEGMENT_SELECT} WHERE s.session_id = ? ORDER BY s.t_start, s.id LIMIT 1`).get(sessionId) as SegmentRow | undefined;

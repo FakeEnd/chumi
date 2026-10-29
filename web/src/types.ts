@@ -101,6 +101,7 @@ export interface HandoffItem {
   progress?: import('../../shared/project-work.ts').ActionProgress | null;
 }
 export interface Handoff {
+  output_id?: string | null;
   id: string; session_id: string; project_id: string | null; status: 'generating' | 'draft' | 'confirmed' | 'error';
   source_revision: number | null; confirmed_revision: number | null; confirmed_at: number | null;
   delivered_at: number | null; delivered_via: string | null; error: string | null; created_at: number; updated_at: number;

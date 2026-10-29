@@ -40,7 +40,7 @@ test('Assistant.ask stores the category apart from the answer and the meeting ti
   assistant.clock = (id) => (id === session.id ? 252_000 : null);
   let finished = done();
   const first = assistant.ask(session.id, 'Why hold out whole chromosomes in general?', null, 'standard');
-  assert.deepEqual(JSON.parse(store.getOutput(first)!.data_json!), { askedT: 252_000 }, 'known before the answer arrives');
+  assert.equal(JSON.parse(store.getOutput(first)!.data_json!).askedT, 252_000, 'known before the answer arrives');
   await finished;
   assert.match(requests[0].instructions, /\[\[meeting\]\].*\[\[tangent\]\]/s);
   const tangent = store.getOutput(first)!;

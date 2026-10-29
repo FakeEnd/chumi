@@ -3,6 +3,7 @@ import { setState, useStore } from '../store.ts';
 import { ask, cancelOutput, explain, refreshOutput, submitQuestion } from '../actions.ts';
 import { fmtClock, fmtT, parseT } from '../util.ts';
 import { msg, plural, t } from '../i18n.ts';
+import { digestProgress } from '../ai-progress.ts';
 import { DEPTH_LABEL } from './TopBar.tsx';
 import { Markdown } from './Markdown.tsx';
 import { focusTime } from './Transcript.tsx';
@@ -113,7 +114,7 @@ function OutputCard({ o, depth, open, onToggle }: { o: Output; depth: Depth; ope
           {auto && o.data?.why && <p className="why muted">{o.data.why}</p>}
           {o.status === 'pending' && <div className="pending"><span className="spinner" /> {t('Waiting for the AI provider…')}</div>}
           {(o.status === 'streaming' || o.status === 'done') && body && <Markdown text={body} />}
-          {o.status === 'streaming' && !body && <div className="pending"><span className="spinner" /> {t('Thinking…')}</div>}
+          {o.status === 'streaming' && !body && <div className="pending"><span className="spinner" /> {digestProgress(o) ?? t('Thinking…')}</div>}
           {o.status === 'error' && <div className="error-box">{o.error && t(o.error)}</div>}
           {o.status === 'cancelled' && <div className="muted small">{t('Cancelled.')}</div>}
           {invalid.length > 0 && <div className="muted small warn-text">{t(invalid.length === 1 ? msg('Note: {n} cited time ({list}) did not match any transcript line.') : msg('Note: {n} cited times ({list}) did not match any transcript line.'), { n: invalid.length, list: invalid.slice(0, 3).join(', ') })}</div>}
@@ -205,7 +206,8 @@ export function AssistantPanel() {
   const cards = useMemo(() => {
     if (!data) return [];
     const outs = data.outputs.filter((o) => ['catchup', 'answer', 'explain', 'auto_explain', 'final_summary'].includes(o.kind));
-    const superseded = new Set(outs.filter((o) => o.parent_id && o.status !== 'error' && o.kind !== 'explain').map((o) => o.parent_id!));
+    const failed = new Set(outs.filter((o) => o.status === 'error' || o.status === 'cancelled').map((o) => o.id));
+    const superseded = new Set(outs.filter((o) => o.parent_id && (failed.has(o.parent_id) || (o.status !== 'error' && o.status !== 'cancelled' && o.kind !== 'explain'))).map((o) => o.parent_id!));
     const visible = outs.filter((o) => !superseded.has(o.id)).sort((a, b) => b.created_at - a.created_at);
     const summary = visible.find((o) => o.kind === 'final_summary');
     return summary ? [summary, ...visible.filter((o) => o.id !== summary.id && o.kind !== 'final_summary')] : visible;

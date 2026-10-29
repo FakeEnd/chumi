@@ -477,6 +477,8 @@ export const ZH: Record<string, string> = {
   "billed": "计费",
   "Waiting for the AI provider…": "正在等待 AI 服务…",
   "Thinking…": "思考中…",
+  "Summarising earlier parts {completed}/{total}…": "正在整理前面的讨论 {completed}/{total}…",
+  "The model returned empty notes for the transcript chunk. Try again.": "AI 未能生成这部分讨论的笔记，请重试。",
   "Cancelled.": "已取消。",
   "Note: {n} cited time ({list}) did not match any transcript line.": "注意：有 {n} 处引用时间（{list}）在转写中找不到对应内容。",
   "Note: {n} cited times ({list}) did not match any transcript line.": "注意：有 {n} 处引用时间（{list}）在转写中找不到对应内容。",

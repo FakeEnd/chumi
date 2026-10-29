@@ -4,6 +4,7 @@ import { addHandoffItem, assignProject, confirmHandoff, continueHandoff, prepare
 import { api } from '../api.ts';
 import { fmtClock, fmtT } from '../util.ts';
 import { msg, plural, t } from '../i18n.ts';
+import { digestProgress } from '../ai-progress.ts';
 import { Dialog } from './Dialog.tsx';
 import { focusTime } from './Transcript.tsx';
 import { ProjectSelect } from './Projects.tsx';
@@ -136,7 +137,7 @@ export function HandoffButton() {
         title={recording ? t('When the meeting ends, turn its decisions and actions into a reviewed handoff for your coding agent.') : t('Turn this meeting\'s decisions and actions into a reviewed handoff for your coding agent.')}>{t('Prepare handoff')}</button>
     );
   }
-  if (h.status === 'generating') return <button className="btn small handoff-btn" disabled><span className="spinner" /> {t('Drafting…')}</button>;
+  if (h.status === 'generating') return <button className="btn small handoff-btn" disabled><span className="spinner" /> {digestProgress(data.outputs.find((o) => o.id === h.output_id)) ?? t('Drafting…')}</button>;
   if (h.status === 'error') return <button className="btn small handoff-btn" title={h.error ?? ''} onClick={() => void prepareHandoff(data.session.id)}><span className="tag tag-warn">{t('Failed')}</span> {t('Try again')}</button>;
   const confirmed = h.status === 'confirmed';
   const pending = h.items.filter((i) => i.review === 'pending').length;
@@ -250,7 +251,7 @@ export function HandoffDialog() {
       {confirmed && selected === 'deepseek-harness' && <p className="small muted">{t('DeepSeek Harness cannot be handed a folder or a message. Chumi saves the handoff, copies a one-line instruction that points to it, and opens the app; you open the project folder there and paste it into a new session.')}</p>}
       {deliveryError && <p className="error-text small" role="alert">{t(deliveryError)}</p>}
       {manualPrompt && <label className="field"><span>{t('Handoff instructions')}</span><textarea readOnly rows={8} value={manualPrompt} onFocus={(e) => e.currentTarget.select()} /></label>}
-      {generating && <div className="pending"><span className="spinner" /> {t('Drafting from the transcript…')}</div>}
+      {generating && <div className="pending"><span className="spinner" /> {digestProgress(data.outputs.find((o) => o.id === h.output_id)) ?? t('Drafting from the transcript…')}</div>}
       <p className="muted small">{t('Review each item. Edit anything that is wrong, reject what should not be handed on. Owners and deadlines appear only if someone stated them.')}</p>
       {KINDS.map(([kind, label, hint]) => {
         const items = h.items.filter((i) => i.kind === kind);

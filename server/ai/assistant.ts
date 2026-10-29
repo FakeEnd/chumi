@@ -18,6 +18,9 @@ import type { HandoffSource } from '../projects/handoff-model.ts';
 export type Broadcast = (event: string, data: unknown) => void;
 export type CatchupScope = '2m' | '5m' | 'all';
 export interface Selection { fromT: number; toT: number; text: string }
+interface DigestProgress { stage: 'digests'; completed: number; total: number }
+type ReportProgress = (progress: DigestProgress) => void;
+interface DigestWork { speakerRevision: number; settled: boolean; promise: Promise<void>; controller: AbortController; listeners: Set<ReportProgress>; progress: DigestProgress }
 
 interface Built {
   instructions: string; input: string; coveredFrom: number | null; coveredTo: number | null;
@@ -75,6 +78,7 @@ export class Assistant {
   private autoCardWalls: number[] = [];
   /** One token per running overview, so a newer one isn't marked finished when an older one settles. */
   private overviewInflight = new Map<string, Set<symbol>>();
+  private digestInflight = new Map<string, DigestWork>();
   private lastOverviewWall = new Map<string, number>();
   private backoffUntil = 0;
   /** Counters exposed for tests and the UI. */
@@ -120,7 +124,7 @@ export class Assistant {
   // ------------------------------------------------------------------ generic runner
   private start(o: {
     sessionId: string; kind: string; prio: number; question?: string | null; selection?: Selection | null; scope?: string | null;
-    depth?: Depth | null; parentId?: string | null; build: (signal: AbortSignal) => Promise<Built>;
+    depth?: Depth | null; parentId?: string | null; data?: Record<string, unknown>; build: (signal: AbortSignal, progress: ReportProgress) => Promise<Built>;
     finalize?: (text: string, built: Built) => { content: string; data?: Record<string, unknown> };
     after?: (row: OutputRow) => void;
     onSettled?: () => void;
@@ -129,10 +133,11 @@ export class Assistant {
     // Where the meeting was when the user asked; not recorded for requests made after it (reviewing).
     const askedT = TIMELINE_KINDS.has(o.kind) ? this.clock?.(o.sessionId) ?? null : null;
     const asked = askedT != null ? { askedT } : {};
+    let data = { ...asked, ...o.data };
     const row = this.store.insertOutput({
       id, session_id: o.sessionId, kind: o.kind, status: 'pending', question: o.question ?? null,
       selection_json: o.selection ? JSON.stringify(o.selection) : null, scope: o.scope ?? null, depth: o.depth ?? null, parent_id: o.parentId ?? null,
-      data_json: askedT != null ? JSON.stringify(asked) : null,
+      data_json: Object.keys(data).length ? JSON.stringify(data) : null,
     });
     this.broadcast('ai', publicOutput(row));
     const controller = new AbortController();
@@ -148,8 +153,12 @@ export class Assistant {
         // Cancelled while queued: still settle below, so callers waiting on it (overview, handoff) are released.
         if (controller.signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
         this.update(id, { status: 'streaming' });
-        const built = await o.build(controller.signal);
+        const built = await o.build(controller.signal, (progress) => {
+          if (!controller.signal.aborted) this.update(id, { data_json: JSON.stringify({ ...data, progress }) });
+        });
         if (controller.signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
+        data = { ...data, ...built.extra };
+        this.update(id, { data_json: JSON.stringify(data) });
         let text: string;
         let meta = { provider: 'local', model: null as string | null, billing: 'none', effort: null as string | null };
         if (built.direct !== undefined) text = built.direct;
@@ -167,7 +176,7 @@ export class Assistant {
         const refCheck = checkRefs(fin.content, segs);
         this.update(id, {
           status: 'done', content: fin.content, covered_from: built.coveredFrom, covered_to: built.coveredTo,
-          data_json: JSON.stringify({ ...asked, ...(built.extra ?? {}), ...(fin.data ?? {}), refCheck, effort: meta.effort }),
+          data_json: JSON.stringify({ ...data, ...(fin.data ?? {}), refCheck, effort: meta.effort }),
           provider: meta.provider, model: meta.model, billing: meta.billing, completed_at: Date.now(),
         });
         this.backoffUntil = 0;
@@ -181,7 +190,7 @@ export class Assistant {
         const message = cancelled ? 'Cancelled.' : `${err.message}${['quota', 'quota_gate', 'auth', 'network', 'unavailable'].includes(kind) ? ' Transcription continues and nothing captured is lost.' : ''}`;
         if (['quota', 'quota_gate', 'auth', 'unavailable', 'network'].includes(kind)) this.backoffUntil = Date.now() + 120_000;
         log('ai', `${o.kind} failed (${kind}): ${err.message}`);
-        this.update(id, { status: cancelled ? 'cancelled' : 'error', error: message, data_json: JSON.stringify({ ...asked, errorKind: kind }), completed_at: Date.now() });
+        this.update(id, { status: cancelled ? 'cancelled' : 'error', error: message, data_json: JSON.stringify({ ...data, errorKind: kind }), completed_at: Date.now() });
       } finally {
         this.controllers.delete(id);
         o.onSettled?.();
@@ -221,14 +230,60 @@ export class Assistant {
 
   // ------------------------------------------------------------------ digests (rolling memory for long sessions)
   /** Summarise transcript chunks that have no digest yet, so long sessions never send the full transcript. */
-  private async ensureDigests(sessionId: string, upTo: number, signal: AbortSignal): Promise<void> {
-    for (const chunk of undigestedChunks(this.store, sessionId, upTo)) {
+  private async ensureDigests(sessionId: string, upTo: number, signal: AbortSignal, progress: ReportProgress): Promise<void> {
+    while (true) {
       if (signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
       const speakerRevision = this.speakerRevision(sessionId);
-      const r = renderSegments(chunk, 16_000);
-      const res = await this.complete({ task: 'digest', instructions: this.system(sessionId, digestInstructions()), input: `${this.header(sessionId)}\n\nTRANSCRIPT CHUNK:\n${r.text}`, effort: this.effort('background'), signal });
+      let work = this.digestInflight.get(sessionId);
+      if (!work || work.speakerRevision !== speakerRevision) {
+        const chunks = undigestedChunks(this.store, sessionId, upTo);
+        if (!chunks.length) return;
+        const job: DigestWork = { speakerRevision, settled: false, promise: Promise.resolve(), controller: new AbortController(), listeners: new Set(), progress: { stage: 'digests', completed: 0, total: chunks.length } };
+        this.digestInflight.set(sessionId, job);
+        // Start after the first listener attaches; each caller can cancel without cancelling the others.
+        job.promise = Promise.resolve().then(() => this.buildDigests(sessionId, chunks, speakerRevision, job.controller.signal, (value) => {
+          job.progress = value;
+          for (const report of job.listeners) report(value);
+        })).finally(() => { job.settled = true; if (this.digestInflight.get(sessionId) === job) this.digestInflight.delete(sessionId); });
+        work = job;
+      }
+      const job = work;
+      const report: ReportProgress = (value) => progress(value);
+      job.listeners.add(report);
+      report(job.progress);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const abort = () => { cleanup(); reject(new ProviderError('aborted', 'Request cancelled.')); };
+          const cleanup = () => {
+            signal.removeEventListener('abort', abort);
+            job.listeners.delete(report);
+            if (!job.listeners.size && !job.settled) job.controller.abort();
+          };
+          signal.addEventListener('abort', abort, { once: true });
+          job.promise.then(() => { cleanup(); resolve(); }, (err) => { cleanup(); reject(err); });
+          if (signal.aborted) abort();
+        });
+      } catch (err) {
+        // An abandoned rebuild may still be settling when a new caller arrives.
+        if (job.controller.signal.aborted && !signal.aborted) continue;
+        throw err;
+      }
+      // Another caller may need a later cutoff, or transcript may have arrived during the rebuild.
+    }
+  }
+
+  private async buildDigests(sessionId: string, chunks: SegmentRow[][], speakerRevision: number, signal: AbortSignal, progress: ReportProgress): Promise<void> {
+    let completed = 0;
+    for (const chunk of chunks) {
+      if (signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
       if (speakerRevision !== this.speakerRevision(sessionId)) throw new ProviderError('aborted', 'Speaker labels changed. Regenerate the response to use the updated names.');
-      this.store.insertOutput({ id: uid('o_'), session_id: sessionId, kind: 'digest', status: 'done', content: res.text.trim(), covered_from: chunk[0].t_start, covered_to: chunk[chunk.length - 1].t_end, provider: res.provider, model: res.model, billing: res.billing, completed_at: Date.now() });
+      const r = renderSegments(chunk, Math.max(16_000, totalChars(chunk)));
+      const res = await this.complete({ task: 'digest', instructions: this.system(sessionId, digestInstructions()), input: `${this.header(sessionId)}\n\nTRANSCRIPT CHUNK:\n${r.text}`, effort: this.effort('background'), signal });
+      if (signal.aborted) throw new ProviderError('aborted', 'Request cancelled.');
+      if (speakerRevision !== this.speakerRevision(sessionId)) throw new ProviderError('aborted', 'Speaker labels changed. Regenerate the response to use the updated names.');
+      if (!res.text.trim()) throw new ProviderError('bad_response', 'The model returned empty notes for the transcript chunk. Try again.');
+      this.store.insertOutput({ id: uid('o_'), session_id: sessionId, kind: 'digest', status: 'done', content: res.text.trim(), covered_from: chunk[0].t_start, covered_to: Math.max(...chunk.map((s) => s.t_end)), data_json: JSON.stringify({ segmentIds: r.segmentIds }), provider: res.provider, model: res.model, billing: res.billing, completed_at: Date.now() });
+      progress({ stage: 'digests', completed: ++completed, total: chunks.length });
     }
   }
 
@@ -269,10 +324,10 @@ export class Assistant {
 
   private earlierNotes(sessionId: string, beforeT: number, maxChars = 6000): string {
     const ov = latestOverview(this.store, sessionId);
-    const ds = renderDigests(digests(this.store, sessionId), beforeT);
-    let notes = `${renderOverview(ov?.data)}${ds ? `\nNotes on earlier parts:\n${ds}` : ''}`;
-    if (notes.length > maxChars) notes = notes.slice(notes.length - maxChars);
-    return notes;
+    const overview = renderOverview(ov?.data, Math.min(1500, maxChars));
+    const heading = '\nNotes on earlier parts:\n';
+    const ds = renderDigests(digests(this.store, sessionId), beforeT, maxChars - overview.length - heading.length);
+    return overview + (ds ? heading + ds : '');
   }
 
   private liveEnd(sessionId: string): number {
@@ -285,7 +340,7 @@ export class Assistant {
     return this.start({
       sessionId, kind: 'catchup', prio: PRIO.manual, scope, parentId,
       question: scope === 'all' ? 'What has been covered so far?' : `What happened in the last ${scope === '2m' ? 'two' : 'five'} minutes?`,
-      build: async (signal) => {
+      build: async (signal, progress) => {
         const end = this.liveEnd(sessionId);
         const all = this.store.segments(sessionId);
         if (!all.length) return { instructions: '', input: '', coveredFrom: null, coveredTo: null, effort: 'low', direct: 'Nothing has been transcribed yet.' };
@@ -296,7 +351,7 @@ export class Assistant {
             return { instructions: this.system(sessionId, catchupInstructions()), input: `${this.header(sessionId)}\nScope: the whole session so far.${vis.text ? `\n\n${vis.text}` : ''}\n\nTRANSCRIPT [${fmtT(r.from!)}–${fmtT(r.to!)}]:\n${r.text}`, coveredFrom: all[0].t_start, coveredTo: end, effort: eff(), images: vis.images, extra: { images: vis.used } };
           }
           const recentFrom = end - RECENT_WINDOW_MS;
-          await this.ensureDigests(sessionId, recentFrom, signal);
+          await this.ensureDigests(sessionId, recentFrom, signal, progress);
           const recent = renderSegments(this.store.segments(sessionId, recentFrom, end), 14_000);
           return {
             instructions: this.system(sessionId, catchupInstructions()),
@@ -346,10 +401,13 @@ export class Assistant {
   }
 
   /** `opts.projectContext`: also search the project's earlier agent sessions (scope 'project' keeps it on retry). */
-  ask(sessionId: string, question: string, selection: Selection | null, depth: Depth, frameIds: number[] = [], effortOverride?: Effort | 'auto' | null, opts: { projectContext?: boolean } = {}): string {
+  ask(sessionId: string, question: string, selection: Selection | null, depth: Depth, frameIds: number[] = [], effortOverride?: Effort | 'auto' | null, opts: { projectContext?: boolean; parentId?: string; replayImages?: boolean } = {}): string {
     const withProject = !!opts.projectContext && !!this.projectContext;
+    const requestedEffort = this.effort('answer', depth, effortOverride);
+    frameIds = [...frameIds];
     return this.start({
-      sessionId, kind: 'answer', prio: PRIO.manual, question, selection, depth, scope: withProject ? 'project' : null,
+      sessionId, kind: 'answer', prio: PRIO.manual, question, selection, depth, scope: withProject ? 'project' : null, parentId: opts.parentId,
+      data: { frameIds, requestedEffort, replayImages: !!opts.replayImages },
       finalize: (text) => {
         const { category, body } = splitCategory(text);
         return { content: body, data: category ? { category } : undefined };
@@ -358,11 +416,11 @@ export class Assistant {
         const c = this.contextFor(sessionId, question, selection);
         if (c.to <= 0 && !selection && !frameIds.length && !withProject) return { instructions: '', input: '', coveredFrom: null, coveredTo: null, effort: 'low', direct: 'Nothing has been transcribed yet, so there is no context to answer from.' };
         const [vis, project] = await Promise.all([
-          this.pickImages(sessionId, frameIds.length ? { kind: 'ids', ids: frameIds } : selection ? { kind: 'around', fromT: selection.fromT, toT: selection.toT } : { kind: 'now' }),
+          this.pickImages(sessionId, frameIds.length || opts.replayImages ? { kind: 'ids', ids: frameIds } : selection ? { kind: 'around', fromT: selection.fromT, toT: selection.toT } : { kind: 'now' }),
           withProject ? this.projectContext!(sessionId, `${question} ${selection?.text.slice(0, 200) ?? ''}`, signal) : null,
         ]);
         if (c.to <= 0 && !selection && !frameIds.length && !project?.text) return { instructions: '', input: '', coveredFrom: null, coveredTo: null, effort: 'low', direct: 'Nothing has been transcribed yet, and no related earlier sessions were found in this project, so there is no context to answer from.', extra: { projectContext: project?.meta } };
-        return { instructions: this.system(sessionId, askInstructions(depth)), input: `${this.header(sessionId)}\n\n${c.text}${vis.text ? `\n\n${vis.text}` : ''}${project?.text ? `\n\n${project.text}` : ''}\n\nUSER QUESTION: ${question}`, coveredFrom: c.from, coveredTo: c.to, effort: this.effort('answer', depth, effortOverride), images: vis.images, extra: { retrieved: c.retrieved, images: vis.used, ...(project ? { projectContext: project.meta } : {}) } };
+        return { instructions: this.system(sessionId, askInstructions(depth)), input: `${this.header(sessionId)}\n\n${c.text}${vis.text ? `\n\n${vis.text}` : ''}${project?.text ? `\n\n${project.text}` : ''}\n\nUSER QUESTION: ${question}`, coveredFrom: c.from, coveredTo: c.to, effort: requestedEffort, images: vis.images, extra: { retrieved: c.retrieved, images: vis.used, ...(project ? { projectContext: project.meta } : {}) } };
       },
     });
   }
@@ -386,7 +444,13 @@ export class Assistant {
     if (o.kind === 'catchup') return this.catchup(o.session_id, (o.scope as CatchupScope) ?? '2m', o.id);
     if (o.kind === 'overview') return this.overview(o.session_id, true);
     if (o.kind === 'final_summary') return this.summary(o.session_id);
-    if (o.kind === 'answer') return this.ask(o.session_id, o.question ?? '', o.selection_json ? JSON.parse(o.selection_json) : null, (o.depth as Depth) ?? 'standard', [], null, { projectContext: o.scope === 'project' });
+    if (o.kind === 'answer') {
+      const pending = this.store.outputs(o.session_id, ['answer']).find((child) => child.parent_id === o.id && ['pending', 'streaming'].includes(child.status));
+      if (pending) return pending.id;
+      const data = parseJsonLoose<{ frameIds?: number[]; images?: Array<{ id: number }>; requestedEffort?: Effort; effort?: Effort; replayImages?: boolean }>(o.data_json ?? '{}');
+      const frameIds = data?.frameIds?.length ? data.frameIds : data?.images?.map((image) => image.id) ?? [];
+      return this.ask(o.session_id, o.question ?? '', o.selection_json ? JSON.parse(o.selection_json) : null, (o.depth as Depth) ?? 'standard', frameIds, data?.requestedEffort ?? data?.effort, { projectContext: o.scope === 'project', parentId: o.id, replayImages: !!data?.images || data?.replayImages });
+    }
     if (o.kind === 'explain' || o.kind === 'auto_explain') return this.explain(o.session_id, o.question ?? '', o.selection_json ? JSON.parse(o.selection_json) : null, (o.depth as Depth) ?? 'standard', o.id);
     return null;
   }
@@ -400,27 +464,32 @@ export class Assistant {
     this.lastOverviewWall.set(sessionId, Date.now());
     return this.start({
       sessionId, kind: 'overview', prio: manual ? PRIO.manual : PRIO.overview, question: manual ? 'Recap now' : null,
-      build: async (signal) => {
+      build: async (signal, progress) => {
         const prev = latestOverview(this.store, sessionId);
-        const sinceT = prev?.covered_to ?? -1;
-        let fresh = this.store.segmentsAfter(sessionId, sinceT);
+        let fresh = this.store.segmentsAfterId(sessionId, prev?.data.lastSegmentId ?? 0);
         if (!fresh.length) {
           if (prev) return { instructions: '', input: '', coveredFrom: prev.covered_from, coveredTo: prev.covered_to, effort: 'low', direct: prev.content ?? '', extra: { ...prev.data, unchanged: true } };
           return { instructions: '', input: '', coveredFrom: null, coveredTo: null, effort: 'low', direct: 'Nothing has been transcribed yet.', extra: { current_topic: '', overview: [], topics: [], open_question: '' } };
         }
+        const lastSegmentId = Math.max(...fresh.map((s) => s.id));
         if (totalChars(fresh) > 16_000) {
           // Too much new text (e.g. overview was off): digest the older part first.
           const cut = fresh[fresh.length - 1].t_end - 5 * 60_000;
-          await this.ensureDigests(sessionId, cut, signal);
-          fresh = fresh.filter((s) => s.t_start >= cut);
+          await this.ensureDigests(sessionId, cut, signal, progress);
+          fresh = fresh.filter((s) => s.t_end > cut);
         }
-        const r = renderSegments(fresh, 16_000);
+        const r = renderSegments(fresh, Math.max(16_000, totalChars(fresh.slice(-1))));
+        if (r.truncated) {
+          const kept = new Set(r.segmentIds);
+          await this.ensureDigests(sessionId, Math.max(...fresh.filter((s) => !kept.has(s.id)).map((s) => s.t_end)), signal, progress);
+          fresh = fresh.filter((s) => kept.has(s.id));
+        }
         const first = this.store.firstSegment(sessionId)!;
         return {
           instructions: this.system(sessionId, overviewInstructions()),
-          input: `${this.header(sessionId)}\n\nPREVIOUS OVERVIEW:\n${renderOverview(prev?.data)}\n\nNOTES ON EARLIER PARTS:\n${renderDigests(digests(this.store, sessionId), fresh[0].t_start).slice(-5000) || '(none)'}\n\nNEW TRANSCRIPT [${fmtT(fresh[0].t_start)}–${fmtT(fresh[fresh.length - 1].t_end)}]:\n${r.text}`,
-          coveredFrom: first.t_start, coveredTo: fresh[fresh.length - 1].t_end, schema: OVERVIEW_SCHEMA as unknown as Record<string, unknown>, effort: this.effort('background'),
-          extra: { chunkFrom: fresh[0].t_start, speakerRevision: this.speakerRevision(sessionId) },
+          input: `${this.header(sessionId)}\n\nPREVIOUS OVERVIEW:\n${renderOverview(prev?.data)}\n\nNOTES ON EARLIER PARTS:\n${renderDigests(digests(this.store, sessionId), fresh[0].t_start, 5000) || '(none)'}\n\nNEW TRANSCRIPT [${fmtT(fresh[0].t_start)}–${fmtT(fresh[fresh.length - 1].t_end)}]:\n${r.text}`,
+          coveredFrom: first.t_start, coveredTo: Math.max(prev?.covered_to ?? 0, ...fresh.map((s) => s.t_end)), schema: OVERVIEW_SCHEMA as unknown as Record<string, unknown>, effort: this.effort('background'),
+          extra: { chunkFrom: fresh[0].t_start, chunkTo: Math.max(...fresh.map((s) => s.t_end)), segmentIds: r.segmentIds, lastSegmentId, speakerRevision: this.speakerRevision(sessionId) },
         };
       },
       finalize: (text, built) => {
@@ -429,9 +498,9 @@ export class Assistant {
         if (!d || typeof d.current_topic !== 'string' || !Array.isArray(d.overview)) throw new ProviderError('bad_response', 'The model returned an overview in an unexpected format.', true);
         const md = `**${d.current_topic}**\n\n${d.overview.map((b) => `- ${b}`).join('\n')}${d.open_question ? `\n\n*Open question:* ${d.open_question}` : ''}`;
         if (d.digest && built.extra?.chunkFrom != null && built.extra.speakerRevision === this.speakerRevision(sessionId)) {
-          this.store.insertOutput({ id: uid('o_'), session_id: sessionId, kind: 'digest', status: 'done', content: d.digest, covered_from: built.extra.chunkFrom as number, covered_to: built.coveredTo, completed_at: Date.now() });
+          this.store.insertOutput({ id: uid('o_'), session_id: sessionId, kind: 'digest', status: 'done', content: d.digest, covered_from: built.extra.chunkFrom as number, covered_to: built.extra.chunkTo as number, data_json: JSON.stringify({ segmentIds: built.extra.segmentIds }), completed_at: Date.now() });
         }
-        return { content: md, data: d as unknown as Record<string, unknown> };
+        return { content: md, data: { ...d, lastSegmentId: built.extra?.lastSegmentId } };
       },
       onSettled: () => {
         inflight.delete(token);
@@ -448,7 +517,7 @@ export class Assistant {
     if (st && !st.ready) return;
     if (s.assist.autoOverview && !this.overviewInflight.has(sessionId)) {
       const prev = latestOverview(this.store, sessionId);
-      const fresh = this.store.segmentsAfter(sessionId, prev?.covered_to ?? -1);
+      const fresh = this.store.segmentsAfterId(sessionId, prev?.data.lastSegmentId ?? 0);
       const chars = totalChars(fresh);
       const since = Date.now() - (this.lastOverviewWall.get(sessionId) ?? 0);
       const firstOne = !prev && chars >= 400;
@@ -557,7 +626,7 @@ export class Assistant {
   summary(sessionId: string, effortOverride?: Effort | 'auto' | null): string {
     return this.start({
       sessionId, kind: 'final_summary', prio: PRIO.summary, question: 'Final summary',
-      build: async (signal) => {
+      build: async (signal, progress) => {
         const s = this.store.getSession(sessionId)!;
         const all = this.store.segments(sessionId);
         if (!all.length) return { instructions: '', input: '', coveredFrom: null, coveredTo: null, effort: 'low', direct: 'No transcript was captured in this session, so there is nothing to summarise.' };
@@ -570,7 +639,7 @@ export class Assistant {
           body = `FULL TRANSCRIPT [${fmtT(all[0].t_start)}–${fmtT(end)}]:\n${renderSegments(all, 62_000).text}`;
         } else {
           const recentFrom = end - RECENT_WINDOW_MS;
-          await this.ensureDigests(sessionId, recentFrom, signal);
+          await this.ensureDigests(sessionId, recentFrom, signal, progress);
           usedDigests = true;
           body = `NOTES ON THE SESSION (AI-generated digests of the transcript, with times):\n${renderDigests(digests(this.store, sessionId), recentFrom)}\n\nFINAL ${RECENT_WINDOW_MS / 60000} MINUTES (verbatim):\n${renderSegments(this.store.segments(sessionId, recentFrom, end), 16_000).text}`;
         }
@@ -594,7 +663,7 @@ export class Assistant {
     let source: HandoffSource;
     const id = this.start({
       sessionId, kind: 'handoff', prio: PRIO.manual, question: 'Handoff draft',
-      build: async (signal) => {
+      build: async (signal, progress) => {
         const session = this.store.getSession(sessionId);
         if (!session) throw new ProviderError('aborted', 'The meeting was deleted.');
         const all = this.store.segments(sessionId);
@@ -606,7 +675,7 @@ export class Assistant {
         if (totalChars(all) <= 60_000) body = `FULL TRANSCRIPT [${fmtT(all[0].t_start)}–${fmtT(end)}]:\n${renderSegments(all, 62_000).text}`;
         else {
           const recentFrom = end - RECENT_WINDOW_MS;
-          await this.ensureDigests(sessionId, recentFrom, signal);
+          await this.ensureDigests(sessionId, recentFrom, signal, progress);
           body = `NOTES ON THE SESSION (AI-generated digests of the transcript, with times):\n${renderDigests(digests(this.store, sessionId), recentFrom)}\n\nFINAL ${RECENT_WINDOW_MS / 60000} MINUTES (verbatim):\n${renderSegments(all.filter((s) => s.t_end >= recentFrom), 16_000).text}`;
         }
         const vis = await this.pickImages(sessionId, { kind: 'spread', max: 4 });
