@@ -37,7 +37,7 @@ struct RecorderCard: View {
                     WaveBars(active: recorder.isRecording, height: 52)
                 }
                 controls
-                Label("使用 Apple 设备端语音识别，中英混合效果需实测。离线识别不可用时仍会保存录音；第一版请保持 App 在前台。", systemImage: "info.circle")
+                Label("使用 Apple 设备端语音识别，中英混合效果需实测。离线识别不可用时仍会保存录音；第一版请保持 App 在前台，录音时屏幕会保持亮起。", systemImage: "info.circle")
                     .font(.caption)
                     .foregroundStyle(ChumiTheme.muted)
                     .lineSpacing(2)

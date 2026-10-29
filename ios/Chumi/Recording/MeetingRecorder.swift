@@ -154,10 +154,12 @@ final class MeetingRecorder: NSObject, ObservableObject {
             try engine.start()
             startedAt = ProcessInfo.processInfo.systemUptime
             isRecording = true
+            UIApplication.shared.isIdleTimerDisabled = true
             statusMessage = fallback ?? "设备端转写中 · \(locale == "en-US" ? "English" : "中文")"
             if speechEnabled { await beginRecognitionWindow() }
             startClock()
         } catch {
+            UIApplication.shared.isIdleTimerDisabled = false
             engine.stop()
             removeTap()
             if let sink { _ = await sink.finish() }
@@ -184,6 +186,7 @@ final class MeetingRecorder: NSObject, ObservableObject {
         }
         guard isRecording else { return }
         isStopping = true
+        UIApplication.shared.isIdleTimerDisabled = false
         let backgroundTask = UIApplication.shared.beginBackgroundTask(
             withName: "Save Chumi recording", expirationHandler: nil)
         defer {
