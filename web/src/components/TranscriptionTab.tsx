@@ -5,6 +5,7 @@ import { api } from '../api.ts';
 import { getLang, t, tn } from '../i18n.ts';
 import { SpeakerSettings } from './Speakers.tsx';
 import { SpeechEngineSettings } from './SpeechEngineSettings.tsx';
+import { maxAsrThreads, threadDraftValue } from '../../../shared/asr-threads.ts';
 import { speechSettingsBusy } from '../speechSettings.ts';
 
 interface ModelRow {
@@ -31,6 +32,8 @@ export function TranscriptionTab() {
   const settings = useStore((s) => s.settings)!;
   const live = useStore((s) => s.live);
   const download = useStore((s) => s.asrDownload);
+  const [threads, setThreads] = useState(String(settings.asr.threads));
+  useEffect(() => setThreads(String(settings.asr.threads)), [settings.asr.threads]);
   const [list, setList] = useState<ModelList | null>(null);
   const [glossary, setGlossary] = useState(settings.asr.glossary.join(', '));
   const [bench, setBench] = useState<{ running: boolean; model?: string; results?: BenchResult[]; error?: string }>({ running: false });
@@ -108,7 +111,7 @@ export function TranscriptionTab() {
       <div className="btn-row">
         <button className="btn small" disabled={bench.running || busySession} onClick={runBench}>{bench.running ? t('Testing…') : settings.asr.engine === 'whisper' ? t('Test speed and accuracy of the current model') : t('Test speed and accuracy of the engine in use')}</button>
       </div>
-      {bench.error && <p className="error-text small">{bench.error}</p>}
+      {bench.error && <p className="error-text small">{t(bench.error)}</p>}
       {bench.results && (
         <table className="bench small">
           <thead><tr><th>{t('Test clip')}</th><th>{t('Time')}</th><th>{t('Speed')}</th><th>{t('Accuracy')}</th></tr></thead>
@@ -147,7 +150,7 @@ export function TranscriptionTab() {
         <textarea rows={3} value={glossary} onChange={(e) => setGlossary(e.target.value)} onBlur={() => S({ asr: { glossary: glossary.split(/[,，、;；\n]+/).map((x) => x.trim()).filter(Boolean) } })} />
       </label>
       {settings.asr.engine === 'sensevoice' && <p className="muted small">{t('SenseVoice does not support vocabulary hints. The glossary has no effect on this engine.')}</p>}
-      <label className="field"><span>{t('CPU threads (more is faster up to the number of performance cores; {n} cores on this computer)', { n: hw?.cores ?? '?' })}</span><input type="number" min={2} max={16} value={settings.asr.threads} disabled={busySession} title={busySession ? t('Wait until recording and transcription finish before changing speech recognition settings.') : ''} onChange={(e) => S({ asr: { threads: Number(e.target.value) } })} /></label>
+      <label className="field"><span>{t('CPU threads (more is faster up to the number of performance cores; {n} cores on this computer)', { n: hw?.cores ?? '?' })}</span><input type="number" min={2} max={maxAsrThreads(hw?.cores ?? 16)} value={threads} disabled={busySession} title={busySession ? t('Wait until recording and transcription finish before changing speech recognition settings.') : ''} onChange={(e) => setThreads(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} onBlur={() => { const value = threadDraftValue(threads, settings.asr.threads, hw?.cores ?? 16); setThreads(String(value)); if (value !== settings.asr.threads) void S({ asr: { threads: value } }).then((ok) => { if (!ok) setThreads(String(settings.asr.threads)); }); }} /></label>
     </section>
   );
 }

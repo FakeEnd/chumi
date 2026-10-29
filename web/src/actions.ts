@@ -139,10 +139,11 @@ export function connectEvents(): () => void {
     }),
     provider: (p) => setState({ provider: p }),
     hotkey: (h) => setState({ hotkey: h }),
+    'mybot-exported': () => setState((s) => ({ mybotExportRev: s.mybotExportRev + 1 })),
     'asr-download': (d) => setState({ asrDownload: d }),
     settings: (st: Settings) => setState({ settings: st }),
     profile: (p: Profile) => setState({ profile: p }),
-    notice: (n) => { if (n.code === 'capture_restarted') setState((s) => ({ notices: s.notices.filter((x) => x.code !== 'capture_stopped' && x.code !== 'capture_gave_up') })); notify(n.level, n.message, n.code); },
+    notice: (n) => { if (n.code === 'capture_restarted') setState((s) => ({ notices: s.notices.filter((x) => x.code !== 'capture_stopped' && x.code !== 'capture_gave_up') })); notify(n.level, n.message, n.code, n.vars); },
     asr: (a) => setState((s) => ({ live: s.live ? { ...s.live, asr: { ...s.live.asr, state: a.state, message: a.message } } : s.live })),
     'session-ended': (e) => { if (getState().viewId === e.sessionId) void openSession(e.sessionId); bumpSessions(); notify('info', t(e.transcriptionPending ? 'Session saved. Finishing transcription before the final summary…' : 'Session saved. Preparing the final summary…'), 'ended'); },
     'session-updated': (sess) => {

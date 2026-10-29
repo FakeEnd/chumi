@@ -24,6 +24,7 @@ export interface AppState {
   data: SessionData | null;
   deltas: Record<string, string>;
   notices: Notice[];
+  mybotExportRev: number;
   dialog: null | 'profile' | 'settings' | 'history' | 'start' | 'window' | 'frame' | 'handoff' | 'project-brief';
   briefProjectId: string | null;
   startProjectId: string | null;
@@ -56,7 +57,7 @@ export interface AppState {
 
 let state: AppState = {
   connected: false, loaded: false, settings: null, profile: null, provider: null, live: null, liveReceivedAt: 0, levels: {}, partials: {},
-  devMode: false, helperBuilt: false, platform: '', appMode: false, dataDir: '', samples: [], viewId: null, data: null, deltas: {}, notices: [],
+  devMode: false, helperBuilt: false, platform: '', appMode: false, dataDir: '', samples: [], viewId: null, data: null, deltas: {}, notices: [], mybotExportRev: 0,
   dialog: null, briefProjectId: null, startProjectId: null, projectWorkRev: 0, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [], sessionsRev: 0, playingSeg: null, hiddenCards: [], catchupScope: '2m', compact: loadCompact(),
 };
 const listeners = new Set<() => void>();
@@ -72,9 +73,9 @@ export function useStore<T>(sel: (s: AppState) => T): T {
 }
 
 let noticeId = 1;
-export function notify(level: Notice['level'], message: string, code = 'ui'): void {
-  const n: Notice = { id: noticeId++, level, code, message, at: Date.now() };
-  setState((s) => ({ notices: [...s.notices.filter((x) => !(x.code === code && x.message === message)), n].slice(-6) }));
+export function notify(level: Notice['level'], message: string, code = 'ui', vars?: Notice['vars']): void {
+  const n: Notice = { id: noticeId++, level, code, message, vars, at: Date.now() };
+  setState((s) => ({ notices: [...s.notices.filter((x) => !(x.code === code && x.message === message && JSON.stringify(Object.entries(x.vars ?? {}).sort()) === JSON.stringify(Object.entries(vars ?? {}).sort()))), n].slice(-6) }));
   if (level !== 'error') setTimeout(() => dismiss(n.id), level === 'info' ? 6000 : 15000);
 }
 export function dismiss(id: number): void { setState((s) => ({ notices: s.notices.filter((n) => n.id !== id) })); }

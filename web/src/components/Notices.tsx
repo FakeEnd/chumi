@@ -23,7 +23,7 @@ export function Notices() {
       {asr?.retrying && <div className="notice warning">{t('Speech recognition is unavailable. Retrying; {seconds} s of audio waiting.', { seconds: Math.round(asr.backlogSec) })}</div>}
       {notices.map((n) => (
         <div key={n.id} className={`notice ${n.level}`}>
-          <span>{t(n.message)}</span>
+          <span>{t(n.message, n.vars)}</span>
           {PERMISSION_HELP[n.code] && <button className="btn small" onClick={() => void api('/api/audio/open-settings', { body: { pane: PERMISSION_HELP[n.code] } })}>{t('Open System Settings')}</button>}
           <button className="link-btn" onClick={() => dismiss(n.id)} aria-label={t('Dismiss')}>✕</button>
         </div>

@@ -1,4 +1,6 @@
-export class ApiError extends Error { status: number; constructor(status: number, msg: string) { super(msg); this.status = status; } }
+import { t } from './i18n.ts';
+
+export class ApiError extends Error { status: number; constructor(status: number, msg: string, vars?: Record<string, string | number>) { super(t(msg, vars)); this.status = status; } }
 
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; signal?: AbortSignal } = {}): Promise<T> {
   const r = await fetch(path, {
@@ -9,7 +11,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   });
   const text = await r.text();
   const data = text ? JSON.parse(text) : null;
-  if (!r.ok) throw new ApiError(r.status, data?.error ?? r.statusText);
+  if (!r.ok) throw new ApiError(r.status, data?.error ?? r.statusText, data?.vars);
   return data as T;
 }
 

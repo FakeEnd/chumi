@@ -1,6 +1,7 @@
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { AUDIO_DIR, FRAMES_DIR } from '../paths.ts';
+import { sessionTitle } from '../i18n.ts';
 import type { FrameRow, Store, SessionRow, SegmentRow } from '../db.ts';
 import { fmtT, log, now, uid } from '../util.ts';
 import { FileCapture, HelperCapture, type AudioInput, type SourceName } from '../audio/capture.ts';
@@ -200,7 +201,7 @@ export class SessionManager {
       throw new Error(`Speech recognition is not ready: ${(e as Error).message}`);
     }
     const id = uid('s_');
-    this.session = this.store.createSession({ id, title: o.title || `Session ${new Date().toLocaleString()}`, type: o.type, audio_source: o.source, record_audio: o.recordAudio ?? this.store.getSettings().audio.saveRawAudio });
+    this.session = this.store.createSession({ id, title: o.title?.trim() || sessionTitle(this.store.getSettings().ui.language), type: o.type, audio_source: o.source, record_audio: o.recordAudio ?? this.store.getSettings().audio.saveRawAudio });
     if (o.projectId) { this.store.assignSession(id, o.projectId); this.session = this.store.getSession(id)!; }
     this.source = o.source;
     this.fileOpts = o.source === 'file' && o.filePath ? { path: o.filePath, speed: o.speed ?? 1, posSec: 0 } : null;

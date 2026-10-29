@@ -1,8 +1,12 @@
 import os from 'node:os';
+import { maxAsrThreads } from '../shared/asr-threads.ts';
 import { DEFAULT_SESSION_TYPES, type SessionTypeOption } from '../shared/session-types.ts';
 import { recommendModel } from './asr/models.ts';
 import { defaultLocalEngine, QWEN_CLOUD_MODEL, QWEN_CLOUD_REGIONS, QWEN_LOCAL_MODEL, QWEN_LOCAL_URL, type SpeechEngineId } from './asr/engines.ts';
 import { defaultCompatibleSettings, type CompatibleSettings } from '../shared/compatible-provider.ts';
+
+export const ASR_THREAD_LIMIT = maxAsrThreads(os.cpus().length);
+
 export type AudioSourceMode = 'mic' | 'system' | 'both';
 export type Depth = 'quick' | 'standard' | 'deep';
 export type SessionType = string;

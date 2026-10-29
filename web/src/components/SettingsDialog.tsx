@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { setState, useStore } from '../store.ts';
+import { notify, setState, useStore } from '../store.ts';
 import { refreshProvider, saveProfile, saveSettings } from '../actions.ts';
 import { api } from '../api.ts';
 import { locale, msg, plural, t, tn } from '../i18n.ts';
@@ -44,7 +44,7 @@ function QuotaView({ p }: { p: ProviderStatus }) {
       </div>
       {p.quota.note && <div className={p.ready ? 'muted small' : 'warn-text small'}>{t(p.quota.note)}</div>}
       {p.message && p.message !== p.quota.note && <div className={p.ready ? 'muted small' : 'warn-text small'}>{t(p.message)}</div>}
-      {p.setupHint && <div className="hint"><b>{t('Setup:')}</b> <code>{p.setupHint}</code></div>}
+      {p.setupHint && <div className="hint"><b>{t('Setup:')}</b> <code>{t(p.setupHint)}</code></div>}
     </div>
   );
 }
@@ -57,6 +57,7 @@ export function SettingsDialog() {
   const hotkey = useStore((s) => s.hotkey);
   const devMode = useStore((s) => s.devMode);
   const dataDir = useStore((s) => s.dataDir);
+  const mybotExportRev = useStore((s) => s.mybotExportRev);
   const systemLanguage = useStore((s) => s.systemLanguage);
   const windows = useStore((s) => s.platform) === 'win32';
   const compatibleProfile = settings.ai.compatible.profiles[settings.ai.compatible.preset];
@@ -64,6 +65,7 @@ export function SettingsDialog() {
   const [perm, setPerm] = useState<Record<string, string>>({});
   const [mybot, setMybot] = useState<{ enabled: boolean; dir: string; files: number; shareWithTeam: boolean } | null>(null);
   const [exportDir, setExportDir] = useState(settings.integrations.mybot.exportDir);
+  useEffect(() => setExportDir(settings.integrations.mybot.exportDir), [settings.integrations.mybot.exportDir]);
   const loadMybot = () => void api('/api/integrations/mybot').then(setMybot).catch(() => {});
   useEffect(() => {
     if (tab === 'audio') {
@@ -71,8 +73,8 @@ export function SettingsDialog() {
       void api('/api/audio/permissions').then(setPerm).catch(() => {});
     }
     if (tab === 'ai') void refreshProvider();
-    if (tab === 'integrations') loadMybot();
   }, [tab]);
+  useEffect(() => { if (tab === 'integrations') loadMybot(); }, [tab, mybotExportRev]);
   const S = saveSettings;
   const PERM: Record<string, string> = { granted: msg('granted'), denied: msg('denied'), restricted: msg('restricted'), undetermined: msg('not asked yet') };
 
@@ -171,7 +173,7 @@ export function SettingsDialog() {
               <option value="off">{t('Off')}</option>
             </select>
           </label>
-          <p className="small">{t('Status:')} {hotkey?.state === 'ready' ? <b className="ok-text">{t('{key} is active', { key: hotkey.shortcut })}</b> : hotkey?.state === 'off' ? t('off') : <span className="warn-text">{hotkey?.message ? t(hotkey.message) : hotkey?.state ?? t('unknown')}</span>}</p>
+          <p className="small">{t('Status:')} {hotkey?.state === 'ready' ? <b className="ok-text">{t('{key} is active', { key: hotkey.shortcut })}</b> : hotkey?.state === 'off' ? t('off') : <span className="warn-text">{hotkey?.message ? t(hotkey.message) : t(hotkey?.state ?? 'unknown')}</span>}</p>
           <ul className="small muted">
             <li>{t("First press starts listening. Pressing again pauses, and a third press resumes. End the session in Chumi when you're done.")}</li>
             <li>{t('The shortcut needs no extra permission. If another app already uses the combination, pick a different one.')}</li>
@@ -302,7 +304,7 @@ export function SettingsDialog() {
             </select>
           </label>
           <label className="field check"><input type="checkbox" checked={settings.assist.autoOverview} onChange={(e) => S({ assist: { autoOverview: e.target.checked } })} /> {t('Keep the running overview updated automatically at pauses and topic changes')}</label>
-          <label className="field check"><input type="checkbox" checked={settings.devMode} onChange={(e) => S({ devMode: e.target.checked })} /> {t('Developer mode (audio-file test source, offline test provider)')}</label>
+          <label className="field check"><input type="checkbox" checked={settings.devMode} onChange={(e) => S({ devMode: e.target.checked, ...(!e.target.checked && settings.ai.provider === 'mock' ? { ai: { provider: 'codex' } } : {}) })} /> {t('Developer mode (audio-file test source, offline test provider)')}</label>
         </section>
       )}
 
@@ -319,7 +321,7 @@ export function SettingsDialog() {
           </label>
           <label className="field check warn-box"><input type="checkbox" checked={settings.integrations.mybot.shareWithTeam} onChange={(e) => { if (!e.target.checked || confirm(t("Let mybot use your meeting transcripts when answering teammates? Meetings contain other people's words, so only do this if everyone is comfortable with it."))) void S({ integrations: { mybot: { shareWithTeam: e.target.checked } } }).then(loadMybot); }} /> {tn('Let mybot share meeting content with teammates (off: meetings are owner-only, marked {tag})', { tag: <code>visibility: private</code> })}</label>
           <div className="btn-row">
-            <button className="btn small" onClick={() => void api('/api/integrations/mybot/export-all', { body: {} }).then(loadMybot)}>{t('Export all sessions now')}</button>
+            <button className="btn small" onClick={() => void api('/api/integrations/mybot/export-all', { body: {} }).then(loadMybot).catch((e) => notify('error', (e as Error).message))}>{t('Export all sessions now')}</button>
             {mybot && <span className="muted small">{tn('{count} in {dir}', { count: plural(mybot.files, '{n} session file', '{n} session files'), dir: <code>{mybot.dir}</code> })}</span>}
           </div>
           <p className="muted small">{tn("One-time mybot setup: run {cmd} from the Chumi folder, add {src} to {var} in mybot's {env}, then restart mybot. Details: docs/mybot.md.", { cmd: <code>bash integrations/mybot/install.sh ~/Code/mybot</code>, src: <code>chumi</code>, var: <code>TRAJECTORY_SOURCES</code>, env: <code>.env</code> })}</p>

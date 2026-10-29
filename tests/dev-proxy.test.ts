@@ -7,11 +7,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'vite';
 import config from '../web/vite.config.ts';
+import { crossSiteSource } from '../server/util.ts';
 
 test('the development proxy sends the backend Host while preserving write headers and payloads', { timeout: 10_000 }, async (t) => {
   const upstream = createHttpServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    if (crossSiteSource(req.headers)) { res.writeHead(403); res.end(); return; }
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ host: req.headers.host, method: req.method, path: req.url, chumi: req.headers['x-chumi'], body: Buffer.concat(chunks).toString() }));
   });
@@ -30,7 +32,11 @@ test('the development proxy sends the backend Host while preserving write header
   t.after(() => vite.close());
   await vite.listen();
   const url = `http://127.0.0.1:${(vite.httpServer!.address() as AddressInfo).port}/api/session/end`;
-  const response = await fetch(url, { method: 'POST', headers: { 'x-chumi': '1', 'content-type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(5000) });
+  const response = await fetch(url, { method: 'POST', headers: { 'x-chumi': '1', 'content-type': 'application/json', origin: new URL(url).origin, 'sec-fetch-site': 'same-origin' }, body: '{}', signal: AbortSignal.timeout(5000) });
   assert.equal(response.status, 200);
+  const rejected = await fetch(url, { method: 'POST', headers: { 'x-chumi': '1', origin: 'http://attacker.example' }, body: '{}' });
+  assert.equal(rejected.status, 403, 'the proxy must not bless a foreign Origin');
+  const crossSite = await fetch(url, { method: 'POST', headers: { 'x-chumi': '1', origin: new URL(url).origin, 'sec-fetch-site': 'cross-site' }, body: '{}' });
+  assert.equal(crossSite.status, 403, 'fetch metadata is preserved');
   assert.deepEqual(await response.json(), { host: new URL(target).host, method: 'POST', path: '/api/session/end', chumi: '1', body: '{}' });
 });

@@ -116,4 +116,4 @@ export interface AgentStatus {
   agent: AgentId; name: string; billing: 'plan' | 'unknown'; cli: string | null; registered: boolean | null; outdated: boolean; outdatedReasons: string[];
   clientHealth: 'connected' | 'failed' | 'unknown'; lastRead: { at: number; tool: string } | null; verifiedAt: number | null; detail: string | null;
 }
-export interface Notice { id: number; level: 'info' | 'warning' | 'error'; code: string; message: string; at: number }
+export interface Notice { id: number; level: 'info' | 'warning' | 'error'; code: string; message: string; vars?: Record<string, string | number>; at: number }

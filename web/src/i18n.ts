@@ -1,4 +1,5 @@
 import { createElement, Fragment, type ReactNode } from 'react';
+import { translateMessage } from '../../shared/messages.ts';
 import { ZH } from './i18n-zh.ts';
 
 /**
@@ -8,6 +9,7 @@ import { ZH } from './i18n-zh.ts';
  */
 export type UiLang = 'en' | 'zh';
 let lang: UiLang = 'en';
+const EN = {};
 
 export function resolveLang(pref: string | undefined, system?: string): UiLang {
   if (pref === 'en' || pref === 'zh') return pref;
@@ -23,14 +25,10 @@ export const getLang = (): UiLang => lang;
 
 /** Translate a string; {name} placeholders are filled from vars. */
 export function t(en: string, vars?: Record<string, string | number>): string {
-  let s = lang === 'zh' ? ZH[en] ?? en : en;
   // Assistant adds this reassurance to provider errors; translate each known part.
   const suffix = ' Transcription continues and nothing captured is lost.';
-  if (lang === 'zh' && !ZH[en] && en.endsWith(suffix)) {
-    const message = en.slice(0, -suffix.length);
-    s = `${ZH[message] ?? message} ${ZH[suffix.trim()] ?? suffix.trim()}`;
-  }
-  return vars ? s.replace(/\{(\w+)\}/g, (m: string, k: string) => (k in vars ? String(vars[k]) : m)) : s;
+  if (lang === 'zh' && !(en in ZH) && en.endsWith(suffix)) return `${translateMessage(en.slice(0, -suffix.length), ZH, vars)} ${ZH[suffix.trim()] ?? suffix.trim()}`;
+  return translateMessage(en, lang === 'zh' ? ZH : EN, vars);
 }
 
 /** Translate a string whose {name} placeholders are React nodes (links, <b>, <code>). */

@@ -5,7 +5,7 @@ import { api } from '../api.ts';
 import { fmtClock } from '../util.ts';
 import { plural, t, tn } from '../i18n.ts';
 import type { AgentStatus } from '../types.ts';
-import { AGENT_NAMES, type AgentId } from '../../../shared/agents.ts';
+import { AGENTS, AGENT_NAMES, type AgentId } from '../../../shared/agents.ts';
 
 /** Project picker: a meeting belongs to at most one project, and only when the user says so. */
 export function ProjectSelect({ value, onChange, className, ariaLabel }: { value: string | null; onChange: (id: string | null) => void; className?: string; ariaLabel?: string }) {
@@ -72,41 +72,49 @@ export function ProjectsTab() {
   );
 }
 
-interface AgentsInfo { local: { ok: boolean; detail: string }; agents: AgentStatus[]; commands: Record<string, string>; exports: { mybot: { files: number; dir: string } | null } }
+interface AgentsInfo { commands: Record<string, string>; exports: { mybot: { files: number; dir: string } | null } }
 
 export function AgentsTab() {
   const [info, setInfo] = useState<AgentsInfo | null>(null);
+  const [local, setLocal] = useState<{ ok: boolean; detail: string } | null>(null);
+  const [statuses, setStatuses] = useState<Partial<Record<AgentId, AgentStatus>>>({});
+  const [errors, setErrors] = useState<Partial<Record<AgentId, string>>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const [result, setResult] = useState<Record<string, { ok: boolean; detail: string }>>({});
+  const [result, setResult] = useState<Record<string, { ok: boolean; detail: string; vars?: Record<string, string | number> }>>({});
   const [error, setError] = useState<string | null>(null);
-  const load = () => void api<AgentsInfo>('/api/agents').then(setInfo).catch((e) => setError((e as Error).message));
-  useEffect(load, []);
+  useEffect(() => {
+    const controller = new AbortController(), options = { signal: controller.signal };
+    void api<AgentsInfo>('/api/agents/info', options).then(setInfo).catch((e) => { if (!controller.signal.aborted) setError((e as Error).message); });
+    void api<{ ok: boolean; detail: string }>('/api/agents/local', options).then(setLocal).catch((e) => { if (!controller.signal.aborted) setLocal({ ok: false, detail: (e as Error).message }); });
+    for (const agent of AGENTS) void api<AgentStatus>(`/api/agents/${agent}/status`, options).then((status) => setStatuses((s) => ({ ...s, [agent]: status }))).catch((e) => { if (!controller.signal.aborted) setErrors((s) => ({ ...s, [agent]: (e as Error).message })); });
+    return () => controller.abort();
+  }, []);
   const act = async (a: AgentStatus, action: 'connect' | 'disconnect' | 'verify') => {
     const agent = a.agent;
     // opencode, Qwen Code, Antigravity and DeepSeek Harness use whatever model account the user set up in them, so Chumi can't keep the check free.
     const consent = action === 'verify' && a.billing === 'unknown';
     if (consent && !confirm(t('{name} uses the model account you configured in it, so Chumi cannot tell whether this check is free or billed. Send one small request through {name}?', { name: a.name }))) return;
-    setBusy(`${agent}:${action}`); setError(null);
+    setBusy(`${agent}:${action}`); setErrors((s) => ({ ...s, [agent]: undefined }));
     try {
-      const r = await api<{ status: AgentStatus; result?: { ok: boolean; detail: string } }>(`/api/agents/${agent}/${action}`, { body: consent ? { consent: true } : {} });
-      if (r.result) setResult({ ...result, [agent]: r.result });
-      load();
-    } catch (e) { setError((e as Error).message); }
+      const r = await api<{ status: AgentStatus; result?: { ok: boolean; detail: string; vars?: Record<string, string | number> } }>(`/api/agents/${agent}/${action}`, { body: consent ? { consent: true } : {} });
+      if (r.result) setResult((s) => ({ ...s, [agent]: r.result! }));
+      setStatuses((s) => ({ ...s, [agent]: r.status }));
+    } catch (e) { setErrors((s) => ({ ...s, [agent]: (e as Error).message })); }
     setBusy(null);
   };
   return (
     <section>
       <p className="small">{t('Connect Chumi to your coding agents (Claude Code, Codex, opencode, Qwen Code, Antigravity, DeepSeek Harness) so an agent working in a project folder can read that project\'s meetings, confirmed handoffs, original transcript passages and screen captures. Agents read only when they call Chumi\'s tools; Chumi never sends meetings anywhere on its own.')}</p>
-      {error && <p className="error-text small">{error}</p>}
-      {!info && !error && <p className="muted small">{t('Checking…')}</p>}
-      {info && (
-        <>
-          <div className={`agent-row ${info.local.ok ? '' : 'bad'}`}>
+      {error && <p className="error-text small">{t(error)}</p>}
+      <>
+          <div className={`agent-row ${local?.ok ? '' : 'bad'}`}>
             <b>{t('Chumi MCP server on this computer')}</b>
-            <span className={`pill ${info.local.ok ? 'ok' : 'warn'}`}><span className="dot" />{info.local.ok ? t('works') : t('failed')}</span>
-            <span className="muted small">{t(info.local.detail)}</span>
+            <span className={`pill ${local?.ok ? 'ok' : 'warn'}`}><span className="dot" />{!local ? t('Checking…') : local.ok ? t('works') : t('failed')}</span>
+            <span className="muted small">{local && t(local.detail)}</span>
           </div>
-          {info.agents.map((a) => {
+          {AGENTS.map((agent) => {
+            const a = statuses[agent];
+            if (!a) return <div key={agent} className="agent-card"><b>{AGENT_NAMES[agent]}</b><p className={errors[agent] ? 'error-text small' : 'muted small'}>{errors[agent] ? t(errors[agent]) : t('Checking…')}</p></div>;
             const name = a.name;
             const verified = a.verifiedAt ? t('verified {time}', { time: fmtClock(a.verifiedAt) }) : t('not verified yet');
             return (
@@ -119,8 +127,9 @@ export function AgentsTab() {
                 <div className="small">
                   <div>{t('Agent read check:')} <b className={a.verifiedAt ? 'ok-text' : ''}>{verified}</b>{a.lastRead ? ` · ${t('last read {time} ({tool})', { time: fmtClock(a.lastRead.at), tool: a.lastRead.tool })}` : ''}</div>
                   {a.outdatedReasons?.map((reason) => <div key={reason} className="warn-text">{t(reason)}</div>)}
+                  {errors[agent] && <div className="error-text">{t(errors[agent])}</div>}
                   {a.detail && <div className="muted">{t(a.detail)}</div>}
-                  {result[a.agent] && <div className={result[a.agent].ok ? 'ok-text' : 'warn-text'}>{t(result[a.agent].detail)}</div>}
+                  {result[a.agent] && <div className={result[a.agent].ok ? 'ok-text' : 'warn-text'}>{t(result[a.agent].detail, result[a.agent].vars)}</div>}
                 </div>
                 {a.cli && (
                   <div className="btn-row">
@@ -133,11 +142,10 @@ export function AgentsTab() {
             );
           })}
           <p className="muted small">{tn('Connecting adds a server named {name} to the agent\'s user settings. You can also do it yourself: run the command in Terminal, or for opencode add the entry to the file shown. For Antigravity, Chumi also pre-approves only its check tool in the settings file shown, because Antigravity cannot ask for approval during the read check. For DeepSeek Harness, Chumi adds the block below to its settings file, which every DeepSeek Harness profile reads, the desktop app included.', { name: <code>chumi</code> })}</p>
-          {Object.entries(info.commands).map(([k, cmd]) => <pre key={k} className="cmd small"><span className="muted">{AGENT_NAMES[k as AgentId]}</span>{'\n'}{cmd}</pre>)}
-          <h3>{t('Other routes')}</h3>
-          <p className="small">{info.exports.mybot ? t('mybot export: {n} file(s) in {dir}. Whether mybot has indexed them cannot be checked from Chumi.', { n: info.exports.mybot.files, dir: info.exports.mybot.dir }) : t('mybot export is off (Integrations).')}</p>
-        </>
-      )}
+          {Object.entries(info?.commands ?? {}).map(([k, cmd]) => <pre key={k} className="cmd small"><span className="muted">{AGENT_NAMES[k as AgentId]}</span>{'\n'}{cmd}</pre>)}
+          {info && <><h3>{t('Other routes')}</h3>
+          <p className="small">{info.exports.mybot ? t('mybot export: {n} file(s) in {dir}. Whether mybot has indexed them cannot be checked from Chumi.', { n: info.exports.mybot.files, dir: info.exports.mybot.dir }) : t('mybot export is off (Integrations).')}</p></>}
+      </>
     </section>
   );
 }

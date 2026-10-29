@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { extname, isAbsolute, join, normalize, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { Readable } from 'node:stream';
@@ -16,13 +17,17 @@ import { Assistant, publicOutput, type CatchupScope, type Selection } from './ai
 import { SessionManager, publicFrame } from './session/manager.ts';
 import { exportRecording, playbackInfo, recordingBytes, sessionRecording, type Recording } from './session/recording.ts';
 import { listWindows, requestScreenPermission, screenPermission } from './screen/watcher.ts';
+import { localize, sessionTitle, systemLanguage } from './i18n.ts';
+import type { MessageVars } from '../shared/messages.ts';
 import { HotkeyAgent } from './hotkey.ts';
+import { exportMybotSessions, validateMybotDirectory } from './mybot-export.ts';
 import { MybotExporter } from './integrations/mybot.ts';
 import { MybotContext } from './integrations/mybot-context.ts';
 import { HandoffError, HandoffService } from './projects/handoff.ts';
+import { AgentChecks } from './agent-checks.ts';
 import { AGENTS, AgentIntegration, type AgentId } from './projects/agents.ts';
 import { AGENT_BILLING, AGENT_NAMES } from '../shared/agents.ts';
-import { chooseFolder, notify, openExternalUrl, openPrivacySettings, preferredLanguage } from './platform.ts';
+import { chooseFolder, notify, openExternalUrl, openPrivacySettings } from './platform.ts';
 import { chumiLink, SERVER_INFO, workspaceExists } from './projects/evidence.ts';
 import { exportName, exportSession } from './export.ts';
 import { audioHelperArgs, checkPermissions, listDevices } from './audio/capture.ts';
@@ -34,7 +39,7 @@ import { LocalModelDownloader } from './ai/local-model-download.ts';
 import { isCompatiblePreset, normalizeCompatibleUrl, validateCompatibleSettings, COMPATIBLE_PRESETS } from '../shared/compatible-provider.ts';
 import type { ClaudeCliProvider } from './ai/claude-cli.ts';
 import type { CodexProvider } from './ai/codex.ts';
-import { EFFORTS, PET_TAGS, SOURCE_NAMES, isProviderId, normalizeLanguage, type Depth, type Effort, type Profile, type Settings } from './settings.ts';
+import { ASR_THREAD_LIMIT, EFFORTS, PET_TAGS, SOURCE_NAMES, isProviderId, normalizeLanguage, type Depth, type Effort, type Profile, type Settings } from './settings.ts';
 import { SpeakerService } from './speakers/service.ts';
 import { speakerRuntime } from './speakers/runtime.ts';
 import { discardSpeakerAudio, hasRecordedAudio, speakerAudioAvailable } from './speakers/audio.ts';
@@ -101,7 +106,11 @@ manager.recoverOnBoot();
 
 // mybot export: refresh a session's JSONL when it ends, gets its summary or Q&A, is renamed; remove it on delete.
 const mybot = new MybotExporter(store);
-const syncMybot = (id: string) => { try { mybot.sync(id); } catch (e) { log('mybot', `export failed: ${(e as Error).message}`); } };
+const mybotExportFailed = (error: unknown) => {
+  log('mybot', `export failed: ${(error as Error).message}`);
+  broadcast('notice', { level: 'warning', code: 'mybot_export_failed', message: 'mybot export failed. Check the export folder and try again; your meetings and settings are saved in Chumi.' });
+};
+const syncMybot = (id: string) => { try { mybot.sync(id); } catch (e) { mybotExportFailed(e); } };
 manager.onEnded = syncMybot;
 // Project context for questions: searches a running mybot for the project's earlier agent sessions (only when turned on).
 const projectContext = new MybotContext(store);
@@ -111,6 +120,7 @@ assistant.onOutputDone = (row) => { if (row.kind !== 'digest' && row.kind !== 'o
 // Projects and reviewed handoffs to Claude Code / Codex (docs/project-integration-prd.md).
 const handoffs = new HandoffService(store, assistant, (sessionId) => { broadcast('handoff', { sessionId, handoff: handoffs.view(sessionId) }); syncMybot(sessionId); });
 const agents = new AgentIntegration(store);
+const agentChecks = new AgentChecks(agents);
 const projectWork = new ProjectWorkService(store);
 const speakers = new SpeakerService(store, (id) => {
   broadcast('speakers', speakerUpdate(id));
@@ -137,36 +147,40 @@ const hotkey = new HotkeyAgent();
 hotkey.on('state', () => broadcast('hotkey', hotkeyState()));
 const hotkeyState = () => ({ state: hotkey.state, shortcut: hotkey.shortcut, message: hotkey.message });
 
-function macNotify(text: string): void {
-  if (store.getSettings().quickStart.notify) notify(text);
+function macNotify(key: string, vars?: MessageVars): void {
+  const settings = store.getSettings();
+  if (settings.quickStart.notify) notify(localize(settings.ui.language, key, vars));
 }
 
 async function quickStart(): Promise<void> {
   const st = store.getSettings();
   const source = st.quickStart.source === 'default' ? st.audio.source : st.quickStart.source;
-  const when = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  await manager.start({ title: `Quick session · ${when}`, type: st.quickStart.type, source });
+  await manager.start({ title: sessionTitle(st.ui.language, true), type: st.quickStart.type, source });
 }
 
 /** Shortcut: idle → start listening; recording → pause; paused → resume. Ending is always a deliberate click. */
 async function onShortcut(): Promise<void> {
-  const key = hotkey.shortcut || 'the shortcut';
+  const key = hotkey.shortcut || localize(store.getSettings().ui.language, 'the shortcut');
   try {
-    if (manager.status === 'idle') {
+    if (manager.status === 'starting' || manager.status === 'ending') {
+      const message = manager.status === 'starting' ? 'Chumi is still starting speech recognition. Please wait a moment.' : 'Chumi is still saving the previous meeting. Try again in a moment.';
+      macNotify(message);
+      broadcast('notice', { level: 'info', code: 'quick_start_busy', message });
+    } else if (manager.status === 'idle') {
       await quickStart();
       const src = manager.source;
-      macNotify(`Listening (${SOURCE_NAMES[src] ?? src}). Press ${key} to pause.`);
-      broadcast('notice', { level: 'info', code: 'quick_start', message: `Quick start: listening (${SOURCE_NAMES[src] ?? src}). Rename the session or change its type in the top bar.` });
+      macNotify('Listening ({source}). Press {key} to pause.', { source: SOURCE_NAMES[src] ?? src, key });
+      broadcast('notice', { level: 'info', code: 'quick_start', message: 'Quick start: listening ({source}). Rename the session or change its type in the top bar.', vars: { source: SOURCE_NAMES[src] ?? src } });
     } else if (manager.status === 'recording') {
       await manager.pause();
-      macNotify(`Paused. Press ${key} to resume.`);
+      macNotify('Paused. Press {key} to resume.', { key });
     } else if (manager.status === 'paused') {
       await manager.resume();
       macNotify('Listening again.');
     }
   } catch (e) {
-    macNotify(`Could not start: ${(e as Error).message}`);
-    broadcast('notice', { level: 'error', code: 'quick_start_failed', message: `Quick start failed: ${(e as Error).message}` });
+    macNotify('Could not start. Open Chumi for details.');
+    broadcast('notice', { level: 'error', code: 'quick_start_failed', message: 'Quick start failed: {error}', vars: { error: (e as Error).message } });
   }
 }
 hotkey.on('pressed', () => void onShortcut());
@@ -182,7 +196,7 @@ downloader.on('progress', (d) => {
 });
 
 // ---------------------------------------------------------------- helpers
-class HttpError extends Error { status: number; constructor(status: number, msg: string) { super(msg); this.status = status; } }
+class HttpError extends Error { status: number; vars?: MessageVars; constructor(status: number, msg: string, vars?: MessageVars) { super(msg); this.status = status; this.vars = vars; } }
 
 function send(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   const data = typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body);
@@ -239,15 +253,6 @@ function speakerUpdate(id: string) {
     stale: Object.fromEntries(store.outputs(id).filter((o) => o.kind !== 'digest' && o.status !== 'suppressed').map((o) => [o.id, o.stale_reason ?? null])) };
 }
 
-let sysLang: 'en' | 'zh' | null = null;
-/** The system's preferred language (WKWebView's navigator.language reflects the app bundle, not the user's choice). */
-function systemLanguage(): 'en' | 'zh' {
-  if (sysLang) return sysLang;
-  let first = preferredLanguage();
-  if (!first) first = process.env.LANG ?? '';
-  sysLang = first.toLowerCase().startsWith('zh') ? 'zh' : 'en';
-  return sysLang;
-}
 // First run: a fresh install starts with an empty profile in the system language (the checklist on Home asks for it).
 store.ensureProfile(systemLanguage());
 
@@ -266,6 +271,7 @@ function samples(): Array<{ name: string; path: string; sizeMb: number }> {
 function applySettingsPatch(patch: Record<string, any>): Settings {
   const before = store.getSettings();
   const next = deepMerge(before, patch) as Settings;
+  if (patch.asr?.threads !== undefined && (!Number.isInteger(next.asr.threads) || next.asr.threads < 2 || next.asr.threads > ASR_THREAD_LIMIT)) throw new HttpError(400, 'CPU threads must be a whole number between 2 and the smaller of 16 or the number of CPU cores.');
   if (patch.asr?.engine !== undefined) next.asr.engineSelected = true;
   if (!isProviderId(next.ai.provider)) throw new HttpError(400, 'Unknown provider');
   // Only a patch that edits the profiles can be rejected for them; a stale saved profile must not block other settings.
@@ -305,15 +311,19 @@ function applySettingsPatch(patch: Record<string, any>): Settings {
   if (next.ai.provider === 'anthropic-api' && !next.ai.anthropicApi.enabled) throw new HttpError(400, 'Enable paid API access first (Settings → AI provider). It is off by default.');
   if (next.ai.provider === 'mock' && !next.devMode && !DEV) throw new HttpError(400, 'The offline test provider is only available in developer mode.');
   if (!next.ai.anthropicApi.enabled && next.ai.provider === 'anthropic-api') next.ai.provider = 'codex';
+  if (patch.integrations?.mybot?.exportDir !== undefined || (!before.integrations.mybot.enabled && next.integrations.mybot.enabled)) {
+    try { next.integrations.mybot.exportDir = validateMybotDirectory(next.integrations.mybot.exportDir); }
+    catch (error) { throw new HttpError(400, (error as Error).message); }
+  }
   try { Object.assign(next, store.saveSettings(next)); }
   catch (error) { throw new HttpError(400, (error as Error).message); }
   if (before.assist.autoExplain !== next.assist.autoExplain) assistant.setAutoExplain(next.assist.autoExplain);
   if (before.asr.model !== next.asr.model || before.asr.threads !== next.asr.threads) whisper.configure({ model: next.asr.model, threads: next.asr.threads });
   if (speechChanged || before.asr.threads !== next.asr.threads) speech.configure();
   if (before.quickStart.hotkey !== next.quickStart.hotkey && !process.env.CHUMI_NO_HOTKEY) hotkey.configure(next.quickStart.hotkey);
-  if (next.integrations.mybot.enabled && (before.integrations.mybot.shareWithTeam !== next.integrations.mybot.shareWithTeam || !before.integrations.mybot.enabled || before.integrations.mybot.exportDir !== next.integrations.mybot.exportDir)) mybot.exportAll();
   if (before.ai.provider !== next.ai.provider || JSON.stringify(before.ai) !== JSON.stringify(next.ai)) void registry.status(true).catch(() => {});
   broadcast('settings', next);
+  if (next.integrations.mybot.enabled && (before.integrations.mybot.shareWithTeam !== next.integrations.mybot.shareWithTeam || !before.integrations.mybot.enabled || before.integrations.mybot.exportDir !== next.integrations.mybot.exportDir)) void exportMybotSessions(store, mybot).then((result) => broadcast('mybot-exported', result)).catch(mybotExportFailed);
   return next;
 }
 
@@ -420,8 +430,12 @@ route('GET', '/api/sessions', (_req, _res, _p, url) => ({ sessions: store.listSe
 route('GET', '/api/sessions/:id', (_req, _res, p) => sessionDetail(p.id));
 route('PATCH', '/api/sessions/:id', async (req, _res, p) => {
   const b = await readJson(req);
+  if (!store.getSession(p.id)) throw new HttpError(404, 'Session not found');
   const patch: Record<string, string> = {};
-  if (typeof b.title === 'string') patch.title = b.title.slice(0, 200);
+  if (b.title !== undefined) {
+    if (typeof b.title !== 'string' || !b.title.trim()) throw new HttpError(400, 'Give the session a title.');
+    patch.title = b.title.trim().slice(0, 200).trimEnd();
+  }
   if (typeof b.type === 'string') {
     if (b.type !== store.getSession(p.id)?.type && !store.getSettings().sessionTypes.some((o) => o.id === b.type && !o.archived)) throw new HttpError(400, 'Choose an available session type.');
     patch.type = b.type;
@@ -439,9 +453,15 @@ route('DELETE', '/api/sessions/:id', async (_req, _res, p) => {
   if (manager.session?.id === p.id) throw new HttpError(409, 'End the session before deleting it.');
   assistant.cancelSession(p.id);
   store.deleteSession(p.id);
-  for (const dir of [join(FRAMES_DIR, p.id), join(AUDIO_DIR, p.id)]) rmSync(dir, { recursive: true, force: true });
-  mybot.remove(p.id);
   broadcast('session-deleted', { id: p.id });
+  const leftover: string[] = [];
+  const cleanup = async (path: string, remove: () => void | Promise<void>) => {
+    try { await remove(); }
+    catch (error) { leftover.push(path); log('cleanup', `Could not delete ${path}: ${(error as Error).message}`); }
+  };
+  await cleanup(join(mybot.dir, `${p.id}.jsonl`), () => mybot.remove(p.id));
+  for (const dir of [join(FRAMES_DIR, p.id), join(AUDIO_DIR, p.id)]) await cleanup(dir, () => rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }));
+  if (leftover.length) broadcast('notice', { level: 'warning', code: 'session_cleanup_failed', message: 'The session was deleted, but some files could not be removed: {paths}. Close any app using them and remove them manually.', vars: { paths: leftover.join(', ') } });
   return { ok: true };
 });
 
@@ -451,7 +471,7 @@ function recordingOf(id: string): Recording {
   if (manager.session?.id === id) throw new HttpError(409, 'End the session to play or export its audio.');
   let rec: Recording | null;
   try { rec = sessionRecording(id); }
-  catch (error) { throw new HttpError(500, `The audio recording cannot be read: ${(error as Error).message}`); }
+  catch (error) { throw new HttpError(500, 'The audio recording cannot be read: {error}', { error: (error as Error).message }); }
   if (!rec) throw new HttpError(404, 'This session has no audio recording.');
   return rec;
 }
@@ -529,7 +549,7 @@ function gitInfo(dir: string): Promise<{ root: string; remote: string | null; br
 function checkWorkspace(raw: unknown): string {
   const w = String(raw ?? '').trim().replace(/^~(?=\/|$)/, process.env.HOME ?? '~').replace(/\/+$/, '');
   if (!w || !isAbsolute(w)) throw new HttpError(400, 'Choose the project folder (a full path such as /Users/you/code/project).');
-  if (!existsSync(w) || !statSync(w).isDirectory()) throw new HttpError(400, `This folder does not exist: ${w}`);
+  if (!existsSync(w) || !statSync(w).isDirectory()) throw new HttpError(400, 'This folder does not exist: {path}', { path: w });
   return w;
 }
 const projectPublic = (p: ReturnType<typeof store.listProjects>[number]) => ({ ...p, repo: p.repo_json ? JSON.parse(p.repo_json) : null, repo_json: undefined, workspace_exists: workspaceExists(p) });
@@ -636,12 +656,11 @@ route('POST', '/api/handoffs/:id/continue', async (req, _res, p) => {
 
 // ---------------------------------------------------------------- coding agent connection (Claude Code, Codex, opencode, Qwen Code, Antigravity, DeepSeek Harness)
 const isAgent = (a: string): a is AgentId => AGENTS.includes(a as AgentId);
-route('GET', '/api/agents', async () => {
-  const [local, ...statuses] = await Promise.all([agents.localCheck(), ...AGENTS.map((a) => agents.status(a, true))]);
-  return { local, agents: statuses, commands: agents.setupCommands(), exports: { mybot: store.getSettings().integrations.mybot.enabled ? mybot.status() : null } };
-});
-route('POST', '/api/agents/:agent/connect', async (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); try { await agents.connect(p.agent); } catch (e) { throw new HttpError(400, (e as Error).message); } return { status: await agents.status(p.agent) }; });
-route('POST', '/api/agents/:agent/disconnect', async (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); await agents.disconnect(p.agent); return { status: await agents.status(p.agent) }; });
+route('GET', '/api/agents/info', () => ({ commands: agents.setupCommands(), exports: { mybot: store.getSettings().integrations.mybot.enabled ? mybot.status() : null } }));
+route('GET', '/api/agents/local', () => agentChecks.local());
+route('GET', '/api/agents/:agent/status', (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); return agentChecks.status(p.agent); });
+route('POST', '/api/agents/:agent/connect', async (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); agentChecks.invalidate(p.agent); try { await agents.connect(p.agent); } catch (e) { throw new HttpError(400, (e as Error).message); } return { status: await agentChecks.status(p.agent, true) }; });
+route('POST', '/api/agents/:agent/disconnect', async (_req, _res, p) => { if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent'); agentChecks.invalidate(p.agent); await agents.disconnect(p.agent); return { status: await agentChecks.status(p.agent, true) }; });
 route('GET', '/api/agents/available', async () => ({ agents: await Promise.all(AGENTS.map(async (a) => ({ agent: a, name: AGENT_NAMES[a], installed: !!await agents.cli(a) }))) }));
 route('POST', '/api/agents/:agent/verify', async (req, _res, p) => {
   if (!isAgent(p.agent)) throw new HttpError(404, 'Unknown agent');
@@ -649,14 +668,14 @@ route('POST', '/api/agents/:agent/verify', async (req, _res, p) => {
     // The check runs a real (tiny) request: only within the plan's included usage, never on credits or overage.
     const plan = await (p.agent === 'codex' ? registry.providers.codex : registry.providers['claude-cli']).status(true).catch(() => null);
     if (!plan || !plan.ready || plan.billing !== 'subscription') {
-      return { result: { ok: false, detail: `Not run, so nothing is charged: ${plan?.message ?? plan?.quota.note ?? 'the plan status could not be checked.'}` }, status: await agents.status(p.agent) };
+      return { result: { ok: false, detail: 'Not run, so nothing is charged: {error}', vars: { error: plan?.message ?? plan?.quota.note ?? 'the plan status could not be checked.' } }, status: await agentChecks.status(p.agent, true) };
     }
   } else if ((await readJson(req)).consent !== true) {
     // These agents use the user's own model account, which Chumi cannot check: only run after the user agreed.
     throw new HttpError(400, 'Confirm the request first: Chumi cannot tell how this agent\'s model is billed.');
   }
   const r = await agents.verify(p.agent);
-  return { result: r, status: await agents.status(p.agent) };
+  return { result: r, status: await agentChecks.status(p.agent, true) };
 });
 
 route('GET', '/api/sessions/:id/export', (_req, res, p, url) => {
@@ -694,7 +713,11 @@ route('POST', '/api/ai/outputs/:id/refresh', (_req, _res, p) => { const id = ass
 route('POST', '/api/ai/outputs/:id/cancel', (_req, _res, p) => ({ ok: assistant.cancel(p.id) }));
 
 route('GET', '/api/integrations/mybot', () => mybot.status());
-route('POST', '/api/integrations/mybot/export-all', () => mybot.exportAll());
+route('POST', '/api/integrations/mybot/export-all', () => {
+  try { validateMybotDirectory(store.getSettings().integrations.mybot.exportDir); }
+  catch (error) { throw new HttpError(400, (error as Error).message); }
+  return exportMybotSessions(store, mybot, true).then((result) => { broadcast('mybot-exported', result); return result; });
+});
 route('GET', '/api/integrations/mybot/server', () => projectContext.health());
 route('GET', '/api/asr/models', () => {
   const active = store.getSettings().asr.model;
@@ -748,7 +771,7 @@ route('PUT', '/api/settings', async (req) => {
   const patch = await readJson(req);
   // Keys are read asynchronously, so check before the synchronous settings update.
   const engine = patch.asr?.engine;
-  if (isKeyedEngine(engine) && engine !== store.getSettings().asr.engine && !(await speech.hasKey(engine))) throw new HttpError(400, `Save your ${ENGINE_NAMES[engine]} API key first.`);
+  if (isKeyedEngine(engine) && engine !== store.getSettings().asr.engine && !(await speech.hasKey(engine))) throw new HttpError(400, 'Save your {engine} API key first.', { engine: ENGINE_NAMES[engine] });
   return applySettingsPatch(patch);
 });
 route('GET', '/api/profile', () => store.getProfile());
@@ -883,7 +906,7 @@ server.on('request', async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     if (!url.pathname.startsWith('/api/')) return serveStatic(res, url.pathname);
     const crossSite = crossSiteSource(req.headers);
-    if (crossSite) return send(res, 403, { error: `Cross-site request refused (${crossSite})` });
+    if (crossSite) return send(res, 403, { error: 'Cross-site request refused ({error})', vars: { error: crossSite } });
     if (req.method !== 'GET' && req.headers['x-chumi'] !== '1') return send(res, 403, { error: 'Missing X-Chumi header' });
     for (const r of routes) {
       if (r.method !== req.method) continue;
@@ -897,8 +920,8 @@ server.on('request', async (req, res) => {
     send(res, 404, { error: 'Not found' });
   } catch (e) {
     const status = e instanceof HttpError || e instanceof HandoffError || e instanceof ProjectWorkError ? e.status : 500;
-    if (status === 500) log('http', (e as Error).stack ?? e);
-    if (!res.headersSent) send(res, status, { error: (e as Error).message });
+    if (status === 500) log('http', (e as Error).stack ?? e, e instanceof HttpError ? e.vars ?? '' : '');
+    if (!res.headersSent) send(res, status, { error: (e as Error).message, ...(e instanceof HttpError && e.vars ? { vars: e.vars } : {}) });
   }
 });
 
@@ -950,7 +973,7 @@ async function shutdown(sig: string): Promise<void> {
 // (Transcript segments are already persisted, so state on disk stays consistent.)
 process.on('uncaughtException', (e) => {
   log('server', `uncaught exception: ${e.stack ?? e}`);
-  broadcast('notice', { level: 'error', code: 'internal_error', message: `Internal error (logged; recording continues): ${e.message}` });
+  broadcast('notice', { level: 'error', code: 'internal_error', message: 'Internal error (logged; recording continues): {error}', vars: { error: e.message } });
 });
 process.on('unhandledRejection', (e) => { log('server', `unhandled rejection: ${(e as Error)?.stack ?? e}`); });
 process.on('SIGTERM', () => void shutdown('SIGTERM'));

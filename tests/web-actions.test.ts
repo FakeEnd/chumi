@@ -282,3 +282,11 @@ test('merged transcription gaps replace their previous timeline entries', () => 
   assert.equal(h.get().data?.timeline.length, 1);
   assert.equal(h.get().data?.timeline[0].detail, '0–3');
 });
+
+test('mybot completion events refresh the export status independently of settings', () => {
+  const h = harness({ mybotExportRev: 0 });
+  h.emit('mybot-exported', { exported: 3, dir: '/tmp/synthetic' });
+  assert.equal(h.get().mybotExportRev, 1);
+  h.emit('mybot-exported', { exported: 4, dir: '/tmp/synthetic' });
+  assert.equal(h.get().mybotExportRev, 2);
+});
