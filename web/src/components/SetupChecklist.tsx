@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { setState, useStore } from '../store.ts';
+import { notify, setState, useStore } from '../store.ts';
 import { api } from '../api.ts';
 import { refreshProvider, saveSettings } from '../actions.ts';
 import { t } from '../i18n.ts';
+import { providerSetupCommand } from '../providerSetup.ts';
 import { providerShort } from './TopBar.tsx';
 
 type Mic = 'granted' | 'denied' | 'restricted' | 'not_determined' | 'unknown' | string;
@@ -17,7 +18,8 @@ export function SetupChecklist() {
   const asr = useStore((s) => s.live?.asr);
   const provider = useStore((s) => s.provider);
   const profile = useStore((s) => s.profile);
-  const windows = useStore((s) => s.platform) === 'win32';
+  const platform = useStore((s) => s.platform);
+  const windows = platform === 'win32';
   const download = useStore((s) => s.asrDownload);
   const [mic, setMic] = useState<Mic | null>(null);
   const [helper, setHelper] = useState(true);
@@ -54,9 +56,9 @@ export function SetupChecklist() {
       detail: provider?.state === 'ready'
         ? t('{provider} is connected.', { provider: providerShort(provider.label) })
         : provider?.message ? t(provider.message) : t('Use your ChatGPT or Claude subscription, or a local model.'),
-      code: provider?.state === 'ready' || windows ? undefined : provider?.setupHint?.match(/(codex login|claude auth login|brew install [\w-]+|npm install -g [\w@/-]+)/)?.[1],
+      code: providerSetupCommand(provider, platform),
       action: provider?.state === 'ready' ? undefined
-        : windows && settings.ai.provider === 'codex' ? { label: t('Sign in with ChatGPT'), run: () => void api('/api/provider/codex/login', { body: {} }) }
+        : settings.ai.provider === 'codex' && provider?.state === 'signed_out' ? { label: t('Sign in with ChatGPT'), run: () => void api('/api/provider/codex/login', { body: {} }).catch((e) => notify('error', (e as Error).message)) }
           : { label: t('Choose AI'), run: () => setState({ dialog: 'settings', settingsTab: 'ai' }) },
     },
     {

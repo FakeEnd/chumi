@@ -24,6 +24,7 @@ function session(id = 'a'): SessionData {
 }
 
 interface Actions {
+  continueHandoff(id: string, agent: string): Promise<{ prompt: string; launched: boolean }>;
   loadState(): Promise<void>;
   openSession(id: string): Promise<void>;
   refreshSession(id: string): Promise<void>;
@@ -75,7 +76,7 @@ function harness(initial: Partial<AppState> = {}) {
     setTimeout: (fn: () => void, ms: number) => { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
     clearTimeout: (id: number) => timers.delete(id),
   };
-  const actions = new Function(...Object.keys(dependencies), `${source}\nreturn { loadState, openSession, refreshSession, goHome, connectEvents, endSession, submitQuestion };`)(...Object.values(dependencies)) as Actions;
+  const actions = new Function(...Object.keys(dependencies), `${source}\nreturn { continueHandoff, loadState, openSession, refreshSession, goHome, connectEvents, endSession, submitQuestion };`)(...Object.values(dependencies)) as Actions;
   const disconnect = actions.connectEvents();
   return {
     actions, calls, notices, disconnect, timers, get: () => state, set: setState,
@@ -339,4 +340,27 @@ test('mybot completion events refresh the export status independently of setting
   assert.equal(h.get().mybotExportRev, 1);
   h.emit('mybot-exported', { exported: 4, dir: '/tmp/synthetic' });
   assert.equal(h.get().mybotExportRev, 2);
+});
+
+test('handoff continuation exposes launch failures and updates the handoff on success', async () => {
+  const h = harness(), pending = deferred<unknown>();
+  h.reply('/api/handoffs/h/continue', pending.promise);
+  const continuation = h.actions.continueHandoff('h', 'codex');
+  pending.reject(new Error('The project folder is not available.'));
+  await assert.rejects(continuation, /project folder is not available/);
+  assert.deepEqual(h.notices, []);
+  const handoff = { id: 'h', session_id: 'a', items: [] };
+  h.reply('/api/handoffs/h/continue', { prompt: 'Reviewed instructions', launched: true, handoff });
+  assert.equal((await h.actions.continueHandoff('h', 'codex')).launched, true);
+  assert.deepEqual(h.get().data?.handoff, handoff);
+});
+
+
+test('a successful handoff launch tolerates absent handoff metadata', async () => {
+  const h = harness();
+  for (const handoff of [null, undefined]) {
+    h.reply('/api/handoffs/h/continue', { prompt: 'Reviewed instructions', launched: true, handoff });
+    assert.equal((await h.actions.continueHandoff('h', 'codex')).launched, true);
+    assert.deepEqual(h.notices, []);
+  }
 });

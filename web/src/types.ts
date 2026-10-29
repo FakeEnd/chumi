@@ -11,6 +11,18 @@ export type Depth = 'quick' | 'standard' | 'deep';
 export type Effort = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type SessionType = string;
 
+export interface StartDraft {
+  title: string;
+  type: string;
+  source: string;
+  file: string;
+  speed: number;
+  capture: boolean;
+  win: WindowInfo | null;
+  projectId: string | null;
+  record: boolean;
+}
+
 export interface Settings {
   audio: { source: 'mic' | 'system' | 'both'; micDeviceUid: string | null; aec: boolean; saveRawAudio: boolean };
   asr: {

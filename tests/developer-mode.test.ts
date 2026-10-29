@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { componentHarness } from './component-harness.ts';
+import { componentHarness } from './helpers/web-ui.ts';
 import { DEFAULT_SETTINGS } from '../server/settings.ts';
 
 test('turning off developer mode replaces only the offline test provider in the same save', async () => {

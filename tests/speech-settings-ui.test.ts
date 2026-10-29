@@ -111,7 +111,7 @@ test('thread drafts restore empty input and round and clamp only when committed'
 });
 
 test('typing a thread count sends no saves until blur or Enter and unchanged values stay idle', async () => {
-  const { componentHarness, tick } = await import('./component-harness.ts');
+  const { componentHarness, tick } = await import('./helpers/web-ui.ts');
   const { DEFAULT_SETTINGS } = await import('../server/settings.ts');
   const { threadDraftValue, maxAsrThreads } = await import('../shared/asr-threads.ts');
   const state = { settings: { ...DEFAULT_SETTINGS, asr: { ...DEFAULT_SETTINGS.asr, threads: 6 } }, live: null };

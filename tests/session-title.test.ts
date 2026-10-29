@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { Store } from '../server/db.ts';
-import { componentHarness } from './component-harness.ts';
+import { componentHarness } from './helpers/web-ui.ts';
 const { composing, onEnter } = new Function(stripTypeScriptTypes(readFileSync(new URL('../web/src/keys.ts', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')) + '\nreturn { composing, onEnter };')();
 
 test('title editing restores blank drafts, trims saves, and cancels on Escape before blur', async () => {

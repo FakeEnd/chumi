@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { exportMybotSessions } from '../server/mybot-export.ts';
 import { deepMerge } from '../server/util.ts';
-import { componentHarness, tick } from './component-harness.ts';
+import { componentHarness, tick } from './helpers/web-ui.ts';
 import { DEFAULT_SETTINGS } from '../server/settings.ts';
 import { Store } from '../server/db.ts';
 

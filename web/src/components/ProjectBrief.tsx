@@ -1,3 +1,4 @@
+import { useDialogDraft } from '../dialogDraft.ts';
 import { useEffect, useRef, useState } from 'react';
 import type { ActionProgress as Progress, ProjectAgenda, ProjectBrief, ProjectBriefItem, ProjectWorkItem } from '../../../shared/project-work.ts';
 import { getState, notify, setState, useStore } from '../store.ts';
@@ -14,6 +15,7 @@ function AgendaEditor({ projectId, agenda, onSaved, onRefresh }: {
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(agenda);
+  useDialogDraft(editing && draft.text !== agenda.text);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -62,7 +64,7 @@ function AgendaEditor({ projectId, agenda, onSaved, onRefresh }: {
 
 function SourceLinks({ item }: { item: Pick<ProjectBriefItem, 'sessionId' | 'sessionTitle'> & Partial<Pick<ProjectBriefItem, 'sessionStartedAt' | 'stale'>> }) {
   const show = async (handoff: boolean) => {
-    setState({ dialog: null });
+    if (!setState({ dialog: null })) return;
     try {
       await openSession(item.sessionId);
       if (handoff && getState().viewId === item.sessionId) setState({ dialog: 'handoff' });
@@ -145,7 +147,7 @@ function BriefBody({ projectId }: { projectId: string }) {
     {brief && <>
       {brief.latestMeeting && <div className="brief-latest small"><b>{t('Latest meeting')}</b><span>{brief.latestMeeting.title}</span>
         {brief.latestMeeting.startedAt !== null && <span className="muted">{fmtDate(brief.latestMeeting.startedAt)}</span>}
-        <button className="link-btn small" onClick={() => { setState({ dialog: null }); void openSession(brief.latestMeeting!.id).catch((e: unknown) => notify('error', e instanceof Error ? e.message : t('Could not open the source meeting.'))); }}>{t('Open meeting')}</button>
+        <button className="link-btn small" onClick={() => { if (!setState({ dialog: null })) return; void openSession(brief.latestMeeting!.id).catch((e: unknown) => notify('error', e instanceof Error ? e.message : t('Could not open the source meeting.'))); }}>{t('Open meeting')}</button>
       </div>}
       {brief.reviewNeeded.length > 0 && <ReviewNeeded entries={brief.reviewNeeded} />}
       <AgendaEditor projectId={projectId} agenda={brief.agenda} onSaved={(agenda) => setBrief((current) => current && current.agenda.version <= agenda.version ? { ...current, agenda } : current)} onRefresh={refresh} />

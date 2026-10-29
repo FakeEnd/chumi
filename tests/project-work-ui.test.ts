@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { type ActionProgress, type ProjectAgenda } from '../shared/project-work.ts';
 import { AGENT_NAMES } from '../shared/agents.ts';
 
-import { componentHarness, defer, tick } from './component-harness.ts';
+import { componentHarness, defer, tick } from './helpers/web-ui.ts';
 
 const baseProgress = (): ActionProgress => ({ status: 'not_started', note: '', results: [], updatedAt: null, version: 0 });
 

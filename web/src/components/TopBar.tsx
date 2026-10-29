@@ -8,6 +8,7 @@ import { locale, msg, t } from '../i18n.ts';
 import type { Depth } from '../types.ts';
 import { IconBolt, IconClock, IconCompact, IconExpand, IconGear, IconSpark, IconUser, IconWave, IconWindow } from './icons.tsx';
 import { AudioPlayer } from './AudioPlayer.tsx';
+import { ResumeRecording } from './ResumeRecording.tsx';
 import { HandoffButton } from './Handoff.tsx';
 import { compactShortcutLabel, inMacShell } from '../compactMode.ts';
 import { composing, onEnter } from '../keys.ts';
@@ -175,7 +176,7 @@ function SessionActions({ sep }: { sep?: boolean }) {
     <div className="session-actions">
       <button className="btn small catchup" onClick={() => catchup(scope)} disabled={!data.segments.length}>{t('Catch me up')}</button>
       <div className="seg-control small" role="group" aria-label={t('Catch-up scope')}>
-        {([['2m', msg('2 min'), msg('The last 2 minutes')], ['5m', msg('5 min'), msg('The last 5 minutes')], ['all', msg('So far'), msg('The whole session so far')]] as const).map(([k, l, tip]) => <button key={k} className={scope === k ? 'on' : ''} title={t(tip)} onClick={() => setState({ catchupScope: k })}>{t(l)}</button>)}
+        {([['2m', msg('2 min'), msg('The last 2 minutes')], ['5m', msg('5 min'), msg('The last 5 minutes')], ['all', msg('So far'), msg('The whole session so far')]] as const).map(([k, l, tip]) => <button key={k} className={scope === k ? 'on' : ''} aria-pressed={scope === k} title={t(tip)} onClick={() => setState({ catchupScope: k })}>{t(l)}</button>)}
       </div>
       <HandoffButton />
       {sep && <span className="toolbar-sep" aria-hidden="true" />}
@@ -216,6 +217,7 @@ export function SessionToolbar({ hidden = false }: { hidden?: boolean }) {
         ) : !active && (
           <>
             <span className="saved-info" title={saved}>{saved}</span>
+            <ResumeRecording session={data.session} />
             {data.hasAudio && <AudioPlayer key={data.session.id} sessionId={data.session.id} />}
           </>
         )}
@@ -229,13 +231,13 @@ export function SessionToolbar({ hidden = false }: { hidden?: boolean }) {
         </label>
         <div className="seg-control" role="group" aria-label={t('Default explanation depth')} title={t('Default explanation depth (does not change your profile)')}>
           {(['quick', 'standard', 'deep'] as Depth[]).map((d) => (
-            <button key={d} className={settings.assist.defaultDepth === d ? 'on' : ''} onClick={() => saveSettings({ assist: { defaultDepth: d } })}>{t(DEPTH_LABEL[d])}</button>
+            <button key={d} className={settings.assist.defaultDepth === d ? 'on' : ''} aria-pressed={settings.assist.defaultDepth === d} onClick={() => saveSettings({ assist: { defaultDepth: d } })}>{t(DEPTH_LABEL[d])}</button>
           ))}
         </div>
         {profile && (
           <div className="seg-control" role="group" aria-label={t('AI answer language')} title={t('Language of AI explanations, catch-ups and summaries')}>
             {([['Simplified Chinese', '中文'], ['English', 'EN']] as const).map(([v, l]) => (
-              <button key={v} className={profile.explanationLanguage === v ? 'on' : ''} onClick={() => profile.explanationLanguage !== v && void saveProfile({ ...profile, explanationLanguage: v }, true)}>{l}</button>
+              <button key={v} className={profile.explanationLanguage === v ? 'on' : ''} aria-pressed={profile.explanationLanguage === v} onClick={() => profile.explanationLanguage !== v && void saveProfile({ ...profile, explanationLanguage: v }, true)}>{l}</button>
             ))}
           </div>
         )}

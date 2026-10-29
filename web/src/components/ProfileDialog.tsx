@@ -1,3 +1,4 @@
+import { useDialogDraft } from '../dialogDraft.ts';
 import { useState } from 'react';
 import { useStore } from '../store.ts';
 import { saveProfile } from '../actions.ts';
@@ -15,8 +16,11 @@ export function ProfileDialog() {
   const [p, setP] = useState<Profile>(() => structuredClone(profile!));
   const [known, setKnown] = useState(profile!.knownConcepts.join(', '));
   const [needs, setNeeds] = useState(profile!.needsBackground.join(', '));
+  const form = JSON.stringify({ p, known, needs });
+  const [saved, setSaved] = useState(form);
+  useDialogDraft(form !== saved);
   const set = (patch: Partial<Profile>) => setP({ ...p, ...patch });
-  const save = async () => { if (await saveProfile({ ...p, knownConcepts: toList(known), needsBackground: toList(needs) })) { /* keep open */ } };
+  const save = async () => { if (await saveProfile({ ...p, knownConcepts: toList(known), needsBackground: toList(needs) })) { setSaved(form); } };
   return (
     <Dialog title={t('Knowledge profile')} wide footer={<><span className="muted small">{t('Used to tailor explanations. Per-question depth never changes this profile.')}</span><span className="spacer" /><button className="btn primary" onClick={save}>{t('Save profile')}</button></>}>
       <div className="grid2">
@@ -30,9 +34,9 @@ export function ProfileDialog() {
           <tbody>
             {p.domains.map((d, i) => (
               <tr key={i}>
-                <td><input value={d.name} onChange={(e) => { const ds = p.domains.slice(); ds[i] = { ...d, name: e.target.value }; set({ domains: ds }); }} /></td>
-                <td><select value={d.level} onChange={(e) => { const ds = p.domains.slice(); ds[i] = { ...d, level: Number(e.target.value) }; set({ domains: ds }); }}>{LEVELS.map((l, k) => <option key={k} value={k}>{k} · {t(l)}</option>)}</select></td>
-                <td><input value={d.notes ?? ''} onChange={(e) => { const ds = p.domains.slice(); ds[i] = { ...d, notes: e.target.value }; set({ domains: ds }); }} /></td>
+                <td><input aria-label={t('Domain')} value={d.name} onChange={(e) => { const ds = p.domains.slice(); ds[i] = { ...d, name: e.target.value }; set({ domains: ds }); }} /></td>
+                <td><select aria-label={t('Level')} value={d.level} onChange={(e) => { const ds = p.domains.slice(); ds[i] = { ...d, level: Number(e.target.value) }; set({ domains: ds }); }}>{LEVELS.map((l, k) => <option key={k} value={k}>{k} · {t(l)}</option>)}</select></td>
+                <td><input aria-label={t('Notes for the AI')} value={d.notes ?? ''} onChange={(e) => { const ds = p.domains.slice(); ds[i] = { ...d, notes: e.target.value }; set({ domains: ds }); }} /></td>
                 <td><button className="link-btn" onClick={() => set({ domains: p.domains.filter((_, k) => k !== i) })} aria-label={t('Remove {name}', { name: d.name })}>✕</button></td>
               </tr>
             ))}

@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
+import { confirmDialogDiscard } from './dialogDraft.ts';
 import { loadCompact } from './compactMode.ts';
-import type { LiveState, Notice, Output, Profile, Project, ProviderStatus, SessionData, Settings } from './types.ts';
+import type { LiveState, Notice, Output, Profile, Project, ProviderStatus, SessionData, Settings, StartDraft } from './types.ts';
 
 export interface AppState {
   connected: boolean;
@@ -26,6 +27,9 @@ export interface AppState {
   notices: Notice[];
   mybotExportRev: number;
   dialog: null | 'profile' | 'settings' | 'history' | 'start' | 'window' | 'frame' | 'handoff' | 'project-brief';
+  dialogReturnTo: AppState['dialog'];
+  startDraft: StartDraft | null;
+  startSource: 'mic' | 'system' | 'both' | null;
   briefProjectId: string | null;
   startProjectId: string | null;
   projectWorkRev: number;
@@ -58,16 +62,25 @@ export interface AppState {
 let state: AppState = {
   connected: false, loaded: false, settings: null, profile: null, provider: null, live: null, liveReceivedAt: 0, levels: {}, partials: {},
   devMode: false, helperBuilt: false, platform: '', appMode: false, dataDir: '', samples: [], viewId: null, data: null, deltas: {}, notices: [], mybotExportRev: 0,
-  dialog: null, briefProjectId: null, startProjectId: null, projectWorkRev: 0, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [], sessionsRev: 0, playingSeg: null, hiddenCards: [], catchupScope: '2m', compact: loadCompact(),
+  dialog: null, dialogReturnTo: null, startDraft: null, startSource: null, briefProjectId: null, startProjectId: null, projectWorkRev: 0, frameView: null, screenToolBuilt: false, hotkey: null, settingsTab: 'language', focus: null, attached: null, askDraft: '', systemLanguage: '', asrDownload: null, projects: [], sessionsRev: 0, playingSeg: null, hiddenCards: [], catchupScope: '2m', compact: loadCompact(),
 };
 const listeners = new Set<() => void>();
 
 export const getState = (): AppState => state;
-export function setState(patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)): void {
+export function setState(patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)): boolean {
   const p = typeof patch === 'function' ? patch(state) : patch;
+  if (p.dialog !== undefined && p.dialog !== state.dialog) {
+    if (!confirmDialogDiscard()) return false;
+    if ((state.dialog === 'start' || state.dialogReturnTo === 'start') && p.dialog !== 'start' && p.dialogReturnTo !== 'start') {
+      p.startDraft = null; p.startSource = null; p.startProjectId = null;
+    }
+    if (p.dialogReturnTo === undefined) p.dialogReturnTo = null;
+  }
   state = { ...state, ...p };
   for (const l of listeners) l();
+  return true;
 }
+export const closeDialog = (): boolean => setState({ dialog: state.dialogReturnTo, dialogReturnTo: null });
 export function useStore<T>(sel: (s: AppState) => T): T {
   return useSyncExternalStore((cb) => { listeners.add(cb); return () => listeners.delete(cb); }, () => sel(state));
 }

@@ -180,7 +180,7 @@ function AskBox() {
       <div className="ask-row">
         <div className="ask-options">
           <div className="seg-control small" role="group" aria-label={t('Depth for this question')}>
-            {(['quick', 'standard', 'deep'] as Depth[]).map((d) => <button key={d} className={depth === d ? 'on' : ''} onClick={() => setDepth(d)}>{t(DEPTH_LABEL[d])}</button>)}
+            {(['quick', 'standard', 'deep'] as Depth[]).map((d) => <button key={d} className={depth === d ? 'on' : ''} aria-pressed={depth === d} onClick={() => setDepth(d)}>{t(DEPTH_LABEL[d])}</button>)}
           </div>
           {supportsEffort && <select className="effort-select" value={effort} onChange={(e) => setEffort(e.target.value as Effort)} title={t('Reasoning effort for this question: higher is more thorough but slower and uses more of your plan')} aria-label={t('Reasoning effort')}>
             {(['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as Effort[]).map((x) => <option key={x} value={x}>{t('Effort: {level}', { level: t(EFFORT_LABEL[x]) })}</option>)}

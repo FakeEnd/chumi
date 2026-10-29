@@ -192,7 +192,7 @@ export async function startSession(o: { title: string; type: string; source: str
     }
   }
   const r = await guard(api('/api/session/start', { body: o }));
-  if (r) { setState({ dialog: null, startProjectId: null }); await openSession(r.session.id); }
+  if (r) { setState({ dialog: null, startProjectId: null, startDraft: null }); await openSession(r.session.id); }
   return !!r;
 }
 export async function quickStart(): Promise<void> {
@@ -349,9 +349,10 @@ export const confirmHandoff = (handoffId: string) => withHandoff(api(`/api/hando
 export const reopenHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/reopen`, { body: {} }));
 export const retargetHandoff = (handoffId: string) => withHandoff(api(`/api/handoffs/${handoffId}/retarget`, { body: {} }));
 /** paste: for an app that cannot be handed the handoff (DeepSeek Harness), the instruction to paste there and whether Chumi copied it. */
-export async function continueHandoff(handoffId: string, agent: AgentId | 'copy' | 'codex-app'): Promise<{ prompt: string; launched: boolean; paste?: { text: string; copied: boolean } } | undefined> {
-  const r = await withHandoff(api<{ prompt: string; launched: boolean; paste?: { text: string; copied: boolean }; handoff: Handoff }>(`/api/handoffs/${handoffId}/continue`, { body: { agent } }));
-  return r ? { prompt: r.prompt, launched: r.launched, paste: r.paste } : undefined;
+export async function continueHandoff(handoffId: string, agent: AgentId | 'copy' | 'codex-app'): Promise<{ prompt: string; launched: boolean; paste?: { text: string; copied: boolean } }> {
+  const r = await api<{ prompt: string; launched: boolean; paste?: { text: string; copied: boolean }; handoff?: Handoff | null }>(`/api/handoffs/${handoffId}/continue`, { body: { agent } });
+  if (r.handoff) setHandoff(r.handoff.session_id, r.handoff);
+  return { prompt: r.prompt, launched: r.launched, paste: r.paste };
 }
 
 export async function updateActionProgress(itemId: string, patch: Pick<ActionProgress, 'status' | 'note' | 'results'> & { expectedVersion: number }): Promise<ActionProgress | null> {

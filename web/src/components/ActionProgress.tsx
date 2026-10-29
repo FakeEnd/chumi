@@ -1,3 +1,4 @@
+import { useDialogDraft } from '../dialogDraft.ts';
 import { useEffect, useRef, useState } from 'react';
 import { ACTION_STATUSES, isActionResultUrl, type ActionProgress as Progress, type ActionResult, type ActionStatus } from '../../../shared/project-work.ts';
 import { updateActionProgress } from '../actions.ts';
@@ -33,6 +34,7 @@ export function ActionProgress({ itemId, progress, onSaved, onRefresh }: {
   const saved = progress ?? EMPTY;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => copy(saved));
+  useDialogDraft(editing && (draft.status !== saved.status || draft.note !== saved.note || JSON.stringify(draft.results) !== JSON.stringify(saved.results)));
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');

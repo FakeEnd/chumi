@@ -46,7 +46,7 @@ test('summary generation is available after cancellation but not while a summary
   let summaries = 0;
   const render = await component('TopBar.tsx', 'SessionToolbar', {
     useStore: (selector: any) => selector(state), fmtDate: String, fmtT: String, compactShortcutLabel: () => '',
-    IconSpark: 'spark', IconCompact: 'compact', summarize: () => summaries++,
+    ResumeRecording: 'resume-recording', IconSpark: 'spark', IconCompact: 'compact', summarize: () => summaries++,
   });
   const toolbar = () => render({});
   for (const status of ['cancelled', 'error']) {

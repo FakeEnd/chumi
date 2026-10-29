@@ -257,8 +257,8 @@ export function SettingsDialog() {
           </>}
           {provider && <><h3>{t('Status: {name}', { name: t(provider.label) })} <button className="btn small" onClick={() => void refreshProvider()}>{t('Refresh')}</button></h3><QuotaView p={provider} /></>}
           {settings.ai.provider === 'claude-cli' && provider?.id === 'claude-cli' && provider.state === 'quota_blocked' && provider.overageBlocked && <ClaudeResume />}
-          {windows && settings.ai.provider === 'codex' && provider?.state === 'signed_out' && <div className="btn-row">
-            <button className="btn primary" onClick={() => void api('/api/provider/codex/login', { body: {} })}>{t('Sign in with ChatGPT')}</button>
+          {settings.ai.provider === 'codex' && provider?.state === 'signed_out' && <div className="btn-row">
+            <button className="btn primary" onClick={() => void api('/api/provider/codex/login', { body: {} }).catch((e) => notify('error', (e as Error).message))}>{t('Sign in with ChatGPT')}</button>
             <span className="muted small">{t('Sign-in opens in your browser. Return here when it is complete.')}</span>
           </div>}
           {settings.ai.provider === 'codex' && (

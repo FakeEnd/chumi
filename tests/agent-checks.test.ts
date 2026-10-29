@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { AgentChecks } from '../server/agent-checks.ts';
 import { AGENTS, AGENT_NAMES, type AgentId } from '../shared/agents.ts';
 import type { AgentStatus } from '../server/projects/agents.ts';
-import { componentHarness, defer, tick, words } from './component-harness.ts';
+import { componentHarness, defer, tick, words } from './helpers/web-ui.ts';
 
 const status = (agent: AgentId = 'codex', registered = false) => ({ agent, name: AGENT_NAMES[agent], billing: 'plan', cli: '/tmp/cli', registered, clientHealth: 'unknown' }) as AgentStatus;
 

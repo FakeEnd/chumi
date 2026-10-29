@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { setState, useStore } from '../store.ts';
+import { closeDialog, getState, setState, useStore } from '../store.ts';
 import { chooseFolder, createProject, updateProject } from '../actions.ts';
 import { api } from '../api.ts';
 import { fmtClock } from '../util.ts';
@@ -13,7 +13,7 @@ export function ProjectSelect({ value, onChange, className, ariaLabel }: { value
   const visible = projects.filter((p) => !p.archived_at || p.id === value);
   return (
     <select className={className} value={value ?? ''} aria-label={ariaLabel ?? t('Project')}
-      onChange={(e) => { if (e.target.value === '__new') setState({ dialog: 'settings', settingsTab: 'projects' }); else onChange(e.target.value || null); }}>
+      onChange={(e) => { if (e.target.value === '__new') setState({ dialog: 'settings', settingsTab: 'projects', dialogReturnTo: getState().dialog }); else onChange(e.target.value || null); }}>
       <option value="">{t('No project')}</option>
       {visible.map((p) => <option key={p.id} value={p.id}>{p.name}{p.archived_at ? ` ${t('(archived)')}` : ''}</option>)}
       <option value="__new">{t('New project…')}</option>
@@ -28,7 +28,13 @@ export function ProjectsTab() {
   const [showArchived, setShowArchived] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
   const pick = async (apply: (p: string) => void) => { const p = await chooseFolder(); if (p) apply(p); };
-  const add = async () => { if (await createProject(name.trim(), folder.trim())) { setName(''); setFolder(''); } };
+  const add = async () => {
+    const project = await createProject(name.trim(), folder.trim());
+    if (!project) return;
+    setName(''); setFolder('');
+    const s = getState();
+    if (s.dialogReturnTo === 'start' && s.startDraft) { setState({ startDraft: { ...s.startDraft, projectId: project.id } }); closeDialog(); }
+  };
   const list = projects.filter((p) => showArchived || !p.archived_at);
   return (
     <section>
