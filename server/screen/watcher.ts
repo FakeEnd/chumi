@@ -8,7 +8,7 @@ import { log } from '../util.ts';
 import { DESKTOP, desktopRequest } from '../desktop.ts';
 
 export interface WindowInfo { id: number; app: string; bundleId: string; pid: number; title: string; width: number; height: number; onScreen: boolean }
-interface CaptureResult { ok?: boolean; width?: number; height?: number; mean?: number; thumb?: string; title?: string; app?: string; error?: string; message?: string }
+interface CaptureResult { ok?: boolean; width?: number; height?: number; mean?: number; thumb?: string; title?: string; app?: string; error?: string; message?: string; failures?: number }
 
 function runTool(args: string[], timeoutMs = 15000): Promise<any> {
   const tool = findScreenTool();
@@ -103,14 +103,19 @@ export class ScreenWatcher extends EventEmitter<{ frame: [FrameRow]; notice: ['i
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
     this.emit('state');
   }
-  pause(): void { if (this.timer) clearInterval(this.timer); this.timer = null; this.status = 'paused'; this.emit('state'); }
+  pause(): void { if (this.timer) clearInterval(this.timer); this.timer = null; this.status = 'paused'; this.stopDesktopCapture(); this.emit('state'); }
   resume(): void { if (this.status === 'paused') this.start(); }
-  stop(): void { if (this.timer) clearInterval(this.timer); this.timer = null; this.status = 'stopped'; this.emit('state'); }
+  stop(): void { if (this.timer) clearInterval(this.timer); this.timer = null; this.status = 'stopped'; this.stopDesktopCapture(); this.emit('state'); }
 
-  private async capture(): Promise<CaptureResult> {
+  private stopDesktopCapture(): void {
+    if (DESKTOP) void desktopRequest('screen-stop', { id: this.windowId }).catch((e) => log('screen', `stop capture failed: ${e.message}`));
+  }
+
+  private async capture(force = false): Promise<CaptureResult> {
     if (DESKTOP) {
-      const r = await desktopRequest<CaptureResult & { image?: string }>('screen-capture', { id: this.windowId });
+      const r = await desktopRequest<CaptureResult & { image?: string }>('screen-capture', { id: this.windowId, force: force || !existsSync(this.latestPath) });
       if (r.image) writeFileSync(this.latestPath, Buffer.from(r.image, 'base64'));
+      if (r.failures === 3) this.emit('notice', 'warning', 'screen_capture_failed', 'Window capture is unavailable. Chumi will keep retrying. Try selecting the window again.');
       return r;
     }
     return runTool(['--capture', String(this.windowId), '--out', this.latestPath]);
@@ -123,6 +128,7 @@ export class ScreenWatcher extends EventEmitter<{ frame: [FrameRow]; notice: ['i
       const t = this.nowT();
       const r = await this.capture();
       if (r.error) {
+        if (r.error === 'capture_backoff') return;
         const msg = r.message ?? r.error;
         if (r.error === 'window_not_found') { this.emit('notice', 'warning', 'window_closed', `Window capture stopped: “${this.title || this.app}” is no longer available.`); this.stop(); }
         else if (r.error === 'permission') { this.emit('notice', 'error', 'screen_permission', msg); this.status = 'error'; this.stop(); }
@@ -168,7 +174,7 @@ export class ScreenWatcher extends EventEmitter<{ frame: [FrameRow]; notice: ['i
     this.busy = true;
     try {
       const t = this.nowT();
-      const r = await this.capture();
+      const r = await this.capture(true);
       if (r.error || (r.mean ?? 255) < 3) return null;
       return this.storeLatest(t, 'snapshot', r.width ?? null, r.height ?? null);
     } finally { this.busy = false; }

@@ -1220,6 +1220,7 @@ export const ZH: Record<string, string> = {
   "A transcription hiccup occurred; a fraction of a second of audio may be missing. Recording continues.": "转写出现小故障，可能缺失不到一秒的音频。录音继续进行。",
   "The audio file finished playing. End the session to generate the summary.": "音频文件已播放完毕。结束会话即可生成总结。",
   "Audio capture is waiting for macOS. Look for a permission dialog from Chumi or chumi-audio (Documents folder, Microphone or System Audio Recording) and allow it.": "音频采集正在等待 macOS。请留意来自 Chumi 或 chumi-audio 的权限弹窗（文稿文件夹、麦克风或系统录音），并点击允许。",
+  "Window capture is unavailable. Chumi will keep retrying. Try selecting the window again.": "暂时无法捕获窗口，Chumi 会继续重试。你也可以重新选择要捕获的窗口。",
   "Window capture tool not built. Run: bash native/build.sh screen": "窗口捕获工具尚未构建。请运行：bash native/build.sh screen",
   "Download this speech model first.": "请先下载这个语音模型。",
   "This model is in use. Switch to another model first.": "这个模型正在使用中，请先切换到其他模型。",
