@@ -1,5 +1,18 @@
 # Verification log
 
+## Audit fixes — 2026-10-28
+
+A code audit of main (ten area reviewers, each checked by a second reviewer) reported 123 distinct issues. All are fixed here: the 7 high-priority ones first, then the rest in 14 batches by area. Codex (gpt-6-astra) wrote each batch; a separate Claude review read every diff, reran the checks outside Codex's sandbox and sent problems back before the batch was committed.
+
+| Check | Result |
+|---|---|
+| `npm run check` | Both TypeScript projects pass; 767 / 767 tests (388 on main before). |
+| Builds | `npm run build:web`, `native/build.sh app` and an unsigned iOS device build (`xcodebuild -sdk iphoneos`) pass. The simulator build stalled in CoreSimulator on this Mac, so the device build was used. |
+| Review findings fixed before commit | Among others: Reconnect for Claude Code failing on every existing registration; the mic echo filter dropping replies that reuse the other side's words; the transcription queue cap dropping audio from a slow but healthy engine; the 4K local-model option rejecting every request; background tabs losing live events; the iPhone reading the stale-revision value from the wrong field. |
+| Integration | The batches were combined by cherry-pick; one follow-up commit reconciles translations, the deferred mybot export order and the shared UI test harness. |
+
+Not verified: Windows (shell, window capture, the C++ audio helper is not compiled here), a physical iPhone (calls, AirPods, haptics), real AI providers and Ollama, Qwen Code's CLI, and the macOS app's alerts and menus at runtime.
+
 ## DeepSeek Harness on Windows — 2026-10-26
 
 Integrated the Mac implementation from PR #30 into the Windows desktop branch. DSH 0.2.1-rc.3 is installed in a custom folder, outside `PATH`.
