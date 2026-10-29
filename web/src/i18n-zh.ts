@@ -119,6 +119,7 @@ export const ZH: Record<string, string> = {
   "Manually corrected. Click to change the speaker for this line.": "已手动修正。点击可更改本句的说话人。",
   "Session saved. Preparing the final summary…": "会话已保存，正在准备最终总结…",
   "Speaker labels changed": "说话人标签已更改",
+  "Speaker labels changed. Regenerate the response to use the updated names.": "说话人标签已更改。请重新生成回答以使用更新后的名字。",
   "This answer used older speaker labels or names. Regenerate it to use the current corrections.": "此回答使用了旧的说话人标签或名字。请重新生成以采用当前修正。",
   "Regenerate with current speakers": "按当前说话人标注重新生成",
   "Speaker status unavailable": "无法获取说话人状态",

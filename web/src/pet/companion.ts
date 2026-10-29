@@ -403,7 +403,7 @@ export class Companion {
     head.append(title, time);
     c.append(head);
     const body = document.createElement('div');
-    if (o.status === 'error') { body.className = 'prev err'; body.textContent = o.error ?? t('Something went wrong'); }
+    if (o.status === 'error') { body.className = 'prev err'; body.textContent = t(o.error ?? 'Something went wrong'); }
     else if (open && text) { body.className = 'md'; body.innerHTML = renderMd(text); }
     else { body.className = 'prev'; body.textContent = preview(text) || t('Thinking…'); }
     c.append(body);

@@ -176,11 +176,12 @@ export class Assistant {
       } catch (e) {
         if (flushTimer) clearTimeout(flushTimer);
         const err = e as ProviderError;
-        const kind = err instanceof ProviderError ? err.kind : 'bad_response';
-        const message = kind === 'aborted' ? 'Cancelled.' : `${err.message}${['quota', 'quota_gate', 'auth', 'network', 'unavailable'].includes(kind) ? ' Transcription continues and nothing captured is lost.' : ''}`;
+        const cancelled = controller.signal.aborted;
+        const kind = cancelled ? 'aborted' : err instanceof ProviderError ? err.kind : 'bad_response';
+        const message = cancelled ? 'Cancelled.' : `${err.message}${['quota', 'quota_gate', 'auth', 'network', 'unavailable'].includes(kind) ? ' Transcription continues and nothing captured is lost.' : ''}`;
         if (['quota', 'quota_gate', 'auth', 'unavailable', 'network'].includes(kind)) this.backoffUntil = Date.now() + 120_000;
         log('ai', `${o.kind} failed (${kind}): ${err.message}`);
-        this.update(id, { status: kind === 'aborted' ? 'cancelled' : 'error', error: message, data_json: JSON.stringify({ ...asked, errorKind: kind }), completed_at: Date.now() });
+        this.update(id, { status: cancelled ? 'cancelled' : 'error', error: message, data_json: JSON.stringify({ ...asked, errorKind: kind }), completed_at: Date.now() });
       } finally {
         this.controllers.delete(id);
         o.onSettled?.();

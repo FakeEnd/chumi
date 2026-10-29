@@ -114,7 +114,7 @@ function OutputCard({ o, depth, open, onToggle }: { o: Output; depth: Depth; ope
           {o.status === 'pending' && <div className="pending"><span className="spinner" /> {t('Waiting for the AI provider…')}</div>}
           {(o.status === 'streaming' || o.status === 'done') && body && <Markdown text={body} />}
           {o.status === 'streaming' && !body && <div className="pending"><span className="spinner" /> {t('Thinking…')}</div>}
-          {o.status === 'error' && <div className="error-box">{o.error}</div>}
+          {o.status === 'error' && <div className="error-box">{o.error && t(o.error)}</div>}
           {o.status === 'cancelled' && <div className="muted small">{t('Cancelled.')}</div>}
           {invalid.length > 0 && <div className="muted small warn-text">{t(invalid.length === 1 ? msg('Note: {n} cited time ({list}) did not match any transcript line.') : msg('Note: {n} cited times ({list}) did not match any transcript line.'), { n: invalid.length, list: invalid.slice(0, 3).join(', ') })}</div>}
           <div className="card-actions">
@@ -127,7 +127,7 @@ function OutputCard({ o, depth, open, onToggle }: { o: Output; depth: Depth; ope
               </>
             )}
             {o.status === 'done' && (o.kind === 'answer' || o.kind === 'explain') && o.depth !== 'deep' && <button className="btn small" onClick={() => (o.kind === 'explain' ? explain(o.question ?? '', o.selection, 'deep', o.id) : ask(o.question ?? '', o.selection, 'deep'))}>{t('Go deeper')}</button>}
-            {(o.status === 'error') && <button className="btn small" onClick={() => refreshOutput(o.id)}>{t('Retry')}</button>}
+            {(o.status === 'error' || o.status === 'cancelled') && <button className="btn small" onClick={() => refreshOutput(o.id)}>{t('Retry')}</button>}
             {o.status === 'done' && body && <button className="btn small ghost" onClick={() => void navigator.clipboard?.writeText(body)}>{t('Copy')}</button>}
           </div>
         </>

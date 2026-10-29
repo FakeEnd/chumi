@@ -186,7 +186,7 @@ export function SessionToolbar({ hidden = false }: { hidden?: boolean }) {
   const src = live?.source ?? settings.audio.source;
   const ended = data.session.status === 'ended' || data.session.status === 'interrupted';
   const saved = `${t('Saved session')} · ${fmtDate(data.session.started_at ?? data.session.created_at)} · ${fmtT(data.session.duration_ms)}${data.session.status === 'interrupted' ? ` · ${t('recording was interrupted (see gap markers)')}` : ''}`;
-  const canSummarize = live?.session?.id !== data.session.id && ended && data.segments.length > 0 && !data.outputs.some((o) => o.kind === 'final_summary' && o.status !== 'error');
+  const canSummarize = live?.session?.id !== data.session.id && ended && data.segments.length > 0 && !data.outputs.some((o) => o.kind === 'final_summary' && o.status !== 'error' && o.status !== 'cancelled');
   return (
     <div className="toolbar" hidden={hidden}>
       <div className={`toolbar-left ${!isLive && !data.hasAudio ? 'text-only' : ''}`}>
