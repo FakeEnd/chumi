@@ -69,7 +69,7 @@ export function serverStrings(): ServerString[] {
       if (n.type === 'NewExpression' && /^(Error|HttpError|ProviderError|HandoffError|ProjectWorkError)$/.test(n.callee.name)) add(n.arguments[n.callee.name === 'Error' ? 0 : 1]);
       if (n.type === 'Property' && proseFields.has(field(n.key))) add(n.value);
       // Message locals also cover status/error adapters that forward an argument unchanged.
-      if (n.type === 'VariableDeclarator' && /^(message|reason|errMsg|timedOut|billingViolation)$/.test(n.id.name)) add(n.init);
+      if (n.type === 'VariableDeclarator' && /^(message|detail|reason|errMsg|timedOut|billingViolation)$/.test(n.id.name)) add(n.init);
       if (n.type === 'AssignmentExpression' && /^(message|timedOut|billingViolation)$/.test(n.left.name)) add(n.right);
       if (n.type === 'VariableDeclarator' && n.id.name === 'SOURCE_NAMES') for (const property of n.init.properties) add(property.value, true);
       if (n.type === 'VariableDeclarator' && n.id.name === 'minutes' && file === 'server/ai/claude-cli.ts') add(n.init.body);
@@ -85,6 +85,7 @@ export function serverStrings(): ServerString[] {
       if (name === 'notice') add(n.arguments[n.arguments.length >= 3 ? 2 : 0]);
       if (name === 'expire' || (file === 'server/ai/codex.ts' && name === 'push' && n.callee.object?.name === 'parts')) add(n.arguments[0]);
       if (name === 'badResponse') add(n.arguments[0]);
+      if (file === 'server/asr/transcriber.ts' && name === 'gap') add(n.arguments[1]);
     }
   }
   // The macOS helper sends these status strings to HotkeyAgent and then the web.

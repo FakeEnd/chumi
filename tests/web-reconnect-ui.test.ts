@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { transformWithOxc } from 'vite';
+import { DEFAULT_SETTINGS } from '../server/settings.ts';
+import { MODEL_BASE_URL } from '../shared/model-source.ts';
+import { transcriptionHarness } from './helpers/transcription-ui.ts';
+import { tick } from './helpers/web-ui.ts';
 import { getLang, setLang, t, tn } from '../web/src/i18n.ts';
 
 type Element = { type: any; props: Record<string, any>; children: any[] };
@@ -18,19 +22,16 @@ async function component(name: string, adapters: Record<string, any>) {
 
 test('a resynced terminal or empty download clears stale model-list progress and refreshes the model list', async () => {
   const stale = { id: 'model', status: 'downloading', received: 42, total: 100 };
-  const state: any = { settings: { asr: { model: 'model', engine: 'whisper', glossary: [] } }, asrDownload: stale };
-  const list = { download: stale, models: [{ id: 'model', name: 'Model', sizeMB: 50, note: { en: '', zh: '' } }] };
-  let stateIndex = 0, previous: any[] = [], reads = 0;
-  const render = await component('TranscriptionTab', {
-    useStore: (f: any) => f(state),
-    useState: (value: any) => [stateIndex++ === 0 ? list : value, () => {}],
-    useEffect: (fn: () => void, deps: any[]) => { if (!previous.length || deps.some((d, i) => d !== previous[i])) { previous = deps; fn(); } },
-    api: async () => { reads++; return list; }, saveSettings: () => {}, speechSettingsBusy: () => false,
-    SpeakerSettings: 'speakers', SpeechEngineSettings: 'engine',
-  });
+  const state: any = { settings: structuredClone(DEFAULT_SETTINGS), live: null, asrDownload: stale };
+  const list = { source: { baseUrl: MODEL_BASE_URL, fromEnvironment: false }, download: stale,
+    models: [{ id: 'model', name: 'Model', sizeMB: 50, note: { en: '', zh: '' } }] };
+  let reads = 0;
+  const ui = await transcriptionHarness(state, { api: async () => { reads++; return list; }, saveSettings: async () => true });
+  await tick(); ui.render();
   for (const status of ['downloading', 'done', 'error', null]) {
-    state.asrDownload = status ? { ...stale, status } : null; stateIndex = 0;
-    const tree = render(), buttons = all(tree).filter((e) => e.type === 'button');
+    state.asrDownload = status ? { ...stale, status } : null;
+    ui.render(); await tick(); ui.render();
+    const buttons = ui.elements().filter((e) => e.type === 'button');
     if (status === 'downloading') assert.ok(buttons.some((e) => words(e) === 'Cancel'));
     else {
       assert.ok(!buttons.some((e) => words(e) === 'Cancel'));
@@ -38,6 +39,7 @@ test('a resynced terminal or empty download clears stale model-list progress and
     }
   }
   assert.equal(reads, 4);
+  ui.unmount();
 });
 
 test('connection notices warn accurately, offer Reload after ten seconds, and clear on recovery', async () => {

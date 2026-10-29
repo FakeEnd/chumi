@@ -25,7 +25,8 @@ export async function exportMybotSessions(store: Pick<Store, 'getSettings' | 'li
   const dir = exporter.dir;
   let exported = 0;
   await setImmediate();
-  for (const session of store.listSessions()) {
+  // listSessions orders by recording date; write recent meetings last for mybot’s mtime limit.
+  for (const session of store.listSessions().reverse()) {
     const current = store.getSettings().integrations.mybot;
     // A newer save owns the next export, especially if sharing was disabled meanwhile.
     if (JSON.stringify(current) !== config || (!current.enabled && !force)) break;

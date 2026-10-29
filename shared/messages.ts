@@ -6,7 +6,6 @@ export const SERVER_MESSAGE_TEMPLATES = [
   'Speech recognition is not ready: {error}',
   '{engine} failed ({error}). Chumi is transcribing with local speech recognition until it works again.',
   '{error} Using {engine}.',
-  'Speech model not found at {path}. Run: npm run setup',
   'Speech engine stopped unexpectedly (code {code}); restarting…',
   'Could not register {key} (error {code}); another app may already use it.',
   'Shortcut helper exited (code {code}); restarting…',
@@ -66,7 +65,6 @@ export const SERVER_MESSAGE_TEMPLATES = [
   "Chumi did not change {file}: it already has a server named chumi that Chumi did not add. Remove that entry, or keep using it.",
   "Chumi did not change {file}: it is not a YAML list written one item per line. Add the entry shown below yourself.",
   "Review every item first: {n} still need a decision (confirm or reject).",
-  "Keychain error: {error}",
   "Anthropic API error {status}: {error}",
   "{error} Transcription continues and nothing captured is lost.",
   "Subscription — Claude {plan} plan",
@@ -87,7 +85,7 @@ export const SERVER_MESSAGE_TEMPLATES = [
   "mybot answered {status}",
   "helper exited (code {code}, {signal})",
   "helper exited (code {code})",
-  "Transcription failed for {seconds} s of audio: {error}",
+  "Not transcribed ({from}–{to}): {error}. Any saved recording is still available.",
   "{n} min",
   "{n}-week limit",
   "{n}-day limit",
@@ -102,6 +100,7 @@ export const SERVER_SETUP_HINTS = [
   'Run "claude auth logout" then "claude auth login" with your Claude subscription.',
   'In Terminal run: codex login  → choose "Sign in with ChatGPT". Chumi never sees your credentials.',
   'Run "codex logout" then "codex login" and choose Sign in with ChatGPT.',
+  'In Terminal run: claude auth status',
 ];
 
 const templates = SERVER_MESSAGE_TEMPLATES.map((key) => {

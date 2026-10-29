@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { test } from 'node:test';
 import { type ActionProgress, type ProjectAgenda } from '../shared/project-work.ts';
-import { AGENT_NAMES } from '../shared/agents.ts';
+import { AGENTS, AGENT_NAMES } from '../shared/agents.ts';
 
-import { componentHarness, defer, tick } from './helpers/web-ui.ts';
+import { componentHarness, defer, tick, words } from './helpers/web-ui.ts';
 
 const baseProgress = (): ActionProgress => ({ status: 'not_started', note: '', results: [], updatedAt: null, version: 0 });
 
@@ -133,15 +133,21 @@ test('a moved handoff warning describes its arrival in the current project', asy
 });
 
 test('agent cards show each reconnect reason together with a disabled notice', async () => {
-  const ui = await componentHarness('Projects.tsx', 'AgentsTab', {}, { api: async () => ({
-    local: { ok: true, detail: 'Local server works' }, commands: {}, exports: {}, agents: [{
+  const ui = await componentHarness('Projects.tsx', 'AgentsTab', {}, { api: async (path: string) => {
+    if (path === '/api/agents/info') return { commands: {}, exports: {} };
+    if (path === '/api/agents/local') return { ok: true, detail: 'Local server works' };
+    if (path === '/api/agents/codex/status') return {
       agent: 'codex', name: 'Codex', cli: '/fixture/codex', registered: true, outdated: true, clientHealth: 'unknown',
       outdatedReasons: ['connected to another Chumi location', 'Connected to another Chumi data folder. Reconnect to use this folder.'],
       detail: 'Registered but disabled in Codex.', verifiedAt: null, lastRead: null,
-    }],
-  }), tn: (s: string) => s, AGENT_NAMES });
+    };
+    throw new Error('This agent check failed');
+  }, tn: (s: string) => s, AGENTS, AGENT_NAMES });
   await tick(); ui.render();
   assert.match(ui.text(), /connected to another Chumi location/);
   assert.match(ui.text(), /Connected to another Chumi data folder/);
   assert.match(ui.text(), /Registered but disabled in Codex/);
+  const codex = ui.find((e) => e.props.className === 'agent-card' && words(e).includes('Codex'));
+  assert.doesNotMatch(words(codex), /This agent check failed/);
+  assert.match(ui.text(), /This agent check failed/);
 });

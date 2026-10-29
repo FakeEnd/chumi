@@ -111,15 +111,14 @@ test('thread drafts restore empty input and round and clamp only when committed'
 });
 
 test('typing a thread count sends no saves until blur or Enter and unchanged values stay idle', async () => {
-  const { componentHarness, tick } = await import('./helpers/web-ui.ts');
+  const { tick } = await import('./helpers/web-ui.ts');
+  const { transcriptionHarness } = await import('./helpers/transcription-ui.ts');
+  const { MODEL_BASE_URL } = await import('../shared/model-source.ts');
   const { DEFAULT_SETTINGS } = await import('../server/settings.ts');
-  const { threadDraftValue, maxAsrThreads } = await import('../shared/asr-threads.ts');
   const state = { settings: { ...DEFAULT_SETTINGS, asr: { ...DEFAULT_SETTINGS.asr, threads: 6 } }, live: null };
   const calls: unknown[] = [];
-  const ui = await componentHarness('TranscriptionTab.tsx', 'TranscriptionTab', {}, {
-    useStore: (select: (s: unknown) => unknown) => select(state), speechSettingsBusy, threadDraftValue, maxAsrThreads,
-    SpeakerSettings: 'speakers', SpeechEngineSettings: 'engine', getLang: () => 'en', tn: (s: string) => s,
-    api: async () => ({ hardware: { cores: 10 }, models: [] }),
+  const ui = await transcriptionHarness(state, {
+    api: async () => ({ source: { baseUrl: MODEL_BASE_URL, fromEnvironment: false }, hardware: { cores: 10 }, models: [] }),
     saveSettings: async (patch: { asr: { threads: number } }) => { calls.push(patch); state.settings.asr.threads = patch.asr.threads; return true; },
   });
   await tick(); ui.render();

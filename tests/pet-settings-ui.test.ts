@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { transformWithOxc } from 'vite';
 import { t, tn, setLang } from '../web/src/i18n.ts';
+import { DEFAULT_SETTINGS } from '../server/settings.ts';
+import { transcriptionHarness } from './helpers/transcription-ui.ts';
 import { TAGS, TOPICS } from '../web/src/pet/tags.ts';
 
 type Element = { type: any; props: Record<string, any>; children: any[] };
@@ -129,12 +131,11 @@ test('closing pet settings without blur saves the number draft or pending slider
 
 test('vocabulary hints flush on unmount without blur and skip unchanged or pending saves', async () => {
   const glossary = ['Existing'];
-  const state = { settings: { asr: { glossary, engine: 'sensevoice' } } }, saved: any[] = [];
+  const state = { settings: { ...DEFAULT_SETTINGS, asr: { ...DEFAULT_SETTINGS.asr, glossary, engine: 'sensevoice' } } }, saved: any[] = [];
   let resolve!: (ok: boolean) => void;
-  const adapters = { useStore: (sel: any) => sel(state), speechSettingsBusy: () => false, SpeakerSettings: 'speakers', SpeechEngineSettings: 'engine',
-    api: async () => ({ models: [] }), saveSettings: (patch: any) => { saved.push(patch); return new Promise<boolean>((r) => { resolve = r; }); },
+  const adapters = { saveSettings: (patch: any) => { saved.push(patch); return new Promise<boolean>((r) => { resolve = r; }); },
   };
-  const ui = await mounted('TranscriptionTab.tsx', 'TranscriptionTab', adapters);
+  const ui = await transcriptionHarness(state, adapters);
   const field = () => ui.elements().find((e) => e.type === 'textarea')!;
   field().props.onBlur(); assert.equal(saved.length, 0);
   field().props.onChange({ target: { value: ' Existing， ' } }); ui.render();
@@ -143,7 +144,7 @@ test('vocabulary hints flush on unmount without blur and skip unchanged or pendi
   ui.unmount();
   assert.deepEqual(saved, [{ asr: { glossary: ['Kaplan-Meier', 'AUROC', '林老师'] } }]);
   resolve(true); await Promise.resolve();
-  const next = await mounted('TranscriptionTab.tsx', 'TranscriptionTab', adapters);
+  const next = await transcriptionHarness(state, adapters);
   const nextField = () => next.elements().find((e) => e.type === 'textarea')!;
   nextField().props.onChange({ target: { value: 'New hint' } }); next.render();
   nextField().props.onBlur(); next.unmount();
@@ -153,9 +154,7 @@ test('vocabulary hints flush on unmount without blur and skip unchanged or pendi
 
 test('vocabulary edits made during a save are flushed in order even after removal', async () => {
   const saved: any[] = []; let finish!: (ok: boolean) => void;
-  const ui = await mounted('TranscriptionTab.tsx', 'TranscriptionTab', {
-    useStore: (sel: any) => sel({ settings: { asr: { glossary: [], engine: 'sensevoice' } } }),
-    speechSettingsBusy: () => false, SpeakerSettings: 'speakers', SpeechEngineSettings: 'engine', api: async () => ({ models: [] }),
+  const ui = await transcriptionHarness({ settings: structuredClone(DEFAULT_SETTINGS) }, {
     saveSettings: (patch: any) => { saved.push(patch); return new Promise<boolean>((resolve) => { finish = resolve; }); },
   });
   const field = () => ui.elements().find((e) => e.type === 'textarea')!;

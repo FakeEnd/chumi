@@ -88,6 +88,16 @@ test('native silence messages translate including microphone device and duration
 // Source expressions are checked rather than a hand-maintained list of example output.
 const serverMessages = serverStrings();
 const nonProse = [
+  { file: 'server/speakers/audio.ts', source: "'Incomplete speaker audio mapping.'", why: 'caught by savedTakes/recoverOpenTakes and logged; the UI receives a recording warning instead' },
+  { file: 'server/speakers/audio.ts', source: "'Incomplete audio header.'", why: 'availableSamples failures are caught and logged by savedTakes/recoverOpenTakes' },
+  { file: 'server/speakers/audio.ts', source: "'Invalid recording WAV format.'", why: 'availableSamples failures are caught and logged by savedTakes/recoverOpenTakes' },
+  { file: 'server/speakers/audio.ts', source: "'Take still needs repair.'", why: 'caught and logged by savedTakes; the UI receives a recording warning instead' },
+  { file: 'server/speakers/audio.ts', source: "'No readable samples in take.'", why: 'caught and logged by savedTakes/recoverOpenTakes; no exception text reaches the UI' },
+  { file: 'server/speakers/audio.ts', source: "'Incomplete audio header write.'", why: 'caught and logged by recoverOpenTakes; WavWriter errors are checked separately' },
+  { file: 'server/projects/agents.ts', source: "'Missing command'", why: 'caught inside nodeProblem and replaced with a translated reconnect reason' },
+  { file: 'server/ai/compatible.ts', source: "c.local ? 'first' : 'idle'", why: 'timeout phase codes; the catch block maps them to checked ProviderError messages' },
+  { file: 'server/ai/compatible.ts', source: "'idle'", why: 'timeout phase code; the catch block maps it to a checked ProviderError message' },
+  { file: 'server/ai/compatible.ts', source: "'overall'", why: 'timeout phase code; the catch block maps it to a checked ProviderError message' },
   { file: 'server/screen/watcher.ts', source: "'not_built'", why: 'machine error code; the accompanying message is checked' },
   { file: 'server/screen/watcher.ts', source: "'capture_failed'", why: 'machine error code; the accompanying message is checked' },
   { file: 'server/projects/agents.ts', source: '`Read the file ${promptFile} and follow the instructions in it.`', why: 'instruction sent to the coding agent, not interface prose' },
@@ -156,6 +166,7 @@ test('dynamic server messages translate parameters and preserve diagnostic value
     assert.equal(t('Audio input device changed to Studio Mic.'), '音频输入设备已切换为 Studio Mic。');
     assert.equal(t('Waiting for macOS permission for: mic, system. Look for a permission dialog and allow it.'), '正在等待 macOS 授权：麦克风、电脑音频。请在权限对话框中允许访问。');
     assert.equal(t('Claude Code sent nothing for 1.5 min; the request was stopped.'), 'Claude Code 已有 1.5 分钟 未返回内容，请求已停止。');
+    assert.equal(t('Recording gap: {detail}', { detail: 'Not transcribed (0:01–0:05): speech recognition failed three times for this audio. Any saved recording is still available.' }), '录音缺失：未转写（0:01–0:05）：这段音频已连续三次识别失败。已保存的录音仍可使用。');
     assert.equal(t('5-hour limit: 30% used · included-usage status not reported'), '5 小时额度：已用 30% · 尚未报告套餐内含用量状态');
     setLang('en');
     assert.equal(t('Save your ElevenLabs API key first.'), 'Save your ElevenLabs API key first.');

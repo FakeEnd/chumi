@@ -5,7 +5,7 @@ import { ACTION_STATUSES, isActionResultUrl } from '../../shared/project-work.ts
 
 type Element = { type: any; props: Record<string, any>; children: any[] };
 const h = (type: any, props: any, ...children: any[]): Element => ({ type, props: props ?? {}, children: children.flat(Infinity) });
-const words = (node: any): string => node == null || typeof node === 'boolean' ? '' : typeof node !== 'object' ? String(node) : (node.children ?? []).map(words).join('');
+export const words = (node: any): string => node == null || typeof node === 'boolean' ? '' : typeof node !== 'object' ? String(node) : (node.children ?? []).map(words).join('');
 const all = (node: any): Element[] => !node || typeof node !== 'object' ? [] : [node, ...[...(node.children ?? []), node.props?.footer].flatMap(all)];
 export const defer = <T>() => { let resolve!: (value: T) => void, reject!: (error: Error) => void; const promise = new Promise<T>((r, fail) => { resolve = r; reject = fail; }); return { promise, resolve, reject }; };
 export const tick = () => new Promise((r) => setImmediate(r));
