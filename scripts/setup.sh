@@ -156,15 +156,28 @@ fi
 step "Connecting an AI"
 codex_ready()  { command -v codex >/dev/null && codex login status 2>&1 | grep -q ChatGPT; }
 claude_ready() { command -v claude >/dev/null && claude auth status 2>&1 | grep -q '"loggedIn": *true'; }
-use_provider() {  # Saves the AI provider choice in Chumi's settings (the app is not running yet).
-  node --input-type=module -e "import('./server/db.ts').then(({ Store }) => { const s = new Store(); const v = s.getSettings(); v.ai.provider = '$1'; s.saveSettings(v); s.close(); })"
+provider_name() {
+  case $1 in codex) echo "ChatGPT plan (codex)" ;; claude-cli) echo "Claude plan (claude-cli)" ;; anthropic-api) echo "Anthropic API (anthropic-api)" ;; compatible) echo "Other models (compatible)" ;; *) echo "$1" ;; esac
 }
+use_provider() {
+  local result
+  result=$(node scripts/setup-provider.ts use "$1")
+  case $result in
+    saved:*) ok "Chumi will use $(provider_name "${result#saved:}")" ;;
+    existing:*) ok "Chumi uses $(provider_name "${result#existing:}")" ;;
+    running) warn "Chumi is running, so setup did not change its provider. Choose $(provider_name "$1") in Settings → AI provider." ;;
+  esac
+}
+saved_provider=''
+if [[ $AI != 0 ]]; then saved_provider=$(node scripts/setup-provider.ts current); fi
 if [[ $AI == 0 ]]; then
   echo "  Skipped (--no-ai). Choose one later in Chumi: Settings → AI provider."
+elif [[ -n $saved_provider ]]; then
+  ok "Chumi uses $(provider_name "$saved_provider")"
 elif codex_ready || claude_ready; then
   codex_ready && ok "ChatGPT plan: Codex is signed in"
   claude_ready && ok "Claude plan: Claude Code is signed in"
-  if ! codex_ready && claude_ready; then use_provider claude-cli; ok "Chumi will use your Claude plan"; fi
+  if codex_ready; then use_provider codex; else use_provider claude-cli; fi
 else
   echo "  Chumi uses an AI you already have. Your sign-in stays with the official app; Chumi never sees it."
   echo "    1) ChatGPT plan (through Codex)"
@@ -178,16 +191,17 @@ else
       command -v codex >/dev/null || { echo "  Installing Codex with Homebrew…"; brew install codex; }
       echo "  Signing in: choose \"Sign in with ChatGPT\" in the browser window."
       codex login || warn "Not signed in yet. Run: codex login"
-      codex_ready && ok "ChatGPT plan connected" ;;
+      if codex_ready; then ok "ChatGPT plan connected"; use_provider codex; fi ;;
     2)
       command -v claude >/dev/null || { echo "  Installing Claude Code…"; npm install -g @anthropic-ai/claude-code --loglevel=error; hash -r; }
       echo "  Signing in with your Claude Pro or Max account in the browser window."
       claude auth login || warn "Not signed in yet. Run: claude auth login"
-      if claude_ready; then use_provider claude-cli; ok "Claude plan connected; Chumi will use it"; fi ;;
+      if claude_ready; then ok "Claude plan connected"; use_provider claude-cli; fi ;;
     3)
       command -v ollama >/dev/null || { echo "  Installing Ollama with Homebrew…"; brew install ollama; }
       brew services start ollama >/dev/null 2>&1 || true
-      ok "Ollama is running. In Chumi, open Settings → AI provider → Other models: local or API → Ollama,"
+      use_provider compatible
+      echo "  In Chumi, open Settings → AI provider → Other models: local or API → Ollama,"
       echo "    and click Download recommended model: it picks one that fits this Mac." ;;
     *) echo "  Later: open Chumi, and the Get Chumi ready checklist on Home shows what to do." ;;
   esac
