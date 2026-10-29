@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
+import { join } from 'node:path';
 import { createWindowsDshLocator } from '../server/projects/dsh.ts';
 
 test('Windows registry queries preserve cmd quoting and verbatim arguments', async (t) => {
@@ -29,9 +30,15 @@ test('Windows discovery accepts versioned display names without matching unrelat
 
 test('Windows discovery checks the default folder before scanning the registry', async () => {
   let queries = 0;
-  const locate = createWindowsDshLocator({ usual: () => 'default', exists: (path) => path === 'default', query: async () => { queries++; return ''; } });
+  const locate = createWindowsDshLocator({ usual: () => 'default', exists: (path) => path === join('default', 'resources', 'runtime', 'cli', 'bin', 'dsh.cmd'), query: async () => { queries++; return ''; } });
   assert.equal(await locate(), 'default');
   assert.equal(queries, 0);
+});
+
+test('Windows discovery skips a default folder left behind without its dsh command', async () => {
+  const entry = 'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\dsh\r\n    DisplayName    REG_SZ    DeepSeek Harness\r\n    InstallLocation    REG_SZ    D:\\Apps\\DeepSeek Harness\r\n';
+  const locate = createWindowsDshLocator({ usual: () => 'default', exists: (path) => path === 'default' || path === 'D:\\Apps\\DeepSeek Harness', query: async (hive) => hive === 'HKCU' ? entry : '' });
+  assert.equal(await locate(), 'D:\\Apps\\DeepSeek Harness');
 });
 
 test('Windows registry discovery stays asynchronous, shares scans and caches misses until refresh', async () => {

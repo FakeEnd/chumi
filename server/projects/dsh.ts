@@ -160,7 +160,8 @@ export function createWindowsDshLocator(dependencies: { query?: (hive: string) =
     pending = true;
     cached = (async () => {
       const standard = usual();
-      if (exists(standard)) return standard;
+      // The usual folder counts only with its dsh command inside: an uninstall can leave the folder behind.
+      if (exists(join(standard, 'resources', 'runtime', 'cli', 'bin', 'dsh.cmd'))) return standard;
       const hives = await Promise.all(['HKCU', 'HKLM'].map((hive) => query(hive).catch(() => '')));
       for (const entries of hives) {
         for (const entry of entries.split(/\r?\n(?=HKEY_)/)) {
