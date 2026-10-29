@@ -85,7 +85,7 @@ export function SettingsDialog() {
         {GROUPS.map((g) => (
           <div key={g.label} className="settings-group">
             <div className="settings-group-label">{t(g.label)}</div>
-            {g.tabs.filter(([k]) => k !== 'pet' || !windows).map(([k, l, Icon]) => (
+            {g.tabs.map(([k, l, Icon]) => (
               <button key={k} className={tab === k ? 'on' : ''} aria-current={tab === k ? 'page' : undefined} onClick={() => setState({ settingsTab: k })}><Icon width={15} height={15} />{t(l)}</button>
             ))}
           </div>

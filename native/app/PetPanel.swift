@@ -21,7 +21,7 @@ final class PetPanel: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private static let pageWidth: CGFloat = 380
 
     /// Show Chumi's window, at a meeting and transcript time when the pet's card names one.
-    var onOpen: ((_ session: String?, _ t: Double?, _ t2: Double?) -> Void)?
+    var onOpen: ((_ session: String?, _ t: Double?, _ t2: Double?, _ dialog: String?) -> Void)?
     /// The pet was turned on or off (Settings, its menu, Window → Desktop Pet).
     var onEnabled: ((Bool) -> Void)?
     private(set) var enabled = true
@@ -164,7 +164,7 @@ final class PetPanel: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             if on != enabled { enabled = on; onEnabled?(on) }
             if enabled, !panel.isVisible { show() } else if !enabled, panel.isVisible { hide() }
         case "open":
-            onOpen?(body["session"] as? String, (body["t"] as? NSNumber)?.doubleValue, (body["t2"] as? NSNumber)?.doubleValue)
+            onOpen?(body["session"] as? String, (body["t"] as? NSNumber)?.doubleValue, (body["t2"] as? NSNumber)?.doubleValue, body["dialog"] as? String)
         case "keyboard": keyboard(body["on"] as? Bool ?? false)
         default: break
         }

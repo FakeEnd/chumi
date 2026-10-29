@@ -176,9 +176,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func startPet(_ url: URL) {
         let pet = self.pet ?? PetPanel()
         if self.pet == nil {
-            pet.onOpen = { [weak self] session, t, t2 in
+            pet.onOpen = { [weak self] session, t, t2, dialog in
                 self?.showMainWindow()
-                if let session { self?.web?.open(session: session, t: t, t2: t2) }
+                if let session { self?.web?.open(session: session, t: t, t2: t2, dialog: dialog) }
             }
             pet.onEnabled = { [weak self] on in self?.petItem?.state = on ? .on : .off }
             self.pet = pet

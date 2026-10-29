@@ -18,6 +18,8 @@ test('the pet continues only a confirmed handoff for the meeting’s current pro
   assert.equal(canContinue(handoff({ project: null })), false);
   assert.equal(canContinue(handoff({ project_mismatch: true })), false, 'moved to another project: review again first');
   assert.equal(canContinue(null), false);
+  const stale = handoff({}); stale.freshness.stale = true;
+  assert.equal(canContinue(stale), false, 'changed meetings need review in Chumi');
 });
 
 test('destinations are named as in Chumi’s Continue in menu, in its language', () => {

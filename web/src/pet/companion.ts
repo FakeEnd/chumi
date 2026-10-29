@@ -3,6 +3,7 @@
 // character in pet.html.
 
 import { api } from '../api.ts';
+import { projectContextOn } from '../projectContext.ts';
 import { locale, msg, t } from '../i18n.ts';
 import { fmtT, renderMd } from '../util.ts';
 import type { Handoff, Output } from '../types.ts';
@@ -10,14 +11,14 @@ import { splitCategory } from '../../../shared/question-category.ts';
 import { AGENT_NAMES, isAgent } from '../../../shared/agents.ts';
 import { loadHandoffDestination } from '../handoffDestination.ts';
 import { canContinue, placeLabel, placeName } from './handoff.ts';
-import { cardTitle, focusOf, preview, recent, tagCounts, when } from './recent.ts';
+import { cardTitle, focusOf, listed, preview, recent, tagCounts, when } from './recent.ts';
 import { TAGS, tagOf, type Tag } from './tags.ts';
 
 export interface CompanionHost {
   /** Speak through the pet (errors, hints). */
   say(text: string, tone?: 'info' | 'warn'): void;
   /** Bring Chumi's window forward, optionally at a meeting and a transcript time. */
-  open(where?: { session: string; t?: number; t2?: number }): void;
+  open(where?: { session: string; t?: number; t2?: number; dialog?: 'handoff' }): void;
   /** The ask box wants the keyboard (the panel normally never takes focus). */
   keyboard(on: boolean): void;
   /** Size or clickable areas changed. */
@@ -50,12 +51,15 @@ export class Companion {
   readonly el = document.createElement('div');
   /** The live meeting, or the latest one when nothing is recording. */
   sessionId: string | null = null;
+  private projectId: string | null = null;
+  private projectUpdated = false;
   private status = 'idle';
   private clock = { nowT: 0, at: 0 };
   private cards = new Map<string, Card>();
   /** The shown meeting's handoff: once confirmed, the toolbar continues it in a coding agent. */
   private handoff: Handoff | null = null;
   private continuing = false;
+  private revealed: string | null = null;
   private expanded = new Set<string>();
   private toolbar = true;
   private cardsMode: Cards = 'latest';
@@ -64,7 +68,7 @@ export class Companion {
   private peek = false;
   /** Page px from the top of the page to the bottom of the screen (the app reports it); cards stop before it. */
   private room = 10_000;
-  private get list(): boolean { return this.cardsMode === 'recent' || (this.peek && !this.live()); }
+  private get list(): boolean { return this.revealed !== null || this.cardsMode === 'recent' || (this.peek && !this.live()); }
   private get showing(): boolean { return this.cardsMode !== 'none' && (this.live() || this.peek); }
   private asking = false;
   private confirmEnd = 0;
@@ -73,6 +77,10 @@ export class Companion {
   /** A click on an open card's text folds it after the double-click time, unless a second click selects a word. */
   private foldTimer = 0;
   private drawQueued = false;
+  private fullDraw = false;
+  private streamDirty = new Set<string>();
+  private cardNodes = new Map<string, HTMLElement>();
+  private listHeight = 0;
   private bar = document.createElement('div');
   private ask = document.createElement('form');
   private input = document.createElement('input');
@@ -126,15 +134,22 @@ export class Companion {
 
   private async load(id: string): Promise<void> {
     this.sessionId = id;
+    this.projectId = null; this.projectUpdated = false;
     this.cards.clear();
+    this.expanded.clear(); this.revealed = null;
     this.handoff = null;
     try {
-      const d = await api<{ outputs: Output[]; handoff?: Handoff | null }>(`/api/sessions/${encodeURIComponent(id)}`);
+      const d = await api<{ session: { project_id?: string | null }; outputs: Output[]; handoff?: Handoff | null }>(`/api/sessions/${encodeURIComponent(id)}`);
       if (this.sessionId !== id) return;
       for (const o of d.outputs) this.cards.set(o.id, o);
       this.handoff = d.handoff ?? null;
+      if (!this.projectUpdated) this.projectId = d.session.project_id ?? null;
     } catch { /* deleted meanwhile */ }
     this.render();
+  }
+
+  sessionUpdated(s: { id: string; project_id?: string | null }): void {
+    if (s.id === this.sessionId) { this.projectId = s.project_id ?? null; this.projectUpdated = true; }
   }
 
   ai(o: Output): void {
@@ -148,7 +163,7 @@ export class Companion {
     const c = this.cards.get(d.id);
     if (!c) return;
     c.stream = (c.stream ?? '') + d.delta;
-    this.draw();
+    if (this.cardNodes.has(d.id)) this.draw(d.id);
   }
 
   deleted(id: string): void { if (id === this.sessionId) { this.sessionId = null; this.cards.clear(); this.handoff = null; void this.loadLatest(); } }
@@ -162,6 +177,7 @@ export class Companion {
   /** What Settings → Desktop pet shows under the pet. */
   configure(o: { toolbar: boolean; cards: Cards; tags: Tag[] }): void {
     if (o.toolbar === this.toolbar && o.cards === this.cardsMode && o.tags.join() === this.tags.join()) return;
+    if (o.cards !== this.cardsMode) this.revealed = null;
     this.toolbar = o.toolbar; this.cardsMode = o.cards; this.tags = [...o.tags];
     if (!o.toolbar) this.closeAsk();
     this.render();
@@ -170,13 +186,14 @@ export class Companion {
   /** The app: how far the screen reaches below the top of the page. */
   setRoom(px: number): void { if (px > 0 && px !== this.room) { this.room = px; this.render(); } }
 
-  get showsCards(): boolean { return this.cardsMode !== 'none'; }
+  has(id: string): boolean { const o = this.cards.get(id); return this.cardsMode !== 'none' && !!o && listed(o); }
 
   /** Open a card (the pet's bubble points at it). */
   expand(id: string): void {
+    if (!this.has(id)) return;
     this.expanded.add(id);
+    this.revealed = recent(this.cards.values(), 1, this.tags, (o) => this.expanded.has(o.id))[0]?.id === id ? null : id;
     if (!this.live()) this.peek = true;
-    else if (recent(this.cards.values(), 1, this.tags, (o) => this.expanded.has(o.id))[0]?.id !== id && !this.list) { this.cardsMode = 'recent'; this.host.setCards('recent'); }
     this.render();
     this.listEl.querySelector(`[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' });
   }
@@ -195,18 +212,25 @@ export class Companion {
       case 'catchup': if (this.sessionId) await api('/api/ai/catchup', { body: { sessionId: this.sessionId, scope: '2m' } }).catch(fail); break;
       case 'ask': if (this.asking) this.closeAsk(); else this.openAsk(); break;
       case 'continue': {
-        const h = this.handoff;
-        if (!canContinue(h) || this.continuing) break;
+        let h = this.handoff;
+        if (!h || h.status !== 'confirmed' || this.continuing) break;
+        if (h.freshness.stale) { this.host.open({ session: h.session_id, dialog: 'handoff' }); break; }
+        if (!canContinue(h)) break;
         const place = loadHandoffDestination();
         // Copying needs a focused window for the clipboard: Chumi's handoff dialog does that.
-        if (place === 'copy') { this.host.open({ session: h.session_id }); break; }
+        if (place === 'copy') { this.host.open({ session: h.session_id, dialog: 'handoff' }); break; }
         this.continuing = true; this.render();
         try {
+          // Meeting edits do not all publish a handoff event; check freshness before launching.
+          const { handoff } = await api<{ handoff: Handoff | null }>(`/api/sessions/${encodeURIComponent(h.session_id)}/handoff`);
+          if (this.sessionId === h.session_id) this.handoff = handoff;
+          if (!canContinue(handoff)) { this.host.open({ session: h.session_id, dialog: 'handoff' }); break; }
+          h = handoff;
           const r = await api<{ launched: boolean; paste?: { copied: boolean } }>(`/api/handoffs/${encodeURIComponent(h.id)}/continue`, { body: { agent: place } });
           const name = isAgent(place) ? AGENT_NAMES[place] : place;
           // The app is no use without the instruction: when it could not be copied, Continue in Chumi's handoff dialog shows it.
-          if (r.paste && !r.paste.copied) { this.host.say(t('Could not copy the instruction for {agent}. Continue from the handoff in Chumi’s window to copy it by hand.', { agent: name }), 'warn'); this.host.open({ session: h.session_id }); }
-          else if (!r.launched) this.host.open({ session: h.session_id });
+          if (r.paste && !r.paste.copied) { this.host.say(t('Could not copy the instruction for {agent}. Continue from the handoff in Chumi’s window to copy it by hand.', { agent: name }), 'warn'); this.host.open({ session: h.session_id, dialog: 'handoff' }); }
+          else if (!r.launched) this.host.open({ session: h.session_id, dialog: 'handoff' });
           else if (r.paste) this.host.say(t('Opened {agent} and copied a one-line instruction. Open the project folder there, start a new session and paste it.', { agent: name }));
           else this.host.say(place === 'codex-app' ? t('Requested Codex app to open the handoff. Review it there, then click Send to start.')
             : t('Opened {agent} in Terminal in the project folder, starting from this handoff.', { agent: name }));
@@ -216,6 +240,7 @@ export class Companion {
       case 'list':
         if (!this.live()) this.peek = !this.peek;
         else { this.cardsMode = this.list ? 'latest' : 'recent'; this.host.setCards(this.cardsMode); }
+        this.revealed = null;
         this.render(); break;
     }
   }
@@ -236,7 +261,7 @@ export class Companion {
     const question = this.input.value.trim();
     if (!question || !this.sessionId) return;
     try {
-      const { id } = await api<{ id: string }>('/api/ai/ask', { body: { sessionId: this.sessionId, question } });
+      const { id } = await api<{ id: string }>('/api/ai/ask', { body: { sessionId: this.sessionId, question, projectContext: projectContextOn(this.sessionId) && !!this.projectId } });
       this.expanded.add(id);
       if (!this.live()) this.peek = true;
       this.input.value = '';
@@ -296,14 +321,33 @@ export class Companion {
 
   private updateClock(): void { const c = this.bar.querySelector('.clock'); if (c) c.textContent = this.meetingTime(); }
 
-  /** Coalesce streaming updates into one render per frame. */
-  private draw(): void {
+  /** Coalesce tokens without replacing the cards someone may be selecting text in. */
+  private draw(id?: string): void {
+    if (id) this.streamDirty.add(id); else this.fullDraw = true;
     if (this.drawQueued) return;
     this.drawQueued = true;
-    requestAnimationFrame(() => { this.drawQueued = false; this.render(); });
+    requestAnimationFrame(() => {
+      this.drawQueued = false;
+      if (this.fullDraw) this.render(); else this.renderStreams();
+    });
+  }
+
+  private renderStreams(): void {
+    let changed = false;
+    for (const id of this.streamDirty) {
+      const o = this.cards.get(id), node = this.cardNodes.get(id);
+      const body = node?.querySelector<HTMLElement>('.prev, .md');
+      if (o && body) changed = this.cardBody(body, o) || changed;
+    }
+    this.streamDirty.clear();
+    if (!changed) return;
+    // Most tokens fit on the same line. Only growing/shrinking cards need a new height budget.
+    const height = this.listEl.getBoundingClientRect().height;
+    if (Math.abs(height - this.listHeight) >= 1) { this.fitCards(); this.host.changed(); }
   }
 
   render(): void {
+    this.fullDraw = false; this.streamDirty.clear();
     this.bar.hidden = !this.toolbar;
     this.renderBar();
     this.renderCards();
@@ -323,10 +367,11 @@ export class Companion {
     else parts.push(b('', ICON.spin, s === 'ending' ? t('Ending…') : t('Starting…'), '', true));
     if (this.live()) parts.push(b('catchup', ICON.spark, t('Catch me up')));
     parts.push(b('ask', ICON.pencil, t('Ask'), this.asking ? 'on' : '', !this.sessionId));
-    if (!this.live() && canContinue(this.handoff)) {
+    if (!this.live() && this.handoff?.status === 'confirmed' && (this.handoff.freshness.stale || canContinue(this.handoff))) {
       const place = loadHandoffDestination();
-      const tip = place === 'copy' ? t('Open the handoff in Chumi') : t('Continue the handoff in {place}', { place: t(placeName(place)) });
-      parts.push(b('continue', `${this.continuing ? ICON.spin : ICON.go}<span>${t(placeLabel(place))}</span>`, tip, 'go', this.continuing));
+      const stale = this.handoff!.freshness.stale;
+      const tip = stale ? t('The meeting changed. Review the handoff in Chumi before continuing.') : place === 'copy' ? t('Open the handoff in Chumi') : t('Continue the handoff in {place}', { place: t(placeName(place)) });
+      parts.push(b('continue', `${this.continuing ? ICON.spin : ICON.go}<span>${t(stale ? 'Handoff' : placeLabel(place))}${stale ? ' !' : ''}</span>`, tip, 'go', this.continuing));
     }
     if (this.live()) {
       const sure = Date.now() < this.confirmEnd;
@@ -342,6 +387,8 @@ export class Companion {
     // Rebuilding resets the scroll of open cards; keep it.
     const inner = new Map([...this.listEl.querySelectorAll<HTMLElement>('.card')].map((c) => [c.dataset.id!, c.querySelector('.md')?.scrollTop ?? 0]));
     const items = this.showing ? recent(this.cards.values(), this.list ? 6 : 1, this.tags, (o) => this.expanded.has(o.id)) : [];
+    const revealed = this.revealed && this.cards.get(this.revealed);
+    if (this.showing && revealed && listed(revealed) && !items.some((o) => o.id === revealed.id)) { if (items.length >= 6) items.pop(); items.push(revealed); }
     const nodes: HTMLElement[] = [];
     if (this.showing && this.list) {
       // Tag chips with counts, as above the cards in Chumi's window.
@@ -363,30 +410,37 @@ export class Companion {
       nodes.push(head);
       if (!items.length) { const empty = document.createElement('div'); empty.className = 'card empty'; empty.textContent = t('Catch-ups, answers and explanations from the meeting appear here.'); nodes.push(empty); }
     }
-    for (const o of items) nodes.push(this.card(o));
+    this.cardNodes.clear();
+    for (const o of items) { const node = this.card(o); this.cardNodes.set(o.id, node); nodes.push(node); }
     this.listEl.replaceChildren(...nodes);
     this.listEl.hidden = !nodes.length;
+    this.fitCards();
+    for (const c of this.listEl.querySelectorAll<HTMLElement>('.card')) { const md = c.querySelector('.md'); if (md) md.scrollTop = inner.get(c.dataset.id!) ?? 0; }
+  }
+
+  private fitCards(): void {
     // Stop before the bottom of the screen: drop the oldest cards that don't fit (always keep one).
     const top = this.el.getBoundingClientRect().top;
     const budget = this.room - top - this.listEl.offsetTop - 16;
-    while (this.listEl.querySelectorAll('.card:not(.empty)').length > 1 && this.listEl.getBoundingClientRect().height > budget) this.listEl.lastElementChild!.remove();
+    while (this.listEl.querySelectorAll('.card:not(.empty)').length > 1 && this.listEl.getBoundingClientRect().height > budget) {
+      const last = [...this.listEl.querySelectorAll<HTMLElement>('.card')].reverse().find((c) => c.dataset.id !== this.revealed)!;
+      this.cardNodes.delete(last.dataset.id!); last.remove();
+    }
     // A single expanded answer must fit too, including its title and Open in Chumi link.
     const body = this.listEl.querySelector<HTMLElement>('.card .md');
     if (body) {
-      const overflow = Math.max(0, this.listEl.getBoundingClientRect().height - budget);
-      body.style.maxHeight = `${Math.max(48, Math.min(300, body.getBoundingClientRect().height - overflow))}px`;
+      const chrome = this.listEl.getBoundingClientRect().height - body.getBoundingClientRect().height;
+      body.style.maxHeight = `${Math.max(48, Math.min(300, budget - chrome))}px`;
     }
     // On a very short display, keep the toolbar, ask box and card footer reachable by scrolling.
     const available = Math.max(60, this.room - top - 14);
     this.el.style.maxHeight = `${available}px`;
     this.el.style.overflowY = this.el.scrollHeight > available + 1 ? 'auto' : '';
-    for (const c of this.listEl.querySelectorAll<HTMLElement>('.card')) { const md = c.querySelector('.md'); if (md) md.scrollTop = inner.get(c.dataset.id!) ?? 0; }
+    this.listHeight = this.listEl.getBoundingClientRect().height;
   }
 
   private card(o: Card): HTMLElement {
     const open = this.expanded.has(o.id);
-    // While an answer streams, its first line may be the model's [[meeting]] / [[tangent]] marker.
-    const text = o.content ?? (o.stream != null ? (o.kind === 'answer' ? splitCategory(o.stream, true).body : o.stream) : '');
     const working = o.status === 'pending' || o.status === 'streaming';
     const c = document.createElement('div');
     c.className = `card${open ? ' open' : ''}`;
@@ -403,11 +457,23 @@ export class Companion {
     head.append(title, time);
     c.append(head);
     const body = document.createElement('div');
-    if (o.status === 'error') { body.className = 'prev err'; body.textContent = t(o.error ?? 'Something went wrong'); }
-    else if (open && text) { body.className = 'md'; body.innerHTML = renderMd(text); }
-    else { body.className = 'prev'; body.textContent = preview(text) || t('Thinking…'); }
+    this.cardBody(body, o);
     c.append(body);
     if (open && !working) { const foot = document.createElement('div'); foot.className = 'foot'; const b = document.createElement('button'); b.className = 'open'; b.textContent = `${t('Open in Chumi')} →`; foot.append(b); c.append(foot); }
     return c;
+  }
+
+  private cardBody(body: HTMLElement, o: Card): boolean {
+    // While streaming, hide the model's leading [[meeting]] / [[tangent]] marker.
+    const text = o.content ?? (o.stream != null ? (o.kind === 'answer' ? splitCategory(o.stream, true).body : o.stream) : '');
+    const md = o.status !== 'error' && this.expanded.has(o.id) && !!text;
+    const cls = o.status === 'error' ? 'prev err' : md ? 'md' : 'prev';
+    const content = o.status === 'error' ? t(o.error ?? 'Something went wrong') : md ? renderMd(text) : preview(text) || t('Thinking…');
+    if (body.className === cls && (md ? body.innerHTML : body.textContent) === content) return false;
+    const scroll = body.scrollTop;
+    body.className = cls;
+    if (md) body.innerHTML = content; else body.textContent = content;
+    body.scrollTop = scroll;
+    return true;
   }
 }

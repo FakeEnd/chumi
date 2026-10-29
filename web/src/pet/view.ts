@@ -39,12 +39,15 @@ export class PetView {
     this.bubbleEl = document.createElement('div');
     this.bubbleEl.className = 'chumi-bubble';
     this.bubbleEl.style.opacity = '0';
+    this.bubbleEl.style.visibility = 'hidden';
     this.el.appendChild(this.bubbleEl);
   }
 
   get bubble(): HTMLDivElement { return this.bubbleEl; }
   /** What the visible bubble says, or null once it is hidden or hiding. */
   get saying(): Say | null { return this.hideAt < 0 ? this.shown : null; }
+
+  get hasBubble(): boolean { return this.shown !== null; }
 
   say(s: Say, t: number): void {
     this.shown = { ...s, at: t }; this.hideAt = -1;
@@ -55,8 +58,9 @@ export class PetView {
 
   hush(t: number): void { if (this.shown && this.hideAt < 0) this.hideAt = t; }
 
-  draw(t: number): void {
-    this.rig.draw(t);
+  draw(t: number, stillRig = false, reducedMotion = false): void {
+    this.rig.draw(t, stillRig);
+    if (!this.shown) return;
     let scale = 0, alpha = 0;
     if (this.shown) {
       const u = t - this.shown.at;
@@ -67,9 +71,12 @@ export class PetView {
         if (v >= 1) this.shown = null;
       }
     }
-    const bob = 1.5 * Math.sin(t * 2.3);
-    this.bubbleEl.style.opacity = alpha.toFixed(3);
-    this.bubbleEl.style.visibility = alpha > 0.01 ? 'visible' : 'hidden';
-    this.bubbleEl.style.transform = `translateX(-50%) translateY(${bob.toFixed(2)}px) scale(${Math.max(0, scale).toFixed(3)})`;
+    if (reducedMotion) { scale = 1; alpha = this.hideAt >= 0 ? 0 : 1; if (!alpha) this.shown = null; }
+    const bob = reducedMotion ? 0 : 1.5 * Math.sin(t * 2.3);
+    const style = this.bubbleEl.style, opacity = alpha.toFixed(3), visibility = alpha > 0.01 ? 'visible' : 'hidden';
+    const transform = `translateX(-50%) translateY(${bob.toFixed(2)}px) scale(${Math.max(0, scale).toFixed(3)})`;
+    if (style.opacity !== opacity) style.opacity = opacity;
+    if (style.visibility !== visibility) style.visibility = visibility;
+    if (style.transform !== transform) style.transform = transform;
   }
 }

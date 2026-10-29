@@ -9,7 +9,7 @@
 //     (Settings → Desktop pet), whether screen shares may see it, its height, and where clicks should land. On the pet
 //     the app drags and taps; on ui boxes clicks go to the page as usual; elsewhere they pass through to the windows below.
 //     Rects and height are CSS px of the page; the app multiplies them by the zoom.
-//   {type: 'open', session?, t?, t2?}: show Chumi's window, optionally at a meeting and a transcript time.
+//   {type: 'open', session?, t?, t2?, dialog?: 'handoff'}: show Chumi's window, optionally at a meeting and a transcript time.
 //   {type: 'keyboard', on}: the ask box wants typing (the panel otherwise never takes focus).
 // Opened in a browser without the app, the page follows the mouse itself, which is handy for development.
 
@@ -20,6 +20,7 @@ import { Companion, type Cards } from './companion.ts';
 import { gaze } from './rig.ts';
 import { TAGS, TOPICS, type Tag, type Topic } from './tags.ts';
 import { PetView } from './view.ts';
+import { PetLoop } from './loop.ts';
 import './pet.css';
 
 type Native = { postMessage(m: unknown): void; onEvent?(callback: (event: { method: keyof typeof bridge; args: unknown[] }) => void): void };
@@ -42,6 +43,7 @@ function applyPet(p: Partial<PetSettings> | undefined): void {
   if (!p) return;
   pet = { ...pet, ...p };
   app.hidden = !pet.enabled;
+  wake();
   companion.configure({ toolbar: pet.enabled && pet.toolbar, cards: pet.cards, tags: pet.tags });
   report();
 }
@@ -53,6 +55,7 @@ const savePet = (patch: Partial<PetSettings>) => {
 // ------------------------------------------------------------------ speech bubble
 let bubbleUntil = 0, said: Line | null = null;
 function say(line: Line | null): void {
+  wake();
   if (!line || !pet.enabled || !(line.important || pet.say.includes(line.tag ?? 'chatter'))) return;
   const t = clock();
   view.say(line, t); bubbleUntil = t + line.hold; said = line;
@@ -61,9 +64,9 @@ function say(line: Line | null): void {
 view.bubble.classList.add('ui');
 view.bubble.addEventListener('click', () => {
   // The answer it announces opens in the pet's own card; anything else (or with the toolbar hidden) in Chumi.
-  if (said?.output && companion.showsCards) companion.expand(said.output);
-  else if (said?.open) post({ type: 'open' });
-  view.hush(clock()); report();
+  if (said?.output && !said.dialog && companion.has(said.output)) companion.expand(said.output);
+  else if (said?.open) post({ type: 'open', session: said.session, dialog: said.dialog });
+  view.hush(clock()); wake(); report();
 });
 
 // report()'s state, declared before the companion: it reports its first layout while it is constructed.
@@ -127,18 +130,20 @@ void api('/api/state').then((s) => {
 }).catch(() => say(brain.hello(clock())));
 
 subscribe({
-  hello: (d) => { brain.live(d.live, clock()); companion.setLive(d.live); },
+  hello: (d) => { brain.live(d.live, clock()); companion.setLive(d.live); wake(); },
   live: (d) => { say(brain.live(d, clock())); companion.setLive(d); },
   level: (d) => {
     // RMS level in dBFS → 0–1 loudness, roughly −58 dB (room tone) to −18 dB (close speech).
     levels.set(String(d.source), { v: clamp(((Number(d.rms) || -120) + 58) / 40), at: clock() });
+    if (brain.status === 'recording' && !motion.matches) wake();
   },
-  segment: () => view.rig.note(clock()),
+  segment: () => { view.rig.note(clock()); wake(); },
   ai: (o) => { companion.ai(o); say(brain.ai(o, clock())); },
   'ai-delta': (d) => companion.delta(d),
   notice: (n) => say(brain.notice(n, clock())),
   'session-ended': (d) => say(brain.ended(clock(), !!d?.summaryId)),
-  'session-deleted': (d) => { brain.deleted(String(d?.id)); companion.deleted(String(d?.id)); },
+  'session-updated': (s) => companion.sessionUpdated(s),
+  'session-deleted': (d) => { brain.deleted(String(d?.id)); companion.deleted(String(d?.id)); wake(); },
   handoff: (e) => companion.handoffChanged(e),
   settings: (s) => { language(s); applyPet(s?.pet); },
 }, () => {});
@@ -157,6 +162,7 @@ function updatePetting(t: number): void {
     dist += Math.hypot(dx, samples[i].y - samples[i - 1].y);
     if (Math.abs(dx) > 2) { const d = Math.sign(dx); if (dir && d !== dir) turns++; dir = d; }
   }
+  if (!samples.length) { view.rig.petting = 0; pettingSince = -1; return; }
   const u = view.rig.el.getBoundingClientRect().width / 200;
   view.rig.petting = turns ? clamp(dist / (110 * u)) : 0;
   if (view.rig.petting > 0.5) { if (pettingSince < 0) pettingSince = t; else if (t - pettingSince > 1.2) say(brain.petted(t)); } else pettingSince = -1;
@@ -166,7 +172,9 @@ const bridge = {
   pointer(x: number, y: number): void {
     const t = clock(), r = view.rig.el.getBoundingClientRect(), u = r.width / 200;
     const ex = r.left + 100 * u, ey = r.top + 129 * u, dx = x - ex, dy = y - ey;
-    view.rig.look = gaze(dx, dy);
+    const look = gaze(dx, dy), prev = view.rig.look;
+    view.rig.look = look;
+    if (!prev || Math.abs(prev.x - look.x) > 0.003 || Math.abs(prev.y - look.y) > 0.003) wake(0.7);
     if (Math.hypot(dx, dy) < 260) say(brain.activity(t));
     const onHead = !dragging && x > r.left + 50 * u && x < r.left + 150 * u && y > r.top + 72 * u && y < r.top + 138 * u;
     if (onHead) samples.push({ t, x, y }); else samples.length = 0;
@@ -178,7 +186,7 @@ const bridge = {
     const t = clock();
     say(brain.activity(t));
     if (count >= 2) { post({ type: 'open' }); return; }
-    view.rig.tap(t);
+    view.rig.tap(t); wake(1.6);
     say(brain.tap(t));
   },
   drag(phase: 'start' | 'move' | 'end', vx = 0): void {
@@ -186,6 +194,7 @@ const bridge = {
     if (phase === 'start') { dragging = true; say(brain.activity(t)); }
     if (phase === 'move') view.rig.swing += (clamp(-vx / 900, -1, 1) - view.rig.swing) * 0.35;
     if (phase === 'end') { dragging = false; view.rig.swing = 0; view.rig.land(t); }
+    wake(0.5);
   },
   menu(): string { return JSON.stringify(brain.menu(compact())); },
   setEnabled(on: boolean): void { savePet({ enabled: on }); },
@@ -233,18 +242,28 @@ if (!native) {
 }
 
 // ------------------------------------------------------------------ frames
-let lastDraw = 0;
-function frame(): void {
-  const t = clock(), mood = dragging ? 'held' : brain.mood(t);
-  // 30 fps is plenty for this character; asleep, 15; hidden, none.
-  if (pet.enabled && t - lastDraw >= (mood === 'sleep' && !view.saying ? 1 / 15 : 1 / 30) - 0.004) {
-    lastDraw = t;
-    view.rig.level = brain.status === 'recording' ? loudness(t) : 0;
-    updatePetting(t);
-    view.rig.setMood(mood, t);
-    if (view.saying && t > bubbleUntil) { view.hush(t); setTimeout(report, 200); }
-    view.draw(t);
-  }
-  requestAnimationFrame(frame);
+const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+let animateUntil = 0;
+function wake(seconds = 0): void {
+  animateUntil = Math.max(animateUntil, clock() + seconds);
+  if (pet.enabled && !document.hidden) loop.wake(); else loop.stop();
 }
-requestAnimationFrame(() => { report(); frame(); });
+const loop = new PetLoop((t) => {
+  if (!pet.enabled || document.hidden) return Infinity;
+  const mood = dragging ? 'held' : brain.mood(t);
+  if (mood !== view.rig.current) animateUntil = Math.max(animateUntil, t + 0.3);
+  view.rig.level = brain.status === 'recording' ? loudness(t) : 0;
+  if (samples.length || view.rig.petting) updatePetting(t);
+  view.rig.setMood(mood, t);
+  if (view.saying && t >= bubbleUntil) { view.hush(t); report(); }
+  view.draw(t, motion.matches, motion.matches);
+  if (!motion.matches) {
+    if (!['idle', 'paused', 'sleep'].includes(mood) || t < animateUntil || view.hasBubble) return 1 / 30;
+    return mood === 'sleep' ? 1 / 15 : 1 / 12;
+  }
+  // Reduced motion needs no animation loop, but bubbles and temporary moods still expire.
+  return Math.min(brain.nextChange(t), view.saying ? bubbleUntil : Infinity) - t;
+});
+motion.addEventListener('change', () => wake());
+document.addEventListener('visibilitychange', () => wake());
+report(); wake();

@@ -1643,6 +1643,7 @@ export const ZH: Record<string, string> = {
   // Desktop pet (web/src/pet/companion.ts)
   "Ask about this meeting…": "问问这场会议…",
   "Continue the handoff in {place}": "继续这份交接：{place}",
+  "The meeting changed. Review the handoff in Chumi before continuing.": "会议内容有更新，请先在 Chumi 中查看交接，再继续。",
   "Open the handoff in Chumi": "在 Chumi 中打开交接",
   "Handoff": "交接",
   "Ending…": "正在结束…",
@@ -1681,6 +1682,7 @@ export const ZH: Record<string, string> = {
   "Off by default, so a screen you share in a meeting does not show what you asked Chumi. Some newer capture tools may still show it.": "默认关闭，这样你在会上共享屏幕时，别人看不到你问了 Chumi 什么。个别较新的录屏工具可能仍会录到它。",
   "Move it back to the corner": "把它放回屏幕角落",
   "Done.": "好了。",
+  "Press Alt to show the menu bar, then choose 窗口 → 桌宠.": "按 Alt 显示菜单栏，再选择「窗口 → 桌宠」。",
   "Also in the menu bar: Window → Desktop Pet.": "也可以在菜单栏里打开：Window → Desktop Pet。",
   "Right-click the pet for Catch Me Up, Open Chumi, Pet Only and Hide. Drag it by the character to move it.": "右键桌宠可以帮我跟上、打开 Chumi、只显示桌宠或把它藏起来。按住小家伙拖动可以挪位置。",
   "Compact view": "简洁模式",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store.ts';
 import { saveSettings } from '../actions.ts';
 import { api } from '../api.ts';
@@ -36,6 +36,24 @@ export function TranscriptionTab() {
   useEffect(() => setThreads(String(settings.asr.threads)), [settings.asr.threads]);
   const [list, setList] = useState<ModelList | null>(null);
   const [glossary, setGlossary] = useState(settings.asr.glossary.join(', '));
+  const glossaryEdit = useRef({ value: glossary, dirty: false, saved: settings.asr.glossary, submitted: null as string[] | null });
+  glossaryEdit.current.saved = settings.asr.glossary;
+  const flushGlossary = () => {
+    const edit = glossaryEdit.current;
+    if (!edit.dirty || edit.submitted) return;
+    const value = edit.value.split(/[,，、;；\n]+/).map((x) => x.trim()).filter(Boolean);
+    const same = (other: string[] | null) => other !== null && value.length === other.length && value.every((x, i) => x === other[i]);
+    if (same(edit.saved)) { edit.dirty = false; return; }
+    edit.submitted = value;
+    const draft = edit.value;
+    void saveSettings({ asr: { glossary: value } }).then((ok) => {
+      if (edit.submitted === value) edit.submitted = null;
+      if (ok) { edit.saved = value; if (edit.value === draft) edit.dirty = false; }
+      if (edit.value !== draft) flushGlossary();
+    });
+  };
+  // Escape and an outside click can remove the focused textarea without firing blur.
+  useEffect(() => () => flushGlossary(), []);
   const [bench, setBench] = useState<{ running: boolean; model?: string; results?: BenchResult[]; error?: string }>({ running: false });
   const busySession = speechSettingsBusy(live);
   const load = () => void api<ModelList>('/api/asr/models').then(setList).catch(() => {});
@@ -146,7 +164,7 @@ export function TranscriptionTab() {
 
       <h3>{t('Accuracy and performance')}</h3>
       <label className="field"><span>{t('Vocabulary hints (commas, 、, or semicolons): improves spelling of technical terms and names')}</span>
-        <textarea rows={3} value={glossary} onChange={(e) => setGlossary(e.target.value)} onBlur={() => S({ asr: { glossary: glossary.split(/[,，、;；\n]+/).map((x) => x.trim()).filter(Boolean) } })} />
+        <textarea rows={3} value={glossary} onChange={(e) => { glossaryEdit.current.value = e.target.value; glossaryEdit.current.dirty = true; setGlossary(e.target.value); }} onBlur={flushGlossary} />
       </label>
       {settings.asr.engine === 'sensevoice' && <p className="muted small">{t('SenseVoice does not support vocabulary hints. The glossary has no effect on this engine.')}</p>}
       <label className="field"><span>{t('CPU threads (more is faster up to the number of performance cores; {n} cores on this computer)', { n: hw?.cores ?? '?' })}</span><input type="number" min={2} max={maxAsrThreads(hw?.cores ?? 16)} value={threads} disabled={busySession} title={busySession ? t('Wait until recording and transcription finish before changing speech recognition settings.') : ''} onChange={(e) => setThreads(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} onBlur={() => { const value = threadDraftValue(threads, settings.asr.threads, hw?.cores ?? 16); setThreads(String(value)); if (value !== settings.asr.threads) void S({ asr: { threads: value } }).then((ok) => { if (!ok) setThreads(String(settings.asr.threads)); }); }} /></label>

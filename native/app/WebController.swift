@@ -59,10 +59,11 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
     }
 
     /// App → page: open a meeting, optionally at a transcript time (from the desktop pet's cards).
-    func open(session: String, t: Double?, t2: Double?) {
+    func open(session: String, t: Double?, t2: Double?, dialog: String? = nil) {
         var args: [String: Any] = ["session": session]
         if let t { args["t"] = t }
         if let t2 { args["t2"] = t2 }
+        if dialog == "handoff" { args["dialog"] = dialog }
         guard let data = try? JSONSerialization.data(withJSONObject: args), let json = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("window.chumiOpen && chumiOpen(\(json))", completionHandler: nil)
     }

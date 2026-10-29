@@ -8,6 +8,8 @@ export interface Line {
   text: string; action?: string; tone?: 'info' | 'warn'; /** seconds on screen */ hold: number;
   /** A click opens Chumi's window… */ open?: boolean;
   /** …or, when the pet shows it, this answer's card. */ output?: string;
+  /** The meeting and optional dialog belonging to the announced output. */
+  session?: string; dialog?: 'handoff';
   /** Shown whatever the bubble filter says: something failed, or the reply to something you just did. */ important?: boolean;
   /** What it is about, for the bubble filter (Settings → Desktop pet). Lines without one are chatter. */ tag?: Topic;
 }
@@ -82,6 +84,13 @@ export class PetBrain {
     return t - this.activeAt > SLEEP_AFTER ? 'sleep' : 'idle';
   }
 
+  /** Next change without an incoming event; lets a still pet sleep between deadlines. */
+  nextChange(t: number): number {
+    const deadlines = [this.transient?.until ?? Infinity, this.status === 'idle' ? this.activeAt + SLEEP_AFTER + 0.01 : Infinity,
+      ...[...this.busy.values()].map((b) => b.since + BUSY_MAX + 0.01)];
+    return Math.min(...deadlines.filter((at) => at > t));
+  }
+
   hello(t: number): Line { this.activeAt = t; this.feel('wave', t, 2.4); return { text: this.s('hello'), hold: 3.4 }; }
 
   /** Someone is around (cursor nearby, a click, a drag). Wakes Chumi up. */
@@ -124,18 +133,18 @@ export class PetBrain {
     if (o.status === 'done') {
       if (o.kind === 'auto_explain') {
         this.announced.add(o.id); this.activeAt = t; this.feel('surprised', t, 1.1);
-        return { text: this.s('autoExplain', o.question ?? ''), action: this.s('look'), hold: 8, open: true, output: o.id, tag: 'background' };
+        return { text: this.s('autoExplain', o.question ?? ''), action: this.s('look'), hold: 8, open: true, output: o.id, session: o.session_id, tag: 'background' };
       }
       if (!isManual(o)) return null;
       this.announced.add(o.id); this.activeAt = t;
       const final = o.kind === 'final_summary';
       this.feel(final ? 'celebrate' : 'happy', t, final ? 3.6 : 2.2);
       const key = o.kind === 'catchup' ? 'catchup' : o.kind === 'answer' ? 'answer' : o.kind === 'explain' ? 'explain' : final ? 'summary' : o.kind === 'handoff' ? 'handoff' : 'recap';
-      return { text: this.s(key, o.question ?? ''), action: this.s('look'), hold: final ? 12 : 10, open: true, output: o.id, tag: tagOf(o) ?? 'meeting' };
+      return { text: this.s(key, o.question ?? ''), action: this.s('look'), hold: final ? 12 : 10, open: true, output: o.id, session: o.session_id, dialog: o.kind === 'handoff' ? 'handoff' : undefined, tag: tagOf(o) ?? 'meeting' };
     }
     if (o.status === 'error' && isManual(o)) {
       this.announced.add(o.id); this.activeAt = t; this.feel('worried', t, 3);
-      return { text: this.s('failed'), action: this.s('look'), tone: 'warn', hold: 6, open: true, output: o.id, important: true };
+      return { text: this.s('failed'), action: this.s('look'), tone: 'warn', hold: 6, open: true, output: o.id, session: o.session_id, dialog: o.kind === 'handoff' ? 'handoff' : undefined, important: true };
     }
     return null;
   }
