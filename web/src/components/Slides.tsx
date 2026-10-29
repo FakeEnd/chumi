@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { setState, useStore } from '../store.ts';
 import { ask, frameUrl, setWindow } from '../actions.ts';
-import { fmtT } from '../util.ts';
+import { fmtT, screenLabel } from '../util.ts';
 import { Dialog } from './Dialog.tsx';
 import { WindowPicker } from './WindowPicker.tsx';
 import { focusTime } from './Transcript.tsx';
@@ -22,7 +22,7 @@ export function SlideStrip() {
     <section className="slides" aria-label={t('Screen captures')}>
       <div className="slides-head">
         <button className="link-btn" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? '▾' : '▸'}</button>
-        <span className="small"><b>{t('Screen')}</b> · {plural(frames?.length ?? 0, '{n} capture', '{n} captures')}{isLive && screen ? ` · ${t('capturing {app}', { app: screen.app })}${screen.status === 'paused' ? ` ${t('(paused)')}` : ''}` : ''}</span>
+        <span className="small"><b>{t('Screen')}</b> · {plural(frames?.length ?? 0, '{n} capture', '{n} captures')}{isLive && screen ? ` · ${t('capturing {app}', { app: screenLabel(screen) })}${screen.status === 'paused' ? ` ${t('(paused)')}` : ''}` : ''}</span>
       </div>
       {open && !!frames?.length && (
         <div className="slides-row">
@@ -71,7 +71,7 @@ export function WindowDialog() {
       <button className="btn primary" disabled={!win} onClick={() => win && void setWindow(win).then(() => setState({ dialog: null }))}>{screen ? t('Switch window') : t('Start capturing')}</button>
     </>}>
       <p className="small">{t('Pick the Zoom/Teams window, the browser showing a lecture video, or a slide deck. Chumi saves a picture whenever the screen changes, so answers can refer to slides and figures.')}</p>
-      {screen && <p className="small">{tn('Currently capturing: {app}', { app: <b>{screen.app}</b> })}{screen.title ? ` · ${screen.title}` : ''} ({plural(screen.frames, '{n} capture', '{n} captures')})</p>}
+      {screen && <p className="small">{tn('Currently capturing: {app}', { app: <b>{screen.app || screen.title}</b> })}{screen.app && screen.title ? ` · ${screen.title}` : ''} ({plural(screen.frames, '{n} capture', '{n} captures')})</p>}
       <WindowPicker value={win} onChange={setWin} />
     </Dialog>
   );

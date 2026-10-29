@@ -3,7 +3,7 @@ import { setState, useStore } from '../store.ts';
 import { assignProject, catchup, endSession, goHome, openSession, pauseSession, quickStart, renameSession, resumeLive, saveProfile, saveSettings, setCompact, summarize } from '../actions.ts';
 import { ProjectSelect } from './Projects.tsx';
 import { SessionTypeSelect } from './SessionTypes.tsx';
-import { fmtDate, fmtT, sourceLabel } from '../util.ts';
+import { fmtDate, fmtT, screenLabel, sourceLabel } from '../util.ts';
 import { locale, msg, t } from '../i18n.ts';
 import type { Depth } from '../types.ts';
 import { IconBolt, IconClock, IconCompact, IconExpand, IconGear, IconSpark, IconUser, IconWave, IconWindow } from './icons.tsx';
@@ -198,7 +198,7 @@ export function SessionToolbar({ hidden = false }: { hidden?: boolean }) {
             {src === 'file' && <Meter label={t('File')} source="file" />}
             {!!data.session.record_audio && <span className="tag tag-muted audio-tag" title={t('This meeting’s audio is saved on this computer, so you can play it back and export it after it ends.')}><IconWave width={11} height={11} /> {t('Saving audio')}</span>}
             <button className={`btn small ${live?.screen ? 'win-on' : ''}`} onClick={() => setState({ dialog: 'window' })} title={t('Capture a window (slides, shared screen, video)')}>
-              <IconWindow width={14} height={14} /> {live?.screen ? `${live.screen.app}${live.screen.frames ? ` · ${live.screen.frames}` : ''}` : t('Capture window')}
+              <IconWindow width={14} height={14} /> {live?.screen ? `${screenLabel(live.screen)}${live.screen.frames ? ` · ${live.screen.frames}` : ''}` : t('Capture window')}
             </button>
           </>
         ) : !active && (

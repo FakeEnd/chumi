@@ -395,7 +395,7 @@ route('POST', '/api/session/window', async (req) => {
 route('GET', '/api/screen/windows', async () => {
   const permission = await screenPermission();
   const r = await listWindows();
-  return { permission, toolBuilt: !!findScreenTool(), ...r };
+  return { permission, toolBuilt: DESKTOP || !!findScreenTool(), ...r };
 });
 route('POST', '/api/screen/request', async () => ({ permission: await requestScreenPermission() }));
 route('GET', '/api/frames/:id', (_req, res, p) => {
