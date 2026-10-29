@@ -5,7 +5,7 @@
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { speakerFields, type ProjectRow, type SessionRow, type Store } from '../db.ts';
+import { searchTerms, speakerFields, type ProjectRow, type SessionRow, type Store } from '../db.ts';
 import { DATA_DIR, FRAMES_DIR } from '../paths.ts';
 import { fmtT, parseT } from '../util.ts';
 import { handoffForAgent, SOURCE_NOTICE, type LinkFn } from './handoff-model.ts';
@@ -101,7 +101,7 @@ export class Evidence {
       total: all.length,
       meetings: page.map((s) => {
         const h = this.store.handoffForSession(s.id);
-        const matches = q ? this.store.searchSegments(s.id, [q, ...q.split(/\s+/)], 3).map((g) => ({ source: 'transcript', segment_id: g.id, time: `${fmtT(g.t_start)}–${fmtT(g.t_end)}`, from_ms: g.t_start, to_ms: g.t_end, text: g.text, ...speakerFields(g) })) : [];
+        const matches = q ? this.store.searchSegments(s.id, searchTerms(q), 3).map((g) => ({ source: 'transcript', segment_id: g.id, time: `${fmtT(g.t_start)}–${fmtT(g.t_end)}`, from_ms: g.t_start, to_ms: g.t_end, text: g.text, ...speakerFields(g) })) : [];
         return { ...this.meetingRef(s), transcript_lines: s.segment_count, handoff: h ? { handoff_id: h.id, status: h.status } : null, matches };
       }),
       next_cursor: offset + limit < all.length ? String(offset + limit) : null,

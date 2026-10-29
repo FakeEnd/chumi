@@ -118,8 +118,8 @@ export class Companion {
   /** Nothing is recording: show the latest meeting's cards. */
   async loadLatest(): Promise<void> {
     try {
-      const { sessions } = await api<{ sessions: Array<{ id: string; created_at: number }> }>('/api/sessions');
-      const latest = [...sessions].sort((a, b) => b.created_at - a.created_at)[0];
+      const { sessions } = await api<{ sessions: Array<{ id: string }> }>('/api/sessions');
+      const latest = sessions[0];
       if (latest) await this.load(latest.id); else { this.sessionId = null; this.cards.clear(); this.render(); }
     } catch { /* the server is restarting; the next live event brings us back */ }
   }

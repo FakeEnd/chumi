@@ -247,6 +247,17 @@ const SEGMENT_SELECT = `SELECT s.*, a.speaker_id, CASE WHEN a.speaker_id IS NOT 
 /** Speaker fields for agents and exports; speaker_state is null when the line was never analysed. */
 export const speakerFields = (s: SegmentRow) => ({ speaker_id: s.speaker_id ?? null, speaker_label: s.speaker_label ?? null, speaker_state: s.speaker_state ?? null, speaker_origin: s.speaker_origin ?? null });
 const overlapMs = (a: { start_ms: number; end_ms: number }, b: { start_ms: number; end_ms: number }) => Math.max(0, Math.min(a.end_ms, b.end_ms) - Math.max(a.start_ms, b.start_ms));
+const likePattern = (term: string) => `%${term.replace(/[\\%_]/g, '\\$&')}%`;
+const likeSnippet = (column: string) => `substr(${column}, MAX(1, instr(lower(${column}), lower(?)) - 80), 160)`;
+const ftsTerm = (term: string) => `"${term.replace(/"/g, '""')}"`;
+const usesFts = (term: string) => [...term].length >= 3;
+const hasCjk = (term: string) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(term);
+const cleanSearchTerm = (term: string) => term.replace(/\p{Cc}/gu, '')
+  .replace(/^[\p{Ps}\p{Pe}\p{Pi}\p{Pf}"'`<>]+|[\p{Ps}\p{Pe}\p{Pi}\p{Pf}"'`<>.!?。！？…:：]+$/gu, '');
+/** Normal keyword punctuation is optional; punctuation inside technical terms stays literal. */
+export function searchTerms(query: string): string[] {
+  return [...new Set(query.split(/[\s,;，、；]+/u).map(cleanSearchTerm).filter(Boolean))].slice(0, 12);
+}
 /** Union intervals before measuring, so overlapping worker turns cannot inflate confidence. */
 function intervals(rows: Array<{ start_ms: number; end_ms: number }>): Array<{ start_ms: number; end_ms: number }> {
   const out: Array<{ start_ms: number; end_ms: number }> = [];
@@ -380,27 +391,45 @@ export class Store {
   }
   /** projectId: a project id, 'none' for unassigned meetings, or undefined for all. */
   listSessions(q?: string, projectId?: string): Array<SessionRow & { segment_count: number; snippet?: string }> {
-    const inProject = (r: SessionRow) => projectId === undefined || (projectId === 'none' ? r.project_id == null : r.project_id === projectId);
+    const projectWhere = projectId === undefined ? '1' : projectId === 'none' ? 's.project_id IS NULL' : 's.project_id = ?';
+    const projectArgs = projectId === undefined || projectId === 'none' ? [] : [projectId];
     if (q && q.trim()) {
-      const term = q.trim();
-      // Trigram FTS needs >= 3 characters; fall back to LIKE for shorter queries (e.g. two Chinese characters).
-      const segHits = term.length >= 3
-        ? this.db.prepare(`SELECT s.session_id AS sid, snippet(segments_fts, 0, '«', '»', '…', 12) AS snip
-            FROM segments_fts f JOIN segments s ON s.id = f.rowid WHERE segments_fts MATCH ? ORDER BY rank LIMIT 500`)
-          .all(`"${term.replace(/"/g, '""')}"`) as Array<{ sid: string; snip: string }>
-        : this.db.prepare('SELECT session_id AS sid, text AS snip FROM segments WHERE text LIKE ? LIMIT 500').all(`%${term}%`) as Array<{ sid: string; snip: string }>;
-      const outHits = this.db.prepare('SELECT session_id AS sid, substr(content, 1, 160) AS snip FROM ai_outputs WHERE content LIKE ? LIMIT 200').all(`%${term}%`) as Array<{ sid: string; snip: string }>;
-      const titleHits = this.db.prepare('SELECT id AS sid, title AS snip FROM sessions WHERE title LIKE ?').all(`%${term}%`) as Array<{ sid: string; snip: string }>;
-      const snippets = new Map<string, string>();
-      for (const h of [...titleHits, ...segHits, ...outHits]) if (!snippets.has(h.sid)) snippets.set(h.sid, h.snip);
-      if (!snippets.size) return [];
-      const ids = [...snippets.keys()];
-      const rows = this.db.prepare(`SELECT s.*, (SELECT COUNT(*) FROM segments g WHERE g.session_id = s.id) AS segment_count FROM sessions s WHERE s.id IN (${ids.map(() => '?').join(',')}) ORDER BY s.created_at DESC`)
-        .all(...ids) as unknown as Array<SessionRow & { segment_count: number; snippet?: string }>;
-      for (const r of rows) r.snippet = snippets.get(r.id);
-      return rows.filter(inProject);
+      const terms = searchTerms(q);
+      if (!terms.length) return [];
+      let snippets: Map<string, string> | undefined;
+      for (const term of terms) {
+        const fts = usesFts(term), like = likePattern(term), match = ftsTerm(term);
+        const joinFts = fts ? 'JOIN segments_fts f ON f.rowid = g.id' : '';
+        // One transcript hit per meeting, scoped before grouping; repeated words cannot crowd out other meetings.
+        const segmentIds = `SELECT MIN(g.id) FROM segments g ${joinFts} JOIN sessions s ON s.id = g.session_id
+          WHERE ${fts ? 'segments_fts MATCH ?' : "g.text LIKE ? ESCAPE '\\'"} AND ${projectWhere} GROUP BY g.session_id`;
+        const segHits = this.db.prepare(`SELECT g.session_id AS sid, ${fts ? "snippet(segments_fts, 0, '«', '»', '…', 12)" : likeSnippet('g.text')} AS snip
+          FROM segments g ${joinFts} WHERE g.id IN (${segmentIds}) ${fts ? 'AND segments_fts MATCH ?' : ''}`)
+          .all(...(fts ? [] : [term]), fts ? match : like, ...projectArgs, ...(fts ? [match] : [])) as Array<{ sid: string; snip: string }>;
+        const outHits = this.db.prepare(`SELECT o.session_id AS sid, MIN(${likeSnippet('o.content')}) AS snip FROM ai_outputs o JOIN sessions s ON s.id = o.session_id
+          WHERE o.status = 'done' AND o.kind IN ('final_summary', 'overview', 'answer', 'explain', 'catchup', 'auto_explain')
+          AND o.content LIKE ? ESCAPE '\\' AND ${projectWhere} GROUP BY o.session_id`).all(term, like, ...projectArgs) as Array<{ sid: string; snip: string }>;
+        const handoffHits = this.db.prepare(`SELECT h.session_id AS sid, MIN(${likeSnippet('i.text')}) AS snip
+          FROM handoff_items i JOIN handoffs h ON h.id = i.handoff_id JOIN sessions s ON s.id = h.session_id
+          WHERE i.review != 'rejected' AND i.text LIKE ? ESCAPE '\\' AND ${projectWhere} GROUP BY h.session_id`)
+          .all(term, like, ...projectArgs) as Array<{ sid: string; snip: string }>;
+        const titleHits = this.db.prepare(`SELECT s.id AS sid, s.title AS snip FROM sessions s WHERE s.title LIKE ? ESCAPE '\\' AND ${projectWhere}`)
+          .all(like, ...projectArgs) as Array<{ sid: string; snip: string }>;
+        const hits = new Map<string, string>();
+        for (const h of [...titleHits, ...segHits, ...outHits, ...handoffHits]) if (!hits.has(h.sid)) hits.set(h.sid, h.snip);
+        // All words must occur in the meeting, even if they are in different lines or kinds of content.
+        if (!snippets) snippets = hits;
+        else for (const sid of snippets.keys()) if (!hits.has(sid)) snippets.delete(sid);
+        if (!snippets.size) return [];
+      }
+      const rows = this.db.prepare(`SELECT s.*, (SELECT COUNT(*) FROM segments g WHERE g.session_id = s.id) AS segment_count FROM sessions s
+        WHERE s.id IN (SELECT value FROM json_each(?)) ORDER BY COALESCE(s.started_at, s.created_at) DESC, s.id`)
+        .all(JSON.stringify([...snippets!.keys()])) as unknown as Array<SessionRow & { segment_count: number; snippet?: string }>;
+      for (const r of rows) r.snippet = snippets!.get(r.id);
+      return rows;
     }
-    return (this.db.prepare('SELECT s.*, (SELECT COUNT(*) FROM segments g WHERE g.session_id = s.id) AS segment_count FROM sessions s ORDER BY s.created_at DESC').all() as unknown as Array<SessionRow & { segment_count: number }>).filter(inProject);
+    return this.db.prepare(`SELECT s.*, (SELECT COUNT(*) FROM segments g WHERE g.session_id = s.id) AS segment_count FROM sessions s WHERE ${projectWhere} ORDER BY COALESCE(s.started_at, s.created_at) DESC, s.id`)
+      .all(...projectArgs) as unknown as Array<SessionRow & { segment_count: number }>;
   }
   deleteSession(id: string): void { this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id); }
   openSessions(): SessionRow[] {
@@ -429,12 +458,17 @@ export class Store {
   }
   /** Keyword retrieval over one session (trigram FTS, BM25 ranking). */
   searchSegments(sessionId: string, terms: string[], limit = 12): SegmentRow[] {
-    const usable = terms.map((t) => t.trim()).filter((t) => t.length >= 3).slice(0, 12);
-    if (!usable.length) return [];
-    const match = usable.map((t) => `"${t.replace(/"/g, '""')}"`).join(' OR ');
+    const usable = [...new Set(terms.map((t) => cleanSearchTerm(t.trim())).filter((t) => usesFts(t) || hasCjk(t)))].slice(0, 12);
+    if (!usable.length || limit <= 0) return [];
+    const long = usable.filter(usesFts), short = usable.filter((t) => !usesFts(t));
     try {
-      return this.db.prepare(`${SEGMENT_SELECT} JOIN segments_fts f ON s.id = f.rowid
-        WHERE segments_fts MATCH ? AND s.session_id = ? ORDER BY bm25(segments_fts) LIMIT ?`).all(match, sessionId, limit) as unknown as SegmentRow[];
+      const ranked = long.length ? this.db.prepare(`${SEGMENT_SELECT} JOIN segments_fts f ON s.id = f.rowid
+        WHERE segments_fts MATCH ? AND s.session_id = ? ORDER BY bm25(segments_fts), s.t_start, s.id LIMIT ?`)
+        .all(long.map(ftsTerm).join(' OR '), sessionId, limit) as unknown as SegmentRow[] : [];
+      // Short CJK words need LIKE; short Latin words would mostly retrieve unrelated lines.
+      const brief = short.length ? this.db.prepare(`${SEGMENT_SELECT} WHERE s.session_id = ? AND (${short.map(() => "s.text LIKE ? ESCAPE '\\'").join(' OR ')})
+        ORDER BY s.t_start, s.id LIMIT ?`).all(sessionId, ...short.map(likePattern), limit) as unknown as SegmentRow[] : [];
+      return [...new Map([...ranked, ...brief].map((s) => [s.id, s])).values()].slice(0, limit);
     } catch { return []; }
   }
 
