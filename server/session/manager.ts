@@ -82,6 +82,8 @@ export class SessionManager {
   private pendingSpeakerSummaries = new Map<string, symbol>();
   private transcriptionGaps = new Map<string, Array<{ id: number; start: number; end: number }>>();
 
+  get pendingSummaryCount(): number { return this.pendingSpeakerSummaries.size; }
+
   invalidateDeferredSummary(sessionId: string): void { this.pendingSpeakerSummaries.delete(sessionId); }
 
   constructor(store: Store, speech: SpeechService, assistant: Assistant, broadcast: Broadcast) {

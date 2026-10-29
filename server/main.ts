@@ -50,6 +50,7 @@ import { DESKTOP } from './desktop.ts';
 import { acquireDataDirectoryLock } from './instance-lock.ts';
 import { speechEngineChanged, speechRestartRequired } from './asr/settings-guard.ts';
 import { finishShutdown, SHUTDOWN_GRACE_MS } from './shutdown.ts';
+import { quitCheck } from './quit-check.ts';
 import { ProjectWorkService, ProjectWorkError } from './projects/work.ts';
 import { continueInDeepSeekHarness, launchCodexDesktop } from './projects/desktop-handoff.ts';
 
@@ -337,6 +338,7 @@ function route(method: string, path: string, h: Handler): void {
 }
 
 route('GET', '/api/health', () => ({ ok: true, app: 'chumi', version: '0.1.0' }));
+route('GET', '/api/quit-check', () => quitCheck(store, manager.status, manager.pendingSummaryCount));
 
 route('GET', '/api/state', async () => {
   // Provider startup can take seconds. Read the live snapshot after it, so an early ASR-ready event isn't overwritten.

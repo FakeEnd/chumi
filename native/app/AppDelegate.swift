@@ -15,13 +15,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var quitting = false
     private var pet: PetPanel?
     private var petItem: NSMenuItem?
+    private var menuLocalization: ShellMenuLocalization?
 
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = buildMainMenu()
         createWindow()
-        showLoading("Starting Chumi…")
+        showLoading(L("Starting Chumi…"))
         NSApp.activate(ignoringOtherApps: true)
 
         server.onStatus = { [weak self] text in
@@ -41,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return true
     }
 
-    /// Quitting stops the server we started. During a recording, ask first. Then stop the server off the main
+    /// Quitting stops the server we started. Ask about unfinished work first. Then stop the server off the main
     /// thread, because it can take several seconds to save the meeting.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard server.ownsRunningServer else { return .terminateNow }
@@ -49,25 +50,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         quitting = true
         let server = self.server
         DispatchQueue.global(qos: .userInitiated).async {
-            let recording = server.isRecording()
-            DispatchQueue.main.async { MainActor.assumeIsolated { self.finishQuit(recording: recording) } }
+            let check = server.quitCheck()
+            DispatchQueue.main.async { MainActor.assumeIsolated { self.finishQuit(check: check) } }
         }
         return .terminateLater
     }
 
-    private func finishQuit(recording: Bool) {
-        if recording {
+    private func finishQuit(check: QuitCheck) {
+        if check != .idle {
             let alert = NSAlert()
-            alert.messageText = "Save the meeting and quit?"
-            alert.informativeText = "Chumi is recording. Quitting stops the recording and keeps everything captured so far. You can continue the meeting the next time you open Chumi."
-            alert.addButton(withTitle: "Keep Recording")
-            alert.addButton(withTitle: "Save and Quit")
+            switch check {
+            case .active:
+                alert.messageText = L("Save the meeting and quit?")
+                alert.informativeText = L("A meeting is still in progress or paused. Quitting stops it and saves the transcript so far, but unfinished transcription and AI work may be interrupted. You can continue the meeting next time.")
+            case .finishing:
+                alert.messageText = L("Chumi is still finishing your meeting")
+                alert.informativeText = L("Transcription, a summary, or a handoff is still in progress. Keep Chumi open until it finishes. Quitting now may leave audio untranscribed or AI work unfinished.")
+            case .unknown:
+                alert.messageText = L("Chumi could not check for unfinished work")
+                alert.informativeText = L("The server did not answer the quit check. Quitting now may interrupt transcription or AI work. Keep Chumi open to check the meeting before quitting.")
+            case .idle: break
+            }
+            alert.addButton(withTitle: L("Keep Chumi Open"))
+            alert.addButton(withTitle: L("Quit Now"))
             guard alert.runModal() == .alertSecondButtonReturn else {
                 quitting = false
                 NSApp.reply(toApplicationShouldTerminate: false)
                 return
             }
-            showLoading("Saving the meeting…")
+            showLoading(L("Saving the meeting…"))
         }
         let server = self.server
         DispatchQueue.global(qos: .userInitiated).async {
@@ -159,6 +170,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let controller = web ?? WebController(baseURL: url)
         web = controller
         controller.onPetReset = { [weak self] in self?.pet?.resetPosition() }
+        controller.onLanguageChange = { [weak self] in
+            self?.menuLocalization?.retitle()
+        }
         controller.onTopBar = { [weak self, weak controller] bar in
             guard let self, let controller else { return }
             self.chrome.barHeight = bar.maxY * controller.webView.pageZoom
@@ -204,28 +218,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func handle(_ result: ServerStartResult) {
+        guard !quitting else { return }
         switch result {
         case .ready(let url, _):
             showWeb(url)
         case .failed(let message):
-            statusLabel?.stringValue = "Chumi could not start."
+            statusLabel?.stringValue = L("Chumi could not start.")
             let alert = NSAlert()
             alert.alertStyle = .critical
-            alert.messageText = "Chumi could not start its server"
+            alert.messageText = L("Chumi could not start its server")
             alert.informativeText = message
-            alert.addButton(withTitle: "Quit")
-            alert.addButton(withTitle: "Open Log")
-            alert.addButton(withTitle: "Try Again")
-            let response = alert.runModal()
-            switch response {
-            case .alertSecondButtonReturn:
-                NSWorkspace.shared.open(server.logURL)
-                NSApp.terminate(nil)
-            case .alertThirdButtonReturn:
-                showLoading("Starting Chumi…")
-                server.restart { [weak self] r in MainActor.assumeIsolated { self?.handle(r) } }
-            default:
-                NSApp.terminate(nil)
+            alert.addButton(withTitle: L("Quit"))
+            alert.addButton(withTitle: L("Open Log"))
+            alert.addButton(withTitle: L("Try Again"))
+            while true {
+                switch alert.runModal() {
+                case .alertSecondButtonReturn:
+                    NSWorkspace.shared.open(server.logURL)
+                case .alertThirdButtonReturn:
+                    showLoading(L("Starting Chumi…"))
+                    server.restart { [weak self] r in MainActor.assumeIsolated { self?.handle(r) } }
+                    return
+                default:
+                    NSApp.terminate(nil)
+                    return
+                }
             }
         }
     }
@@ -233,12 +250,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func serverDied(status: Int32, tail: String) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "The Chumi server stopped unexpectedly (status \(status))"
-        alert.informativeText = "Last lines of \(server.logURL.path):\n\n\(tail)"
-        alert.addButton(withTitle: "Restart Server")
-        alert.addButton(withTitle: "Quit")
+        alert.messageText = L("The Chumi server stopped unexpectedly (status {status})", ["status": String(status)])
+        alert.informativeText = L("Last lines of {path}:\n\n{tail}", ["path": server.logURL.path, "tail": tail])
+        alert.addButton(withTitle: L("Restart Server"))
+        alert.addButton(withTitle: L("Quit"))
         if alert.runModal() == .alertFirstButtonReturn {
-            showLoading("Restarting Chumi…")
+            showLoading(L("Restarting Chumi…"))
             server.restart { [weak self] r in MainActor.assumeIsolated { self?.handle(r) } }
         } else {
             NSApp.terminate(nil)
@@ -276,7 +293,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let services = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
         let servicesMenu = NSMenu(title: "Services")
         services.submenu = servicesMenu
-        NSApp.servicesMenu = servicesMenu
         appMenu.addItem(services)
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Chumi", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
@@ -344,8 +360,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         windowMenu.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         windowItem.submenu = windowMenu
         main.addItem(windowItem)
-        NSApp.windowsMenu = windowMenu
 
+        menuLocalization = ShellMenuLocalization(main)
+        menuLocalization?.retitle()
+        NSApp.servicesMenu = servicesMenu
+        NSApp.windowsMenu = windowMenu
         return main
     }
 }

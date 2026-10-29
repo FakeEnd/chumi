@@ -116,7 +116,7 @@ for item in cases {
 }
 print("codex-link-policies-ok")
 `);
-    execFileSync('/usr/bin/swiftc', [resolve('native/app/WebController.swift'), resolve('native/app/WindowChrome.swift'), source,
+    execFileSync('/usr/bin/swiftc', [resolve('native/app/WebController.swift'), resolve('native/app/ShellLocalization.swift'), resolve('native/app/WindowChrome.swift'), source,
       '-swift-version', '5', '-module-cache-path', join(temp, 'swift-cache'), '-o', binary], { timeout: 60_000, stdio: 'pipe' });
     assert.match(execFileSync(binary, [cases], { timeout: 5000, encoding: 'utf8' }), /codex-link-policies-ok/);
   } finally { rmSync(temp, { recursive: true, force: true }); }

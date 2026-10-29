@@ -95,7 +95,7 @@ precondition(interactive == path("shell/node"))
 precondition(ServerManager.serverPath(node: path("shell/node"), inherited: "/usr/bin") == path("shell") + ":/opt/homebrew/bin:/usr/local/bin:/usr/bin")
 print("node-discovery-ok")
 `);
-    execFileSync('/usr/bin/swiftc', [resolve('native/app/ServerManager.swift'), source, '-module-cache-path', join(root, 'swift-cache'), '-o', binary], { timeout: 60_000, stdio: 'pipe' });
+    execFileSync('/usr/bin/swiftc', [resolve('native/app/ServerManager.swift'), resolve('native/app/ShellLocalization.swift'), source, '-module-cache-path', join(root, 'swift-cache'), '-o', binary], { timeout: 60_000, stdio: 'pipe' });
     const output = execFileSync(binary, [root], { timeout: 20_000, encoding: 'utf8', env: { HOME: root, ZDOTDIR: zdir, PATH: '/usr/bin:/bin', TMPDIR: root } });
     assert.match(output, /node-discovery-ok/);
   } finally { rmSync(root, { recursive: true, force: true }); }

@@ -62,7 +62,7 @@ precondition(stalled.terminationReason == .uncaughtSignal && stalled.termination
 precondition(ProcessInfo.processInfo.systemUptime - stalledAt < 2)
 print("graceful-save-and-bounded-kill-ok")
 `);
-    execFileSync('/usr/bin/swiftc', [resolve('native/app/ServerManager.swift'), source, '-module-cache-path', join(root, 'swift-cache'), '-o', binary], {
+    execFileSync('/usr/bin/swiftc', [resolve('native/app/ServerManager.swift'), resolve('native/app/ShellLocalization.swift'), source, '-module-cache-path', join(root, 'swift-cache'), '-o', binary], {
       timeout: 60_000, stdio: 'pipe',
     });
     const output = execFileSync(binary, [process.execPath, join(root, 'saved')], { timeout: 20_000, encoding: 'utf8' });

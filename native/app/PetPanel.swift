@@ -15,7 +15,7 @@ final class PetWindow: NSPanel {
 }
 
 @MainActor
-final class PetPanel: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+final class PetPanel: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
     private static let topLeftKey = "ChumiPetTopLeft"
     /// The page's width in CSS px; the panel is this times the size from Settings.
     private static let pageWidth: CGFloat = 380
@@ -89,6 +89,7 @@ final class PetPanel: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         super.init()
         config.userContentController.add(WeakScriptHandler(self), name: "chumiPet")
         webView.navigationDelegate = self
+        webView.uiDelegate = self
         webView.owner = self
         panel.contentView = webView
         if !onScreen(NSRect(x: topLeft.x, y: topLeft.y - 240, width: Self.pageWidth, height: 240)) { topLeft = defaultTopLeft() }
@@ -311,11 +312,28 @@ final class PetPanel: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     // MARK: - Navigation: the panel only ever shows the pet page
 
+    enum Navigation { case allow, external, cancel }
+
+    nonisolated static func navigation(url: URL?, base: URL?, mainFrame: Bool?, link: Bool) -> Navigation {
+        guard let url else { return .cancel }
+        if mainFrame == false { return .allow }
+        if mainFrame == nil { return WebController.isExternalURL(url) ? .external : .cancel }
+        if let base, url.scheme == base.scheme, url.host == base.host, url.port == base.port, url.path == "/pet.html" { return .allow }
+        return link && WebController.isExternalURL(url) ? .external : .cancel
+    }
+
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
-        let url = navigationAction.request.url
-        let ours = url?.host == baseURL?.host && url?.port == baseURL?.port && url?.path == "/pet.html"
-        decisionHandler(ours || navigationAction.targetFrame?.isMainFrame == false ? .allow : .cancel)
+        let policy = Self.navigation(url: navigationAction.request.url, base: baseURL,
+                                     mainFrame: navigationAction.targetFrame?.isMainFrame, link: navigationAction.navigationType == .linkActivated)
+        if policy == .external, let url = navigationAction.request.url { WebController.openExternally(url) }
+        decisionHandler(policy == .allow ? .allow : .cancel)
+    }
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = navigationAction.request.url { WebController.openExternally(url) }
+        return nil
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

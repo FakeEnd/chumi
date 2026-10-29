@@ -11,6 +11,7 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
     var onTopBar: ((CGRect) -> Void)?
     /// Settings → Desktop pet → Move it back to the corner.
     var onPetReset: (() -> Void)?
+    var onLanguageChange: (() -> Void)?
     private(set) var baseURL: URL
     private var downloadDestinations: [ObjectIdentifier: URL] = [:]
 
@@ -24,6 +25,8 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
         config.userContentController.addUserScript(WKUserScript(
             source: "document.documentElement.dataset.shell='mac';document.documentElement.style.setProperty('--traffic-inset','86px');",
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        config.userContentController.addUserScript(WKUserScript(
+            source: Self.languageScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         webView = ChumiWebView(frame: .zero, configuration: config)
         super.init()
         config.userContentController.add(WeakScriptHandler(self), name: "chumiShell")
@@ -40,6 +43,14 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
     /// Page → app: {type: 'topbar', bar: [x, y, w, h], noDrag: [[x, y, w, h], …]} in CSS px, or {type: 'pet-reset'}.
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "chumiShell", let body = message.body as? [String: Any] else { return }
+        if body["type"] as? String == "language" {
+            let origin = message.frameInfo.securityOrigin
+            guard message.frameInfo.isMainFrame, origin.protocol == "http", origin.port == baseURL.port,
+                  ["127.0.0.1", "localhost"].contains(origin.host), let language = body["language"] as? String,
+                  language == "en" || language == "zh-CN" else { return }
+            if ShellLocalization.shared.setLanguage(language) { onLanguageChange?() }
+            return
+        }
         if body["type"] as? String == "pet-reset" { onPetReset?(); return }
         guard body["type"] as? String == "topbar" else { return }
         func rect(_ v: Any?) -> CGRect? {
@@ -51,6 +62,20 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
         webView.noDrag = (body["noDrag"] as? [Any] ?? []).compactMap(rect)
         onTopBar?(bar)
     }
+
+    // i18n.ts sets <html lang> after resolving Settings and whenever the user changes language.
+    nonisolated static let languageScript = """
+    (() => {
+      let lastLanguage;
+      const report = () => {
+        const language = document.documentElement.lang;
+        if (language === lastLanguage || (language !== 'en' && language !== 'zh-CN')) return;
+        lastLanguage = language;
+        window.webkit.messageHandlers.chumiShell.postMessage({type: 'language', language});
+      };
+      new MutationObserver(report).observe(document.documentElement, {attributes: true, attributeFilter: ['lang']});
+    })();
+    """
 
     /// App → page: where the traffic lights end, and whether the window is full screen.
     func setChrome(inset: CGFloat, fullScreen: Bool) {
@@ -74,7 +99,15 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
     }
 
     func reload() {
-        if webView.url == nil { load(baseURL) } else { webView.reload() }
+        let url = Self.reloadURL(current: webView.url, base: baseURL)
+        webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData))
+    }
+
+    /// Error documents use about:blank; retry the server instead of reloading that document.
+    nonisolated static func reloadURL(current: URL?, base: URL) -> URL {
+        guard let current, current.scheme?.lowercased() == "http",
+              ["127.0.0.1", "localhost"].contains(current.host?.lowercased() ?? ""), current.port == base.port else { return base }
+        return current
     }
 
     private var window: NSWindow? { webView.window }
@@ -86,8 +119,12 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
     }
 
     /// Only web and mail links leave the app, as in the Windows shell. Other schemes (file:, app URL schemes…) are dropped.
-    private func openExternally(_ url: URL) {
-        guard let scheme = url.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme) else { return }
+    nonisolated static func isExternalURL(_ url: URL) -> Bool {
+        ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "")
+    }
+
+    static func openExternally(_ url: URL) {
+        guard isExternalURL(url) else { return }
         NSWorkspace.shared.open(url)
     }
 
@@ -134,7 +171,7 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
         // The window only ever shows Chumi itself: any other main-frame navigation is cancelled, and web or mail
         // links open outside the app. New windows (no target frame) go through createWebViewWith.
         if let url = navigationAction.request.url, navigationAction.targetFrame?.isMainFrame == true, !isAppURL(url) {
-            openExternally(url)
+            Self.openExternally(url)
             decisionHandler(.cancel)
             return
         }
@@ -169,15 +206,19 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
         if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return }
         if ns.domain == "WebKitErrorDomain" && ns.code == 102 { return }  // frame load interrupted (download)
         let html = """
-        <html><body style="font: 14px -apple-system; padding: 40px; color: #444">
-        <h2>Could not load Chumi</h2><p>\(ns.localizedDescription)</p>
-        <p>Use View → Reload (⌘R) to try again.</p></body></html>
+        <html lang="\(ShellLocalization.shared.language)"><body style="font: 14px -apple-system; padding: 40px; color: #444">
+        <h2>\(L("Could not load Chumi"))</h2><p>\(Self.escapeHTML(ns.localizedDescription))</p>
+        <p>\(L("Use View → Reload (⌘R) to try again."))</p></body></html>
         """
         webView.loadHTMLString(html, baseURL: nil)
     }
 
+    nonisolated static func escapeHTML(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+    }
+
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        webView.reload()
+        reload()
     }
 
     // MARK: - New windows (target=_blank / window.open)
@@ -193,7 +234,7 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
         case "codex":
             if Self.isAllowedCodexURL(url) { NSWorkspace.shared.open(url) }
         default:
-            openExternally(url)
+            Self.openExternally(url)
         }
         return nil
     }
@@ -212,7 +253,7 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor () -> Void) {
         let alert = NSAlert()
         alert.messageText = message
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: L("OK"))
         present(alert) { _ in completionHandler() }
     }
 
@@ -220,8 +261,8 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor (Bool) -> Void) {
         let alert = NSAlert()
         alert.messageText = message
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L("OK"))
+        alert.addButton(withTitle: L("Cancel"))
         present(alert) { completionHandler($0 == .alertFirstButtonReturn) }
     }
 
@@ -229,8 +270,8 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor (String?) -> Void) {
         let alert = NSAlert()
         alert.messageText = prompt
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L("OK"))
+        alert.addButton(withTitle: L("Cancel"))
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
         field.stringValue = defaultText ?? ""
         alert.accessoryView = field
@@ -275,9 +316,9 @@ final class WebController: NSObject, WKUIDelegate, WKNavigationDelegate, WKDownl
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         downloadDestinations.removeValue(forKey: ObjectIdentifier(download))
         let alert = NSAlert()
-        alert.messageText = "Download failed"
+        alert.messageText = L("Download failed")
         alert.informativeText = error.localizedDescription
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: L("OK"))
         present(alert) { _ in }
     }
 
