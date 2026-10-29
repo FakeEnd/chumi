@@ -151,3 +151,35 @@ test('agent cards show each reconnect reason together with a disabled notice', a
   assert.doesNotMatch(words(codex), /This agent check failed/);
   assert.match(ui.text(), /This agent check failed/);
 });
+
+test('DeepSeek Harness offers Choose whenever its desktop app is missing, even with dsh on PATH', async () => {
+  let appFound = false;
+  const ui = await componentHarness('Projects.tsx', 'AgentsTab', {}, { api: async (path: string) => {
+    if (path === '/api/agents/info') return { commands: {}, exports: {} };
+    if (path === '/api/agents/local') return { ok: true, detail: 'Local server works' };
+    if (path === '/api/agents/deepseek-harness/status') return {
+      agent: 'deepseek-harness', name: 'DeepSeek Harness', cli: '/fixture/npm/bin/dsh', registered: false, outdated: false, outdatedReasons: [],
+      clientHealth: 'unknown', detail: null, verifiedAt: null, lastRead: null, appFound,
+    };
+    throw new Error('not part of this test');
+  }, tn: (s: string) => s, AGENTS, AGENT_NAMES });
+  await tick(); ui.render();
+  const card = () => ui.find((e) => e.props.className === 'agent-card' && words(e).includes('DeepSeek Harness'));
+  assert.match(words(card()), /desktop app was not found/);
+  assert.ok(ui.button('Choose DeepSeek Harness…'), 'Choose is offered next to Connect');
+  assert.ok(ui.button('Connect'));
+  ui.unmount();
+  appFound = true;
+  const found = await componentHarness('Projects.tsx', 'AgentsTab', {}, { api: async (path: string) => {
+    if (path === '/api/agents/info') return { commands: {}, exports: {} };
+    if (path === '/api/agents/local') return { ok: true, detail: 'Local server works' };
+    if (path === '/api/agents/deepseek-harness/status') return {
+      agent: 'deepseek-harness', name: 'DeepSeek Harness', cli: '/fixture/app/dsh', registered: false, outdated: false, outdatedReasons: [],
+      clientHealth: 'unknown', detail: null, verifiedAt: null, lastRead: null, appFound,
+    };
+    throw new Error('not part of this test');
+  }, tn: (s: string) => s, AGENTS, AGENT_NAMES });
+  await tick(); found.render();
+  assert.equal(found.elements().find((e) => e.type === 'button' && words(e) === 'Choose DeepSeek Harness…'), undefined, 'no Choose once the app is found');
+  found.unmount();
+});

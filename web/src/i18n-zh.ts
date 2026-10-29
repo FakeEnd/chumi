@@ -1450,6 +1450,7 @@ export const ZH: Record<string, string> = {
   "Antigravity is not installed (the `agy` command was not found).": "未安装 Antigravity（找不到 `agy` 命令）。",
   "DeepSeek Harness was not found: there is no `dsh` command, and no DeepSeek Harness app in Applications or in Spotlight. If it is installed somewhere else, choose the app.": "没有找到 DeepSeek Harness：没有 `dsh` 命令，“应用程序”文件夹和 Spotlight 里也没有 DeepSeek Harness 应用。如果装在别的位置，请手动选择这个应用。",
   "DeepSeek Harness was not found: there is no `dsh` command, and Windows lists no DeepSeek Harness installation. If it is installed somewhere else, choose its folder.": "没有找到 DeepSeek Harness：没有 `dsh` 命令，Windows 的已安装程序里也没有 DeepSeek Harness。如果装在别的位置，请选择它的安装文件夹。",
+  "The DeepSeek Harness desktop app was not found, so Continue in DeepSeek Harness cannot open it. If it is installed somewhere else, choose it.": "未找到 DeepSeek Harness 桌面应用，因此“在 DeepSeek Harness 中继续”无法打开它。如果它安装在其他位置，请选择它。",
   "Choose DeepSeek Harness…": "选择 DeepSeek Harness…",
   "Waiting for your choice…": "等待你选择…",
   "That is not the DeepSeek Harness app. Choose DeepSeek Harness.app.": "选择的不是 DeepSeek Harness 应用。请选择 DeepSeek Harness.app。",

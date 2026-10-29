@@ -137,7 +137,8 @@ export function AgentsTab() {
                   {a.detail && <div className="muted">{t(a.detail)}</div>}
                   {result[a.agent] && <div className={result[a.agent].ok ? 'ok-text' : 'warn-text'}>{t(result[a.agent].detail, result[a.agent].vars)}</div>}
                 </div>
-                {!a.cli && a.agent === 'deepseek-harness' && (
+                {a.cli && a.appFound === false && <div className="small muted">{t('The DeepSeek Harness desktop app was not found, so Continue in DeepSeek Harness cannot open it. If it is installed somewhere else, choose it.')}</div>}
+                {a.agent === 'deepseek-harness' && (!a.cli || a.appFound === false) && (
                   <div className="btn-row">
                     <button className="btn small" disabled={!!busy} onClick={() => void act(a, 'choose-app')}>{busy === `${a.agent}:choose-app` ? t('Waiting for your choice…') : t('Choose DeepSeek Harness…')}</button>
                   </div>

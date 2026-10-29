@@ -127,5 +127,7 @@ export interface Handoff {
 export interface AgentStatus {
   agent: AgentId; name: string; billing: 'plan' | 'unknown'; cli: string | null; registered: boolean | null; outdated: boolean; outdatedReasons: string[];
   clientHealth: 'connected' | 'failed' | 'unknown'; lastRead: { at: number; tool: string } | null; verifiedAt: number | null; detail: string | null;
+  /** DeepSeek Harness only: its desktop app was found (the dsh command alone can come from npm). */
+  appFound?: boolean;
 }
 export interface Notice { id: number; level: 'info' | 'warning' | 'error'; code: string; message: string; vars?: Record<string, string | number>; at: number }

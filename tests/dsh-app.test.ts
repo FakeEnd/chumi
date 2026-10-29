@@ -8,6 +8,8 @@ const DATA = mkdtempSync(join(tmpdir(), 'chumi-dsh-app-'));
 process.env.CHUMI_DATA_DIR = DATA;
 const { chosenDshApp, dshAppDir, dshAppInstalled, dshCliIn, findDsh, rememberDshApp, usableSpotlightApps } = await import('../server/projects/dsh.ts');
 const { which } = await import('../server/paths.ts');
+const { AgentIntegration } = await import('../server/projects/agents.ts');
+const { Store } = await import('../server/db.ts');
 test.after(() => rmSync(DATA, { recursive: true, force: true }));
 
 /** A stand-in desktop install: only the dsh command, where the real app keeps it. */
@@ -42,4 +44,18 @@ test('DeepSeek Harness: Spotlight results skip the installer disk image, the Tra
   mkdirSync(empty, { recursive: true });
   const dmg = '/Volumes/DeepSeek Harness/DeepSeek Harness.app';
   assert.deepEqual(usableSpotlightApps([dmg, trashed, nested, empty, good, join(DATA, 'Apps')]), [good]);
+});
+
+test('DeepSeek Harness status reports whether the desktop app was found, separately from the dsh command', async () => {
+  const store = new Store(':memory:');
+  try {
+    const agents = new AgentIntegration(store);
+    const before = await agents.status('deepseek-harness', true);
+    assert.equal(before.appFound, await dshAppInstalled(), 'the status matches the app lookup Continue uses');
+    rememberDshApp(install(join(DATA, 'Chosen', 'DeepSeek Harness.app')));
+    const after = await agents.status('deepseek-harness', true);
+    assert.equal(after.appFound, true, 'a chosen app counts at once');
+    assert.ok(after.cli, 'and its dsh command is found');
+    assert.equal((await agents.status('codex')).appFound, undefined, 'other agents have no desktop app to find');
+  } finally { store.close(); }
 });

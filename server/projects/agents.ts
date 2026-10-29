@@ -13,7 +13,7 @@ import { DATA_DIR, findClaude, REPO_ROOT, which } from '../paths.ts';
 import { uid } from '../util.ts';
 import { IS_WIN, openInTerminal, runCommand as run } from '../platform.ts';
 import { AGENT_BILLING, AGENT_NAMES, AGENTS, type AgentId } from '../../shared/agents.ts';
-import { dshBlock, dshCheckPatches, dshPatchFile, findDsh, handWrittenDsh, readDshBlock, splitDshPatch, withDshBlock, withoutDshBlock } from './dsh.ts';
+import { dshAppInstalled, dshBlock, dshCheckPatches, dshPatchFile, findDsh, handWrittenDsh, readDshBlock, splitDshPatch, withDshBlock, withoutDshBlock } from './dsh.ts';
 
 export { AGENTS, type AgentId };
 const NAME = 'chumi';
@@ -131,6 +131,8 @@ export interface AgentStatus {
   lastRead: { at: number; tool: string } | null;
   verifiedAt: number | null;
   detail: string | null;
+  /** DeepSeek Harness only: its desktop app was found. The dsh command alone can come from npm, and Continue opens the app. */
+  appFound?: boolean;
 }
 
 interface McpServer { command: string; args: string[]; env: Record<string, string> }
@@ -437,10 +439,12 @@ export class AgentIntegration {
 
   async status(agent: AgentId, refresh = false): Promise<AgentStatus> {
     const a = ADAPTERS[agent];
-    const cli = await this.cli(agent, refresh);
+    // Looked up first and refreshed once: the dsh command found afterwards reuses the same app lookup.
+    const appFound = agent === 'deepseek-harness' ? await dshAppInstalled(refresh) : undefined;
+    const cli = await this.cli(agent, refresh && appFound === undefined);
     const reads = this.store.agentReads({ client: a.client, limit: 1 });
     const verified = this.store.agentReads({ client: a.client, verifiedOnly: true, limit: 1 })[0];
-    const base: AgentStatus = { agent, name: AGENT_NAMES[agent], billing: AGENT_BILLING[agent], cli, registered: null, outdated: false, outdatedReasons: [], clientHealth: 'unknown', lastRead: reads[0] ? { at: reads[0].at, tool: reads[0].tool } : null, verifiedAt: verified?.at ?? null, detail: null };
+    const base: AgentStatus = { agent, name: AGENT_NAMES[agent], billing: AGENT_BILLING[agent], cli, registered: null, outdated: false, outdatedReasons: [], clientHealth: 'unknown', lastRead: reads[0] ? { at: reads[0].at, tool: reads[0].tool } : null, verifiedAt: verified?.at ?? null, detail: null, ...(appFound === undefined ? {} : { appFound }) };
     if (!cli) return { ...base, registered: false, detail: a.missing ?? `${AGENT_NAMES[agent]} is not installed (the \`${a.bin}\` command was not found).` };
     return { ...base, ...await a.registration(cli) };
   }
