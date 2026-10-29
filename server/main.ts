@@ -346,6 +346,7 @@ route('GET', '/api/state', async () => {
   profile: store.getProfile(),
   live: manager.state(),
   provider,
+  asrDownload: downloader.current,
   autoExplainEpoch: assistant.autoExplainEpoch,
   devMode: DEV || store.getSettings().devMode,
   helperBuilt: !!findAudioHelper(),

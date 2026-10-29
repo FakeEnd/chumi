@@ -8,11 +8,15 @@ import type { AgentId } from '../../shared/agents.ts';
 import type { ActionProgress } from '../../shared/project-work.ts';
 import type { Depth, Effort, Frame, Handoff, Output, Profile, Project, Segment, SessionData, Settings, SpeakerUpdate, WindowInfo } from './types.ts';
 
-export async function loadState(): Promise<void> {
-  const s = await api('/api/state');
+let downloadRevision = 0;
+export async function loadState(signal?: AbortSignal): Promise<void> {
+  const revision = downloadRevision;
+  const s = await api('/api/state', { signal });
+  if (signal?.aborted) return;
   setState({
     loaded: true, settings: s.settings, profile: s.profile, provider: s.provider, live: s.live, liveReceivedAt: Date.now(), partials: s.live?.partials ?? {},
     devMode: s.devMode, helperBuilt: s.helperBuilt, platform: s.platform ?? '', screenToolBuilt: s.screenToolBuilt, hotkey: s.hotkey ?? null, appMode: s.appMode, dataDir: s.dataDir, samples: s.samples ?? [], systemLanguage: s.systemLanguage ?? '',
+    ...(revision === downloadRevision ? { asrDownload: s.asrDownload ?? null } : {}),
   });
   void loadProjects();
   // Reconnected (laptop sleep, server restart): the server doesn't replay missed events, so fetch the open session again.
@@ -105,7 +109,18 @@ export function goHome(): void {
 }
 
 export function connectEvents(): () => void {
-  return subscribe({
+  let closed = false, retryMs = 2000;
+  let retry: ReturnType<typeof setTimeout> | undefined, request: AbortController | undefined;
+  const cancelSync = () => { clearTimeout(retry); retry = undefined; request?.abort(); };
+  const sync = () => {
+    const current = request = new AbortController();
+    void loadState(current.signal).then(() => { if (!current.signal.aborted) retryMs = 2000; }).catch(() => {
+      if (closed || current.signal.aborted) return;
+      retry = setTimeout(sync, retryMs);
+      retryMs = Math.min(retryMs * 2, 30000);
+    });
+  };
+  const unsubscribe = subscribe({
     hello: (d) => setState({ live: d.live, liveReceivedAt: Date.now() }),
     live: (live) => {
       const prev = getState().live;
@@ -140,7 +155,7 @@ export function connectEvents(): () => void {
     provider: (p) => setState({ provider: p }),
     hotkey: (h) => setState({ hotkey: h }),
     'mybot-exported': () => setState((s) => ({ mybotExportRev: s.mybotExportRev + 1 })),
-    'asr-download': (d) => setState({ asrDownload: d }),
+    'asr-download': (d) => { downloadRevision++; setState({ asrDownload: d }); },
     settings: (st: Settings) => setState({ settings: st }),
     profile: (p: Profile) => setState({ profile: p }),
     notice: (n) => { if (n.code === 'capture_restarted') setState((s) => ({ notices: s.notices.filter((x) => x.code !== 'capture_stopped' && x.code !== 'capture_gave_up') })); notify(n.level, n.message, n.code, n.vars); },
@@ -157,9 +172,11 @@ export function connectEvents(): () => void {
     projects: () => void loadProjects(),
     'project-work': () => setState((s) => ({ projectWorkRev: s.projectWorkRev + 1 })),
   }, (ok) => {
-    setState((s) => ({ connected: ok, ...(ok ? { projectWorkRev: s.projectWorkRev + 1 } : {}) }));
-    if (ok) void loadState().catch(() => {});
+    cancelSync();
+    setState({ connected: ok });
+    if (ok && !closed) { bumpSessions(); retryMs = 2000; sync(); }
   });
+  return () => { closed = true; cancelSync(); unsubscribe(); };
 }
 
 const guard = async <T>(p: Promise<T>): Promise<T | undefined> => {

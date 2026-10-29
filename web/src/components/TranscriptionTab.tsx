@@ -39,9 +39,8 @@ export function TranscriptionTab() {
   const [bench, setBench] = useState<{ running: boolean; model?: string; results?: BenchResult[]; error?: string }>({ running: false });
   const busySession = speechSettingsBusy(live);
   const load = () => void api<ModelList>('/api/asr/models').then(setList).catch(() => {});
-  useEffect(load, [settings.asr.model, settings.asr.engine]);
-  useEffect(() => { if (download && download.status !== 'downloading') load(); }, [download?.status]);
-  const dl = download?.status === 'downloading' ? download : list?.download?.status === 'downloading' ? list.download : null;
+  useEffect(load, [settings.asr.model, settings.asr.engine, download?.status]);
+  const dl = download?.status === 'downloading' ? download : null;
   const S = saveSettings;
 
   const runBench = () => {

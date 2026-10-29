@@ -44,9 +44,10 @@ export function Transcript() {
   const playingSeg = useStore((s) => s.playingSeg);
   const isLive = !!data && live?.session?.id === data.session.id;
   const playable = !isLive && !!data?.hasAudio;
-  /** Wheel, touch or keyboard scrolling pauses following the playback for a few seconds. */
+  /** User scrolling pauses following the playback for a few seconds. */
   const userScrollAt = useRef(0);
   const scroller = useRef<HTMLDivElement>(null);
+  const pointerDown = useRef(false);
   // Opened from an evidence link: start at the passage, not at the newest line.
   const [follow, setFollow] = useState(() => !getState().focus);
   /** While a jump to a cited passage is scrolling, scroll events must not switch back to following the end. */
@@ -54,6 +55,8 @@ export function Transcript() {
   const [newCount, setNewCount] = useState(0);
   const [hl, setHl] = useState<Set<number>>(new Set());
   const [toolbar, setToolbar] = useState<null | { x: number; y: number; fromT: number; toT: number; text: string }>(null);
+  const toolbarOpen = useRef(false);
+  toolbarOpen.current = !!toolbar;
   const lastTop = useRef(0);
   const lastCount = useRef(0);
 
@@ -76,17 +79,29 @@ export function Transcript() {
     lastTop.current = el.scrollTop;
   }, []);
 
+  useEffect(() => {
+    const release = () => { pointerDown.current = false; };
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+    window.addEventListener('blur', release);
+    return () => {
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('pointercancel', release);
+      window.removeEventListener('blur', release);
+    };
+  }, []);
+
   // New content: follow when at the live edge, otherwise keep the reading position and count new lines.
   useLayoutEffect(() => {
     const n = data?.segments.length ?? 0;
     const added = n - lastCount.current;
     lastCount.current = n;
-    if (follow) scrollToBottom();
+    if (follow) { if (!pointerDown.current && !toolbarOpen.current) scrollToBottom(); }
     else if (added > 0 && added < 50) setNewCount((c) => c + added);
   }, [data?.segments.length, partials, follow, scrollToBottom]);
 
   useEffect(() => {
-    setNewCount(0); lastCount.current = data?.segments.length ?? 0;
+    setToolbar(null); setNewCount(0); lastCount.current = data?.segments.length ?? 0;
     // Opened from an evidence link: the focus effect scrolls to the passage, so don't jump to the end.
     if (getState().focus) { setFollow(false); return; }
     setFollow(true); requestAnimationFrame(scrollToBottom);
@@ -95,11 +110,12 @@ export function Transcript() {
   const onScroll = () => {
     const el = scroller.current!;
     if (Date.now() < jumpingUntil.current) { lastTop.current = el.scrollTop; return; }
+    // Instant auto-follow already updated lastTop; other movement includes scrollbar drags and autoscroll.
+    if (el.scrollTop !== lastTop.current) userScrollAt.current = Date.now();
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     if (atBottom) { if (!follow) { setFollow(true); setNewCount(0); } }
     else if (el.scrollTop < lastTop.current - 4 && follow) setFollow(false);
     lastTop.current = el.scrollTop;
-    if (toolbar) setToolbar(null);
   };
 
   // Jump to a referenced time (from an AI answer) and highlight the supporting lines.
@@ -122,7 +138,7 @@ export function Transcript() {
   useEffect(() => {
     const host = scroller.current;
     const el = playingSeg != null ? host?.querySelector(`[data-id="${playingSeg}"]`) : null;
-    if (!host || !el || Date.now() - userScrollAt.current < 4000) return;
+    if (!host || !el || pointerDown.current || Date.now() - userScrollAt.current < 4000) return;
     const r = el.getBoundingClientRect(), h = host.getBoundingClientRect();
     if (r.top >= h.top && r.bottom <= h.bottom) return;
     setFollow(false);
@@ -136,14 +152,15 @@ export function Transcript() {
     if (!sel || text.length < 2 || !sel.rangeCount) { setToolbar(null); return; }
     const segOf = (n: Node | null) => (n instanceof Element ? n : n?.parentElement)?.closest('[data-seg]') as HTMLElement | null;
     const a = segOf(sel.anchorNode), b = segOf(sel.focusNode);
-    if (!a || !b || !scroller.current?.contains(a)) { setToolbar(null); return; }
+    if (!a || !b || !scroller.current?.contains(a) || !scroller.current.contains(b)) { setToolbar(null); return; }
     const ts = [a, b].map((e) => Number(e.dataset.t)), te = [a, b].map((e) => Number(e.dataset.tend));
     const rect = sel.getRangeAt(0).getBoundingClientRect();
     const host = scroller.current.getBoundingClientRect();
     setToolbar({ x: Math.min(host.width - 260, Math.max(8, rect.left - host.left)), y: rect.top - host.top + scroller.current.scrollTop - 40, fromT: Math.min(...ts), toT: Math.max(...te), text: text.slice(0, 4000) });
   };
 
-  const returnToLive = () => { setFollow(true); setNewCount(0); scrollToBottom(); };
+  const returnToLive = () => { window.getSelection()?.removeAllRanges(); setToolbar(null); setFollow(true); setNewCount(0); scrollToBottom(); };
+  const userScroll = () => { jumpingUntil.current = 0; userScrollAt.current = Date.now(); };
 
   if (!data) return <div className="transcript empty-state"><p>{t('Start a session or open one from History.')}</p></div>;
 
@@ -151,8 +168,9 @@ export function Transcript() {
     <>
     <SpeakersPanel key={data.session.id} />
     <div className="transcript-wrap">
-      <div className={`transcript${playable ? ' playable' : ''}`} ref={scroller} onScroll={onScroll} onMouseUp={onMouseUp} role="log" aria-live="off" aria-label={t('Transcript')}
-        onWheel={() => { userScrollAt.current = Date.now(); }} onTouchMove={() => { userScrollAt.current = Date.now(); }} onKeyDown={() => { userScrollAt.current = Date.now(); }}>
+      <div className={`transcript${playable ? ' playable' : ''}`} ref={scroller} onScroll={onScroll} onMouseUp={onMouseUp} role="log" aria-live="off" aria-label={t('Transcript')} tabIndex={0}
+        onPointerDown={() => { pointerDown.current = true; jumpingUntil.current = 0; }}
+        onWheel={userScroll} onTouchMove={userScroll} onKeyDown={userScroll}>
         {items.length === 0 && partialList.length === 0 && (
           <p className="empty-state">{isLive ? (live?.status === 'paused' ? t('Paused.') : t('Listening… the transcript appears here a second or two after speech.')) : t('No transcript in this session.')}</p>
         )}
@@ -173,7 +191,7 @@ export function Transcript() {
           <div className="sel-toolbar" style={{ left: toolbar.x, top: Math.max(0, toolbar.y) }} onMouseDown={(e) => e.preventDefault()}>
             <button onClick={() => { explain(toolbar.text.length <= 80 ? toolbar.text : t('the selected passage'), toolbar, defaultDepth); setToolbar(null); window.getSelection()?.removeAllRanges(); }}>{t('Explain')}</button>
             <button onClick={() => { setState({ attached: { fromT: toolbar.fromT, toT: toolbar.toT, text: toolbar.text } }); setToolbar(null); document.getElementById('ask-input')?.focus(); }}>{t('Ask about this…')}</button>
-            <button onClick={() => { void navigator.clipboard?.writeText(`[${fmtT(toolbar.fromT)}] ${toolbar.text}`); setToolbar(null); }}>{t('Copy')}</button>
+            <button onClick={() => { void navigator.clipboard?.writeText(`[${fmtT(toolbar.fromT)}] ${toolbar.text}`); setToolbar(null); window.getSelection()?.removeAllRanges(); }}>{t('Copy')}</button>
           </div>
         )}
       </div>
