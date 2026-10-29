@@ -13,7 +13,8 @@ test('speaker setup skips Python 3.13+, tries the system Python, and explains in
     const bin = join(dir, 'bin'); mkdirSync(bin);
     const python = (name: string, compatible: boolean) => writeFileSync(join(bin, name), `#!/bin/bash\nif [[ $1 == --version ]]; then echo 'Python ${compatible ? '3.12.9' : '3.13.1'}'; else exit ${compatible ? 0 : 1}; fi\n`, { mode: 0o755 });
     for (const name of ['python3.12', 'python3.11', 'python3.10', 'python3.9', 'python3', 'system-python']) python(name, false);
-    const run = (override = '') => spawnSync('/bin/bash', ['-c', `${functions.replace('/usr/bin/python3', `${bin}/system-python`)}\nchoose_speaker_python`], { env: { PATH: bin, CHUMI_SPEAKER_SETUP_PYTHON: override }, encoding: 'utf8' });
+    // Startup files on CI runners re-add Homebrew to PATH (brew shellenv), so skip them and set PATH inside the script too.
+    const run = (override = '') => spawnSync('/bin/bash', ['--noprofile', '--norc', '-c', `PATH='${bin}'; hash -r\n${functions.replace('/usr/bin/python3', `${bin}/system-python`)}\nchoose_speaker_python`], { env: { PATH: bin, HOME: dir, BASH_ENV: '', ENV: '', CHUMI_SPEAKER_SETUP_PYTHON: override }, encoding: 'utf8' });
     let result = run();
     assert.equal(result.status, 1, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
     assert.match(result.stderr, /Python 3.13.1/);
